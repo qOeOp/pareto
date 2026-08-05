@@ -49,6 +49,27 @@ Keep Promptfoo's raw per-trial evidence locally. A committed baseline summary ma
 - trial count, pass rate, mean, median, p95, and variance when repeated observations exist;
 - environment and tool versions needed to reproduce the comparison.
 
+The committed smoke baseline has one exact representation. Its top-level keys are
+`schema_version`, `suite`, `attempted_at`, `candidate`, `case_ids`, `environment`, `cells`, `result`,
+`claims`, and `raw_result_committed`. `candidate` contains only `commit`, `tree`, and
+`skill_sha256`; `environment` contains only `node`, `npm`, `promptfoo`, and `skills_cli`. `case_ids`
+must exactly match the smoke cases, and cells must exactly match the model/effort matrix. Every cell
+contains `provider`, `model`, `reasoning_effort`, `planned_trials`, `completed_trials`,
+`errored_trials`, and `status`, plus the following status-dependent fields:
+
+- `completed`: `quality`, `elapsed_ms`, `input_tokens`, `output_tokens`, `cached_input_tokens`,
+  `reasoning_tokens`, and `cost`; `reason` is
+  forbidden. All planned trials completed without error. `quality` contains only `passed`,
+  `assertion_score`, `rubric_score`, `pass_rate`, `mean`, `median`, `p95`, and `variance`.
+- `unavailable`: `reason` plus `quality`, `elapsed_ms`, `input_tokens`, `output_tokens`,
+  `cached_input_tokens`, `reasoning_tokens`, and `cost`,
+  with every evidence field exactly `unavailable`. All planned trials errored and none completed.
+- `not_run`: the same fields as `unavailable`; no trial completed or errored and every evidence field
+  is exactly `unavailable`.
+
+Unknown, missing, or status-forbidden fields fail validation. `result` is `completed` only when every
+cell completed; otherwise it is `unavailable` and at least one cell must have status `unavailable`.
+
 Never estimate a missing provider field or expose a local absolute path, credential, thread/session
 identifier, private source locator, prompt cache, or raw transcript in a committed baseline.
 

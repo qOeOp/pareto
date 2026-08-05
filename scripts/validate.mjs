@@ -113,18 +113,157 @@ function validateWorkflowFamilies(families) {
   return families.length;
 }
 
-function validateBaseline(baseline) {
+function validateExactKeys(value, expected, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) fail(`${label}: expected an object`);
+  const actual = Object.keys(value).sort();
+  const wanted = [...expected].sort();
+  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
+    fail(`${label}: expected exact fields ${wanted.join(", ")}`);
+  }
+}
+
+function validateNonEmptyString(value, label) {
+  if (typeof value !== "string" || value.trim().length === 0) fail(`${label}: expected a non-empty string`);
+}
+
+function validateNonNegativeNumber(value, label) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    fail(`${label}: expected a finite non-negative number`);
+  }
+}
+
+function validateUnitNumber(value, label) {
+  validateNonNegativeNumber(value, label);
+  if (value > 1) fail(`${label}: expected a number no greater than 1`);
+}
+
+function validateBaseline(baseline, cases, matrix) {
+  const topFields = new Set([
+    "schema_version", "suite", "attempted_at", "candidate", "case_ids", "environment", "cells",
+    "result", "claims", "raw_result_committed",
+  ]);
+  validateExactKeys(baseline, topFields, "smoke baseline");
   if (baseline.schema_version !== 1 || baseline.suite !== "smoke") fail("invalid smoke baseline identity");
-  if (!/^[0-9a-f]{40}$/.test(baseline.candidate?.commit ?? "") ||
-      !/^[0-9a-f]{40}$/.test(baseline.candidate?.tree ?? "")) {
+  if (typeof baseline.attempted_at !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(baseline.attempted_at) ||
+      Number.isNaN(Date.parse(baseline.attempted_at))) {
+    fail("smoke baseline attempted_at must be an ISO timestamp");
+  }
+
+  validateExactKeys(baseline.candidate, new Set(["commit", "tree", "skill_sha256"]), "smoke baseline candidate");
+  if (!/^[0-9a-f]{40}$/.test(baseline.candidate.commit) || !/^[0-9a-f]{40}$/.test(baseline.candidate.tree)) {
     fail("smoke baseline must bind an exact commit and tree");
   }
-  if (!Array.isArray(baseline.cells) || baseline.cells.length === 0) fail("smoke baseline must contain matrix cells");
-  const statuses = new Set(["completed", "unavailable", "not_run"]);
-  for (const cell of baseline.cells) {
-    if (typeof cell.model !== "string" || typeof cell.reasoning_effort !== "string" || !statuses.has(cell.status)) {
-      fail("smoke baseline contains an invalid cell");
+  if (!baseline.candidate.skill_sha256 || typeof baseline.candidate.skill_sha256 !== "object" ||
+      Array.isArray(baseline.candidate.skill_sha256)) {
+    fail("smoke baseline Skill digests: expected an object");
+  }
+  const skillDigests = Object.entries(baseline.candidate.skill_sha256);
+  if (skillDigests.length === 0 || skillDigests.some(([name, digest]) =>
+    !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || !/^[0-9a-f]{64}$/.test(digest))) {
+    fail("smoke baseline must contain named SHA-256 Skill digests");
+  }
+
+  const expectedCaseIds = cases
+    .filter((testCase) => /^\[smoke\]/.test(testCase.description))
+    .map((testCase) => testCase.description);
+  if (!Array.isArray(baseline.case_ids) || baseline.case_ids.length !== expectedCaseIds.length ||
+      baseline.case_ids.some((caseId, index) => caseId !== expectedCaseIds[index])) {
+    fail("smoke baseline case_ids must exactly match the smoke cases");
+  }
+
+  validateExactKeys(baseline.environment, new Set(["node", "npm", "promptfoo", "skills_cli"]),
+    "smoke baseline environment");
+  for (const [name, version] of Object.entries(baseline.environment)) {
+    validateNonEmptyString(version, `smoke baseline environment.${name}`);
+  }
+  if (!Array.isArray(baseline.claims) || baseline.claims.length === 0 ||
+      baseline.claims.some((claim) => typeof claim !== "string" || claim.trim().length === 0)) {
+    fail("smoke baseline claims must be non-empty strings");
+  }
+  if (baseline.raw_result_committed !== false) fail("smoke baseline must not commit raw provider results");
+
+  if (!Array.isArray(baseline.cells) || baseline.cells.length !== matrix.cells.length) {
+    fail("smoke baseline cells must exactly match the model/effort matrix");
+  }
+  const commonFields = [
+    "provider", "model", "reasoning_effort", "planned_trials", "completed_trials", "errored_trials", "status",
+  ];
+  const evidenceFields = [
+    "quality", "elapsed_ms", "input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens", "cost",
+  ];
+  const completedFields = new Set([...commonFields, ...evidenceFields]);
+  const unavailableFields = new Set([...commonFields, "reason", ...evidenceFields]);
+  const plannedTrials = expectedCaseIds.length * matrix.trials_per_cell;
+
+  for (const [index, cell] of baseline.cells.entries()) {
+    const expectedMatrixCell = matrix.cells[index];
+    if (cell.model !== expectedMatrixCell.model || cell.reasoning_effort !== expectedMatrixCell.effort) {
+      fail(`smoke baseline cell ${index}: model/effort must match the matrix`);
     }
+    validateNonEmptyString(cell.provider, `smoke baseline cell ${index}.provider`);
+    if (cell.planned_trials !== plannedTrials || !Number.isInteger(cell.completed_trials) ||
+        !Number.isInteger(cell.errored_trials)) {
+      fail(`smoke baseline cell ${index}: invalid trial counts`);
+    }
+
+    if (cell.status === "completed") {
+      validateExactKeys(cell, completedFields, `smoke baseline completed cell ${index}`);
+      if (cell.completed_trials !== plannedTrials || cell.errored_trials !== 0) {
+        fail(`smoke baseline completed cell ${index}: every planned trial must complete without error`);
+      }
+      validateExactKeys(cell.quality,
+        new Set(["passed", "assertion_score", "rubric_score", "pass_rate", "mean", "median", "p95", "variance"]),
+        `smoke baseline completed cell ${index}.quality`);
+      if (typeof cell.quality.passed !== "boolean") {
+        fail(`smoke baseline completed cell ${index}.quality.passed: expected a boolean`);
+      }
+      for (const field of ["assertion_score", "pass_rate", "mean", "median", "p95"]) {
+        validateUnitNumber(cell.quality[field], `smoke baseline completed cell ${index}.quality.${field}`);
+      }
+      if (cell.quality.rubric_score !== "unavailable") {
+        validateUnitNumber(cell.quality.rubric_score,
+          `smoke baseline completed cell ${index}.quality.rubric_score`);
+      }
+      validateNonNegativeNumber(cell.quality.variance,
+        `smoke baseline completed cell ${index}.quality.variance`);
+      if (cell.quality.passed !== (cell.quality.pass_rate === 1)) {
+        fail(`smoke baseline completed cell ${index}: passed must agree with pass_rate`);
+      }
+      validateNonNegativeNumber(cell.elapsed_ms, `smoke baseline completed cell ${index}.elapsed_ms`);
+      for (const field of ["input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens"]) {
+        if (!Number.isInteger(cell[field]) || cell[field] < 0) {
+          fail(`smoke baseline completed cell ${index}.${field}: expected a non-negative integer`);
+        }
+      }
+      if (cell.cost !== "unavailable") {
+        validateNonNegativeNumber(cell.cost, `smoke baseline completed cell ${index}.cost`);
+      }
+      continue;
+    }
+
+    if (cell.status === "unavailable" || cell.status === "not_run") {
+      validateExactKeys(cell, unavailableFields, `smoke baseline ${cell.status} cell ${index}`);
+      validateNonEmptyString(cell.reason, `smoke baseline ${cell.status} cell ${index}.reason`);
+      const expectedErrors = cell.status === "unavailable" ? plannedTrials : 0;
+      if (cell.completed_trials !== 0 || cell.errored_trials !== expectedErrors) {
+        fail(`smoke baseline ${cell.status} cell ${index}: trial counts contradict status`);
+      }
+      for (const field of evidenceFields) {
+        if (cell[field] !== "unavailable") {
+          fail(`smoke baseline ${cell.status} cell ${index}.${field}: expected unavailable`);
+        }
+      }
+      continue;
+    }
+    fail(`smoke baseline cell ${index}: invalid status`);
+  }
+
+  const allCompleted = baseline.cells.every((cell) => cell.status === "completed");
+  const hasUnavailable = baseline.cells.some((cell) => cell.status === "unavailable");
+  if ((allCompleted && baseline.result !== "completed") ||
+      (!allCompleted && (!hasUnavailable || baseline.result !== "unavailable"))) {
+    fail("smoke baseline result contradicts cell statuses");
   }
 }
 
@@ -162,10 +301,10 @@ const cases = parseYaml(await readFile(path.join(root, "evals/cases/cases.yaml")
 const caseCount = validatePromptfooCases(cases);
 const families = JSON.parse(await readFile(path.join(root, "evals/cases/workflow-families.json"), "utf8"));
 const familyCount = validateWorkflowFamilies(families);
-const baseline = JSON.parse(await readFile(path.join(root, "evals/baselines/2026-08-06-smoke.json"), "utf8"));
-validateBaseline(baseline);
 const matrix = JSON.parse(await readFile(path.join(root, "evals/matrix.json"), "utf8"));
 validateMatrix(matrix);
+const baseline = JSON.parse(await readFile(path.join(root, "evals/baselines/2026-08-06-smoke.json"), "utf8"));
+validateBaseline(baseline, cases, matrix);
 await scanPublicEvidence([
   "README.md",
   "evals/CONTRACT.md",

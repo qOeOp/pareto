@@ -13,8 +13,8 @@ const execFileAsync = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "skill-eval-self-test-"));
 
-async function expectReject(action, pattern) {
-  await assert.rejects(action, pattern);
+async function expectReject(action, pattern, message) {
+  await assert.rejects(action, pattern, message);
 }
 
 try {
@@ -110,7 +110,67 @@ try {
   });
   assert.match(crlfValidation.stdout, /Validated 2 skills/);
 
-  console.log("Evaluation contract self-test passed.");
+  const baselinePath = path.join(crlfFixture, "evals", "baselines", "2026-08-06-smoke.json");
+  const baseline = JSON.parse(await readFile(baselinePath, "utf8"));
+  const completedCell = (matrixCell) => ({
+    provider: "synthetic-provider",
+    model: matrixCell.model,
+    reasoning_effort: matrixCell.effort,
+    planned_trials: 2,
+    completed_trials: 2,
+    errored_trials: 0,
+    status: "completed",
+    quality: {
+      passed: true,
+      assertion_score: 1,
+      rubric_score: "unavailable",
+      pass_rate: 1,
+      mean: 1,
+      median: 1,
+      p95: 1,
+      variance: 0,
+    },
+    elapsed_ms: 1,
+    input_tokens: 1,
+    output_tokens: 1,
+    cached_input_tokens: 0,
+    reasoning_tokens: 0,
+    cost: 0,
+  });
+  const matrix = JSON.parse(await readFile(path.join(crlfFixture, "evals", "matrix.json"), "utf8"));
+  const completedBaseline = {
+    ...baseline,
+    cells: matrix.cells.map(completedCell),
+    result: "completed",
+  };
+  delete completedBaseline.cells[0].cost;
+
+  const malformedBaselines = [
+    ["completed required field", completedBaseline, /completed cell 0: expected exact fields/],
+    ["unavailable forbidden field", {
+      ...baseline,
+      cells: baseline.cells.map((cell, index) => index === 0 ? { ...cell, unexpected: true } : cell),
+    }, /unavailable cell 0: expected exact fields/],
+    ["not_run status consistency", {
+      ...baseline,
+      cells: baseline.cells.map((cell, index) => index === 1 ? { ...cell, errored_trials: 1 } : cell),
+    }, /not_run cell 1: trial counts contradict status/],
+    ["required environment", (() => {
+      const fixture = { ...baseline };
+      delete fixture.environment;
+      return fixture;
+    })(), /expected exact fields/],
+  ];
+  for (const [name, malformedBaseline, pattern] of malformedBaselines) {
+    await writeFile(baselinePath, `${JSON.stringify(malformedBaseline, null, 2)}\n`, "utf8");
+    await expectReject(
+      () => execFileAsync(process.execPath, [path.join(crlfFixture, "scripts", "validate.mjs")], { encoding: "utf8" }),
+      pattern,
+      name,
+    );
+  }
+
+  console.log("Evaluation contract self-test passed; 4 malformed baseline fixtures were rejected.");
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
 }
