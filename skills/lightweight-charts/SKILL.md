@@ -70,16 +70,15 @@ Detailed documentation in `references/`:
 
 | File | Content |
 |------|---------|
-| `data_structures.md` | Data format specifications |
-| `api_reference.md` | Complete API documentation |
-| `series_types.md` | Series configuration options |
-| `chart_basics.md` | Chart setup and options |
-| `time_scale.md` | Time scale configuration |
-| `price_scale.md` | Price scale configuration |
-| `customization.md` | Styling and theming |
-| `tutorials.md` | How-to guides |
-| `frameworks.md` | React/Vue/Angular integration |
-| `plugins.md` | Custom series and primitives |
+| [`data_structures.md`](references/data_structures.md) | Data format specifications |
+| [`api_reference.md`](references/api_reference.md) | Complete API documentation |
+| [`series_types.md`](references/series_types.md) | Series configuration options |
+| [`chart_basics.md`](references/chart_basics.md) | Chart setup and options |
+| [`time_scale.md`](references/time_scale.md) | Time scale configuration |
+| [`price_scale.md`](references/price_scale.md) | Price scale configuration |
+| [`customization.md`](references/customization.md) | Styling and theming |
+| [`tutorials.md`](references/tutorials.md) | How-to guides |
+| [`frameworks.md`](references/frameworks.md) | React/Vue/Angular integration |
 
 ## Common Patterns
 

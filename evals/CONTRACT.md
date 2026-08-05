@@ -14,8 +14,9 @@ locators, business repositories, credentials, and provider receipts remain exter
 
 - `smoke`: one positive Skill route and one near-miss negative control, one trial each.
 - `full`: smoke plus public maintained regressions, two trials each.
-- `holdout`: cases excluded from normal tuning, three trials each, run only after the candidate and
-  matrix are frozen.
+- `holdout`: cases excluded from normal tuning, three trials each. The runner requires a clean Git
+  commit, binds the exact commit, tree, `skills/` tree, and matrix digest into Promptfoo output, and
+  rejects identity drift before accepting the result.
 
 Changing a Skill, case, rubric, provider configuration, model, effort, permission, tool surface, or
 environment invalidates only results that consume the changed input. A holdout result is never reused

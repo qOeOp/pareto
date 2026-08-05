@@ -51,7 +51,8 @@ No quality, usage, cost, or effort comparison is claimed from that receipt.
 
 - `smoke` proves the runner, Skill discovery, one positive task, and one near-miss negative control.
 - `full` adds maintained public regression cases and repeats trials.
-- `holdout` is excluded from normal tuning and runs only against a frozen release candidate.
+- `holdout` is excluded from normal tuning and runs only from a clean, committed candidate; its
+  output binds the exact commit, tree, `skills/` tree, and matrix digest and rejects drift.
 - `matrix` changes only the declared model/reasoning-effort cell and records provider-reported usage.
 
 See [the evaluation contract](evals/CONTRACT.md) for thresholds, evidence fields, holdout rules, and

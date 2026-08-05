@@ -9,7 +9,7 @@
   },
   "scripts": {
     "audit:consumer": "npm audit --omit=dev",
-    "check": "node scripts/validate.mjs && promptfoo validate -c evals/promptfooconfig.yaml",
+    "check": "node scripts/validate.mjs && node scripts/self-test.mjs && promptfoo validate -c evals/promptfooconfig.yaml",
     "eval:smoke": "node scripts/eval.mjs smoke",
     "eval:full": "node scripts/eval.mjs full",
     "eval:holdout": "node scripts/eval.mjs holdout",

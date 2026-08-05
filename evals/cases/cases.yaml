@@ -23,7 +23,7 @@
       value: SKILL-EVAL-NEGATIVE-CONTROL
     - type: skill-used
       value:
-        pattern: ".*"
+        pattern: "*"
         max: 0
 
 - description: "[full] lightweight-charts incremental update"
