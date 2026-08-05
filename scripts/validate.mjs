@@ -113,6 +113,21 @@ function validateWorkflowFamilies(families) {
   return families.length;
 }
 
+function validateBaseline(baseline) {
+  if (baseline.schema_version !== 1 || baseline.suite !== "smoke") fail("invalid smoke baseline identity");
+  if (!/^[0-9a-f]{40}$/.test(baseline.candidate?.commit ?? "") ||
+      !/^[0-9a-f]{40}$/.test(baseline.candidate?.tree ?? "")) {
+    fail("smoke baseline must bind an exact commit and tree");
+  }
+  if (!Array.isArray(baseline.cells) || baseline.cells.length === 0) fail("smoke baseline must contain matrix cells");
+  const statuses = new Set(["completed", "unavailable", "not_run"]);
+  for (const cell of baseline.cells) {
+    if (typeof cell.model !== "string" || typeof cell.reasoning_effort !== "string" || !statuses.has(cell.status)) {
+      fail("smoke baseline contains an invalid cell");
+    }
+  }
+}
+
 async function scanPublicEvidence(files) {
   for (const relative of files) {
     const source = await readFile(path.join(root, relative), "utf8");
@@ -131,9 +146,12 @@ const cases = parseYaml(await readFile(path.join(root, "evals/cases/cases.yaml")
 const caseCount = validatePromptfooCases(cases);
 const families = JSON.parse(await readFile(path.join(root, "evals/cases/workflow-families.json"), "utf8"));
 const familyCount = validateWorkflowFamilies(families);
+const baseline = JSON.parse(await readFile(path.join(root, "evals/baselines/2026-08-06-smoke.json"), "utf8"));
+validateBaseline(baseline);
 await scanPublicEvidence([
   "README.md",
   "evals/CONTRACT.md",
+  "evals/baselines/2026-08-06-smoke.json",
   "evals/cases/cases.yaml",
   "evals/cases/workflow-families.json",
   "evals/matrix.json",

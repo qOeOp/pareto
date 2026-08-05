@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "suite": "smoke",
+  "attempted_at": "2026-08-06T02:59:46+08:00",
+  "candidate": {
+    "commit": "e4a06dcf6a31cd9f3f3b9aedbbbd0362f8af21df",
+    "tree": "6c9469fb4384378f4f84493cecb8dacc444e640c",
+    "skill_sha256": {
+      "lightweight-charts": "449d866c0291010ea2365aa5c8e93fde05af43bf924d9675be852f19609db259",
+      "midscene-visual-testing": "a4ae81d8111a0f3ca4991db7f66c41c3659c3265575f9f76558aad535ccdbc2d"
+    }
+  },
+  "environment": {
+    "node": "26.5.0",
+    "npm": "11.17.0",
+    "promptfoo": "0.122.0",
+    "skills_cli": "1.5.22"
+  },
+  "cells": [
+    {
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "low",
+      "planned_trials": 2,
+      "completed_trials": 0,
+      "errored_trials": 2,
+      "status": "unavailable",
+      "reason": "provider_credit_unavailable",
+      "quality": "unavailable",
+      "elapsed_ms": "unavailable",
+      "input_tokens": "unavailable",
+      "output_tokens": "unavailable",
+      "cached_input_tokens": "unavailable",
+      "reasoning_tokens": "unavailable",
+      "cost": "unavailable"
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "medium",
+      "planned_trials": 2,
+      "completed_trials": 0,
+      "errored_trials": 0,
+      "status": "not_run",
+      "reason": "matrix_stopped_after_low_cell_provider_failure",
+      "quality": "unavailable",
+      "elapsed_ms": "unavailable",
+      "input_tokens": "unavailable",
+      "output_tokens": "unavailable",
+      "cached_input_tokens": "unavailable",
+      "reasoning_tokens": "unavailable",
+      "cost": "unavailable"
+    }
+  ],
+  "result": "unavailable",
+  "claims": [
+    "Promptfoo loaded the versioned configuration and invoked the Codex SDK provider.",
+    "No model output, quality score, token usage, cost, or effort comparison was produced."
+  ],
+  "raw_result_committed": false
+}

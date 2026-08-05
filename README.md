@@ -44,6 +44,11 @@ read-only filesystem sandbox, network disabled, approvals disabled, and a fresh 
 They require a working Codex login or an explicitly supplied provider credential. Raw results are
 local ignored artifacts; only reviewed, sanitized summaries may become baselines.
 
+The first bounded provider probe is recorded as an honest
+[`unavailable` baseline](evals/baselines/2026-08-06-smoke.json): the runner reached the Codex SDK,
+but the provider rejected both low-effort trials before inference because credits were unavailable.
+No quality, usage, cost, or effort comparison is claimed from that receipt.
+
 - `smoke` proves the runner, Skill discovery, one positive task, and one near-miss negative control.
 - `full` adds maintained public regression cases and repeats trials.
 - `holdout` is excluded from normal tuning and runs only against a frozen release candidate.
