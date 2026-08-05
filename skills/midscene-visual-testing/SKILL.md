@@ -1,6 +1,6 @@
 ---
 name: midscene-visual-testing
-description: AI-powered UI automation and visual testing using MidScene.js v1.0+. Use this skill when: (1) Writing AI-driven UI tests with natural language, (2) Automating web browsers with Playwright/Puppeteer/Bridge mode, (3) Automating Android devices via adb, (4) Automating iOS devices via WebDriverAgent, (5) Creating YAML-based automation scripts, (6) Configuring VL models (Qwen3-VL, Doubao, Gemini-3, UI-TARS) for visual testing, (7) Using MCP server for AI agent integration. Supports environment variable configuration for API keys and model settings read from user's environment.
+description: "AI-powered UI automation and visual testing using MidScene.js v1.0+. Use this skill when: (1) Writing AI-driven UI tests with natural language, (2) Automating web browsers with Playwright/Puppeteer/Bridge mode, (3) Automating Android devices via adb, (4) Automating iOS devices via WebDriverAgent, (5) Creating YAML-based automation scripts, (6) Configuring VL models (Qwen3-VL, Doubao, Gemini-3, UI-TARS) for visual testing, (7) Using MCP server for AI agent integration. Supports environment variable configuration for API keys and model settings read from user's environment."
 ---
 
 # MidScene.js Visual Testing Skill

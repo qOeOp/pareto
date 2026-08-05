@@ -1,0 +1,117 @@
+- description: "[smoke] explicit lightweight-charts v5 route"
+  vars:
+    prompt: >-
+      Explicitly use $lightweight-charts. Return only a minimal JavaScript snippet that creates a
+      candlestick series with the current v5 API and sets one data point.
+  assert:
+    - type: skill-used
+      value: lightweight-charts
+    - type: contains
+      value: createChart
+    - type: contains
+      value: CandlestickSeries
+    - type: contains
+      value: addSeries
+    - type: not-contains
+      value: addCandlestickSeries
+
+- description: "[smoke] near-miss negative control"
+  vars:
+    prompt: "Return only SKILL-EVAL-NEGATIVE-CONTROL. Do not read or use any Skill."
+  assert:
+    - type: equals
+      value: SKILL-EVAL-NEGATIVE-CONTROL
+    - type: javascript
+      value: "(context.metadata?.skillCalls ?? []).length === 0"
+
+- description: "[full] lightweight-charts incremental update"
+  vars:
+    prompt: >-
+      Use $lightweight-charts to show the smallest current-API JavaScript example that appends one
+      real-time candlestick after initial data has been set. Return code and one short explanation.
+  assert:
+    - type: skill-used
+      value: lightweight-charts
+    - type: contains
+      value: .update(
+    - type: llm-rubric
+      value: >-
+        The answer uses the current addSeries(CandlestickSeries) API, distinguishes initial setData
+        from incremental update, and does not invent an unsupported API.
+
+- description: "[full] midscene required environment contract"
+  vars:
+    prompt: >-
+      Use $midscene-visual-testing. List only the four required environment variable names for the
+      default visual model configuration. Do not include example credential values.
+  assert:
+    - type: skill-used
+      value: midscene-visual-testing
+    - type: contains-all
+      value:
+        - MIDSCENE_MODEL_BASE_URL
+        - MIDSCENE_MODEL_API_KEY
+        - MIDSCENE_MODEL_NAME
+        - MIDSCENE_MODEL_FAMILY
+    - type: not-regex
+      value: "(?i)(sk-[a-z0-9]{8,}|api[_-]?key\\s*[=:]\\s*[^<\\s]+)"
+
+- description: "[full] midscene targeted action choice"
+  vars:
+    prompt: >-
+      Use $midscene-visual-testing. A test already knows it must click a unique submit button. Choose
+      the narrowest MidScene method and explain the performance reason in two sentences or fewer.
+  assert:
+    - type: skill-used
+      value: midscene-visual-testing
+    - type: contains
+      value: aiTap
+    - type: llm-rubric
+      value: >-
+        The answer prefers the targeted instant action over broad auto-planning because the action
+        type is already known, without claiming deterministic success.
+
+- description: "[full] neighboring plain Playwright task"
+  vars:
+    prompt: >-
+      In plain Playwright, show one locator assertion that checks a button named Save is visible.
+      Do not use AI-driven visual automation.
+  assert:
+    - type: contains
+      value: getByRole
+    - type: javascript
+      value: "!(context.metadata?.skillCalls ?? []).some((call) => call.name === 'midscene-visual-testing')"
+
+- description: "[holdout] lightweight-charts deprecated API rejection"
+  vars:
+    prompt: >-
+      Use $lightweight-charts to create a histogram series with the current API. Return only code;
+      avoid removed convenience methods from earlier major versions.
+  assert:
+    - type: skill-used
+      value: lightweight-charts
+    - type: contains-all
+      value:
+        - HistogramSeries
+        - addSeries
+    - type: not-contains
+      value: addHistogramSeries
+
+- description: "[holdout] midscene credential-safe configuration"
+  vars:
+    prompt: >-
+      Use $midscene-visual-testing to provide a shell template for the required default model
+      variables. Use obvious placeholders and never invent a credential.
+  assert:
+    - type: skill-used
+      value: midscene-visual-testing
+    - type: contains-all
+      value:
+        - MIDSCENE_MODEL_BASE_URL
+        - MIDSCENE_MODEL_API_KEY
+        - MIDSCENE_MODEL_NAME
+        - MIDSCENE_MODEL_FAMILY
+    - type: llm-rubric
+      value: >-
+        Every credential or endpoint value is visibly a placeholder, no plausible secret is present,
+        and the answer does not claim that environment variables are an authorization boundary.
