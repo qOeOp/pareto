@@ -8,6 +8,12 @@
     "skill_sha256": {
       "lightweight-charts": "449d866c0291010ea2365aa5c8e93fde05af43bf924d9675be852f19609db259",
       "midscene-visual-testing": "a4ae81d8111a0f3ca4991db7f66c41c3659c3265575f9f76558aad535ccdbc2d"
+    },
+    "promptfoo_config": {
+      "path": "evals/promptfooconfig.yaml",
+      "blob_oid": "ea01277c70b58081fc76ff2d74d5bfed935b494f",
+      "sha256": "56daaa8ceb1c0fb37172d883e749cb696738fd2aea498df3534d47e60007b6a5",
+      "provider": "openai:codex-sdk"
     }
   },
   "case_ids": [

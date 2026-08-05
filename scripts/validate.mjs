@@ -244,13 +244,61 @@ function gitText(args, label) {
   return gitBytes(args, label).toString("utf8").trim();
 }
 
-function validateBaselineProvenance(candidate) {
+function gitIsAncestor(ancestor, descendant) {
+  try {
+    execFileSync("git", ["merge-base", "--is-ancestor", ancestor, descendant], {
+      cwd: root,
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function validateBaselineProvenance(candidate, attemptedAt) {
   if (gitText(["cat-file", "-t", candidate.commit], "smoke baseline candidate commit") !== "commit") {
     fail("smoke baseline candidate must resolve to a commit");
+  }
+  if (!gitIsAncestor(candidate.commit, "HEAD")) {
+    fail("smoke baseline candidate commit must be an ancestor of the current HEAD");
+  }
+  const candidateTime = Number(gitText(["show", "-s", "--format=%ct", candidate.commit],
+    "smoke baseline candidate time"));
+  if (!Number.isInteger(candidateTime) || candidateTime * 1000 > Date.parse(attemptedAt)) {
+    fail("smoke baseline candidate commit time must not be later than attempted_at");
   }
   const historicalTree = gitText(["show", "-s", "--format=%T", candidate.commit],
     "smoke baseline candidate tree");
   if (historicalTree !== candidate.tree) fail("smoke baseline candidate tree does not match its commit");
+
+  const config = candidate.promptfoo_config;
+  const historicalConfigOid = gitText(["rev-parse", `${candidate.commit}:${config.path}`],
+    "smoke baseline historical Promptfoo config");
+  if (historicalConfigOid !== config.blob_oid) {
+    fail("smoke baseline Promptfoo config blob does not match the historical candidate");
+  }
+  const historicalConfigBytes = gitBytes(["cat-file", "blob", historicalConfigOid],
+    "smoke baseline historical Promptfoo config blob");
+  const historicalConfigDigest = createHash("sha256").update(historicalConfigBytes).digest("hex");
+  if (historicalConfigDigest !== config.sha256) {
+    fail("smoke baseline Promptfoo config digest does not match the historical blob");
+  }
+  let historicalPromptfooConfig;
+  try {
+    historicalPromptfooConfig = parseYaml(historicalConfigBytes.toString("utf8"));
+  } catch {
+    fail("smoke baseline historical Promptfoo config must be valid YAML");
+  }
+  if (!Array.isArray(historicalPromptfooConfig?.providers) || historicalPromptfooConfig.providers.length !== 1 ||
+      typeof historicalPromptfooConfig.providers[0]?.id !== "string" ||
+      historicalPromptfooConfig.providers[0].id.length === 0) {
+    fail("smoke baseline historical Promptfoo config must declare exactly one provider");
+  }
+  const historicalProvider = historicalPromptfooConfig.providers[0].id;
+  if (historicalProvider !== config.provider) {
+    fail("smoke baseline Promptfoo provider does not match the historical config blob");
+  }
 
   const historicalSkillNames = gitText(["ls-tree", "-r", "--name-only", `${candidate.commit}:skills`],
     "smoke baseline historical Skills")
@@ -271,9 +319,10 @@ function validateBaselineProvenance(candidate) {
       fail(`smoke baseline Skill digest does not match historical ${name}/SKILL.md`);
     }
   }
+  return historicalProvider;
 }
 
-function validateBaseline(baseline, cases, matrix, canonicalProvider) {
+function validateBaseline(baseline, cases, matrix) {
   const topFields = new Set([
     "schema_version", "suite", "attempted_at", "candidate", "case_ids", "environment", "cells",
     "result", "claims", "raw_result_committed",
@@ -286,7 +335,8 @@ function validateBaseline(baseline, cases, matrix, canonicalProvider) {
     fail("smoke baseline attempted_at must be an ISO timestamp");
   }
 
-  validateExactKeys(baseline.candidate, new Set(["commit", "tree", "skill_sha256"]), "smoke baseline candidate");
+  validateExactKeys(baseline.candidate,
+    new Set(["commit", "tree", "skill_sha256", "promptfoo_config"]), "smoke baseline candidate");
   if (!/^[0-9a-f]{40}$/.test(baseline.candidate.commit) || !/^[0-9a-f]{40}$/.test(baseline.candidate.tree)) {
     fail("smoke baseline must bind an exact commit and tree");
   }
@@ -299,7 +349,16 @@ function validateBaseline(baseline, cases, matrix, canonicalProvider) {
     !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || !/^[0-9a-f]{64}$/.test(digest))) {
     fail("smoke baseline must contain named SHA-256 Skill digests");
   }
-  validateBaselineProvenance(baseline.candidate);
+  validateExactKeys(baseline.candidate.promptfoo_config,
+    new Set(["path", "blob_oid", "sha256", "provider"]), "smoke baseline Promptfoo config");
+  if (baseline.candidate.promptfoo_config.path !== "evals/promptfooconfig.yaml" ||
+      !/^[0-9a-f]{40}$/.test(baseline.candidate.promptfoo_config.blob_oid) ||
+      !/^[0-9a-f]{64}$/.test(baseline.candidate.promptfoo_config.sha256)) {
+    fail("smoke baseline must bind the exact historical Promptfoo config path, blob, and SHA-256 digest");
+  }
+  validateNonEmptyString(baseline.candidate.promptfoo_config.provider,
+    "smoke baseline Promptfoo config provider");
+  const historicalProvider = validateBaselineProvenance(baseline.candidate, baseline.attempted_at);
 
   const expectedCaseIds = cases
     .filter((testCase) => /^\[smoke\]/.test(testCase.description))
@@ -338,8 +397,8 @@ function validateBaseline(baseline, cases, matrix, canonicalProvider) {
     if (cell.model !== expectedMatrixCell.model || cell.reasoning_effort !== expectedMatrixCell.effort) {
       fail(`smoke baseline cell ${index}: model/effort must match the matrix`);
     }
-    if (cell.provider !== canonicalProvider) {
-      fail(`smoke baseline cell ${index}.provider must match the canonical Promptfoo provider`);
+    if (cell.provider !== historicalProvider) {
+      fail(`smoke baseline cell ${index}.provider must match the historical Promptfoo provider`);
     }
     if (cell.planned_trials !== plannedTrials || !Number.isInteger(cell.completed_trials) ||
         !Number.isInteger(cell.errored_trials)) {
@@ -468,15 +527,10 @@ const families = JSON.parse(await readFile(path.join(root, "evals/cases/workflow
 const familyCount = validateWorkflowFamilies(families);
 const matrix = JSON.parse(await readFile(path.join(root, "evals/matrix.json"), "utf8"));
 validateMatrix(matrix);
-const promptfooConfig = parseYaml(await readFile(path.join(root, "evals/promptfooconfig.yaml"), "utf8"));
-if (!Array.isArray(promptfooConfig?.providers) || promptfooConfig.providers.length !== 1 ||
-    typeof promptfooConfig.providers[0]?.id !== "string" || promptfooConfig.providers[0].id.length === 0) {
-  fail("Promptfoo configuration must declare exactly one canonical provider");
-}
 const baselineSource = await readFile(path.join(root, "evals/baselines/2026-08-06-smoke.json"), "utf8");
 rejectDuplicateJsonObjectMembers(baselineSource, "smoke baseline");
 const baseline = JSON.parse(baselineSource);
-validateBaseline(baseline, cases, matrix, promptfooConfig.providers[0].id);
+validateBaseline(baseline, cases, matrix);
 await scanPublicEvidence([
   "README.md",
   "evals/CONTRACT.md",

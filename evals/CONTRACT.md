@@ -51,11 +51,13 @@ Keep Promptfoo's raw per-trial evidence locally. A committed baseline summary ma
 
 The committed smoke baseline has one exact representation. Its top-level keys are
 `schema_version`, `suite`, `attempted_at`, `candidate`, `case_ids`, `environment`, `cells`, `result`,
-`claims`, and `raw_result_committed`. `candidate` contains only `commit`, `tree`, and
-`skill_sha256`; `environment` contains only `node`, `npm`, `promptfoo`, and `skills_cli`. `case_ids`
-must exactly match the smoke cases, and cells must exactly match the model/effort matrix. Every cell
-contains `provider`, `model`, `reasoning_effort`, `planned_trials`, `completed_trials`,
-`errored_trials`, and `status`, plus the following status-dependent fields:
+`claims`, and `raw_result_committed`. `candidate` contains only `commit`, `tree`, `skill_sha256`, and
+`promptfoo_config`. `promptfoo_config` contains only the historical repo-relative `path`, Git
+`blob_oid`, raw-byte `sha256`, and sole parsed `provider`; `environment` contains only `node`, `npm`,
+`promptfoo`, and `skills_cli`. `case_ids` must exactly match the smoke cases, and cells must exactly
+match the model/effort matrix. Every cell contains `provider`, `model`, `reasoning_effort`,
+`planned_trials`, `completed_trials`, `errored_trials`, and `status`, plus the following
+status-dependent fields:
 
 - `completed`: `quality`, `elapsed_ms`, `input_tokens`, `output_tokens`, `cached_input_tokens`,
   `reasoning_tokens`, and `cost`; `reason` is
@@ -73,9 +75,15 @@ contains `provider`, `model`, `reasoning_effort`, `planned_trials`, `completed_t
 Unknown, missing, or status-forbidden fields fail validation. `result` is `completed` only when every
 cell completed; otherwise it is `unavailable` and at least one cell must have status `unavailable`.
 Duplicate raw JSON object members fail before normalization. Every cell provider must equal the sole
-provider in `promptfooconfig.yaml`. The recorded historical candidate must exist in the repository,
-resolve to the recorded tree, expose exactly the recorded Skill names, and reproduce every recorded
-`SKILL.md` SHA-256 digest.
+provider parsed from the recorded historical Promptfoo blob, not the mutable working-tree config.
+The recorded historical candidate must exist in the current repository history, resolve to the
+recorded tree, predate or equal `attempted_at`, expose exactly the recorded Skill names, reproduce
+every recorded `SKILL.md` SHA-256 digest, and expose the recorded config path as the recorded blob and
+raw-byte digest.
+
+Static repository validation proves referential and causal consistency among committed Git objects
+and the baseline representation. It does not prove that the provider actually ran, provide
+tamper-proof external attestation, or make the repository history an immutable service.
 
 Never estimate a missing provider field or expose a local absolute path, credential, thread/session
 identifier, private source locator, prompt cache, or raw transcript in a committed baseline.

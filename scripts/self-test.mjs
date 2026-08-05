@@ -165,10 +165,10 @@ try {
       delete fixture.environment;
       return fixture;
     })(), /expected exact fields/],
-    ["canonical provider provenance", {
+    ["historical provider provenance", {
       ...baseline,
       cells: baseline.cells.map((cell, index) => index === 0 ? { ...cell, provider: "other-provider" } : cell),
-    }, /must match the canonical Promptfoo provider/],
+    }, /must match the historical Promptfoo provider/],
     ["historical candidate commit provenance", {
       ...baseline,
       candidate: { ...baseline.candidate, commit: "0".repeat(40) },
@@ -184,6 +184,35 @@ try {
         skill_sha256: { ...baseline.candidate.skill_sha256, "lightweight-charts": "0".repeat(64) },
       },
     }, /Skill digest does not match historical lightweight-charts/],
+    ["historical Promptfoo config blob provenance", {
+      ...baseline,
+      candidate: {
+        ...baseline.candidate,
+        promptfoo_config: { ...baseline.candidate.promptfoo_config, blob_oid: "0".repeat(40) },
+      },
+    }, /Promptfoo config blob does not match the historical candidate/],
+    ["historical Promptfoo config digest provenance", {
+      ...baseline,
+      candidate: {
+        ...baseline.candidate,
+        promptfoo_config: { ...baseline.candidate.promptfoo_config, sha256: "0".repeat(64) },
+      },
+    }, /Promptfoo config digest does not match the historical blob/],
+    ["historical Promptfoo config provider provenance", {
+      ...baseline,
+      candidate: {
+        ...baseline.candidate,
+        promptfoo_config: { ...baseline.candidate.promptfoo_config, provider: "other-provider" },
+      },
+    }, /Promptfoo provider does not match the historical config blob/],
+    ["later candidate causal provenance", {
+      ...baseline,
+      candidate: {
+        ...baseline.candidate,
+        commit: "15a77265dd6db7f749fa3bbb77db6a28fba5437e",
+        tree: "c0e6ca162e295e92a3c6a38fb3f81e5b1771b4b8",
+      },
+    }, /candidate commit time must not be later than attempted_at/],
     ["completed trial denominator", (() => {
       const fixture = structuredClone(validCompletedBaseline);
       fixture.cells[0].quality.passed = false;
@@ -225,6 +254,21 @@ try {
     );
   }
 
+  const currentConfigPath = path.join(crlfFixture, "evals", "promptfooconfig.yaml");
+  const currentConfig = await readFile(currentConfigPath, "utf8");
+  const currentRewriteBaseline = {
+    ...baseline,
+    cells: baseline.cells.map((cell) => ({ ...cell, provider: "other-provider" })),
+  };
+  await writeFile(currentConfigPath, currentConfig.replace("openai:codex-sdk", "other-provider"), "utf8");
+  await writeFile(baselinePath, `${JSON.stringify(currentRewriteBaseline, null, 2)}\n`, "utf8");
+  await expectReject(
+    () => execFileAsync(process.execPath, [path.join(crlfFixture, "scripts", "validate.mjs")], { encoding: "utf8" }),
+    /must match the historical Promptfoo provider/,
+    "current config and provider rewrite",
+  );
+  await writeFile(currentConfigPath, currentConfig, "utf8");
+
   const rawBaseline = `${JSON.stringify(baseline, null, 2)}\n`;
   const duplicateMembers = [
     ["duplicate top-level result", rawBaseline.replace(
@@ -245,7 +289,7 @@ try {
     );
   }
 
-  const malformedCount = malformedBaselines.length + duplicateMembers.length;
+  const malformedCount = malformedBaselines.length + duplicateMembers.length + 1;
   console.log(`Evaluation contract self-test passed; ${malformedCount} malformed baseline fixtures were rejected.`);
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
