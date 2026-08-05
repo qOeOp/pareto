@@ -88,6 +88,7 @@ try {
   await expectReject(() => readHoldoutIdentity(repository), /clean tracked and untracked worktree/);
 
   const crlfFixture = path.join(temporaryRoot, "crlf-fixture");
+  await execFileAsync("git", ["clone", "--quiet", "--shared", root, crlfFixture]);
   await cp(root, crlfFixture, {
     recursive: true,
     filter: (source) => {
@@ -113,7 +114,7 @@ try {
   const baselinePath = path.join(crlfFixture, "evals", "baselines", "2026-08-06-smoke.json");
   const baseline = JSON.parse(await readFile(baselinePath, "utf8"));
   const completedCell = (matrixCell) => ({
-    provider: "synthetic-provider",
+    provider: "openai:codex-sdk",
     model: matrixCell.model,
     reasoning_effort: matrixCell.effort,
     planned_trials: 2,
@@ -122,6 +123,9 @@ try {
     status: "completed",
     quality: {
       passed: true,
+      passed_trials: 2,
+      total_assertions: 2,
+      passed_assertions: 2,
       assertion_score: 1,
       rubric_score: "unavailable",
       pass_rate: 1,
@@ -138,11 +142,12 @@ try {
     cost: 0,
   });
   const matrix = JSON.parse(await readFile(path.join(crlfFixture, "evals", "matrix.json"), "utf8"));
-  const completedBaseline = {
+  const validCompletedBaseline = {
     ...baseline,
     cells: matrix.cells.map(completedCell),
     result: "completed",
   };
+  const completedBaseline = structuredClone(validCompletedBaseline);
   delete completedBaseline.cells[0].cost;
 
   const malformedBaselines = [
@@ -160,6 +165,56 @@ try {
       delete fixture.environment;
       return fixture;
     })(), /expected exact fields/],
+    ["canonical provider provenance", {
+      ...baseline,
+      cells: baseline.cells.map((cell, index) => index === 0 ? { ...cell, provider: "other-provider" } : cell),
+    }, /must match the canonical Promptfoo provider/],
+    ["historical candidate commit provenance", {
+      ...baseline,
+      candidate: { ...baseline.candidate, commit: "0".repeat(40) },
+    }, /candidate commit: Git object is unavailable/],
+    ["historical candidate tree provenance", {
+      ...baseline,
+      candidate: { ...baseline.candidate, tree: "0".repeat(40) },
+    }, /candidate tree does not match its commit/],
+    ["historical Skill digest provenance", {
+      ...baseline,
+      candidate: {
+        ...baseline.candidate,
+        skill_sha256: { ...baseline.candidate.skill_sha256, "lightweight-charts": "0".repeat(64) },
+      },
+    }, /Skill digest does not match historical lightweight-charts/],
+    ["completed trial denominator", (() => {
+      const fixture = structuredClone(validCompletedBaseline);
+      fixture.cells[0].quality.passed = false;
+      fixture.cells[0].quality.passed_trials = 1;
+      fixture.cells[0].quality.pass_rate = 0.3;
+      fixture.cells[0].quality.assertion_score = 0.5;
+      return fixture;
+    })(), /pass_rate contradicts trial counts/],
+    ["completed assertion pass coherence", (() => {
+      const fixture = structuredClone(validCompletedBaseline);
+      fixture.cells[0].quality.passed = false;
+      fixture.cells[0].quality.passed_trials = 1;
+      fixture.cells[0].quality.pass_rate = 0.5;
+      fixture.cells[0].quality.assertion_score = 1;
+      return fixture;
+    })(), /assertion and pass evidence contradict trial counts/],
+    ["completed assertion denominator", (() => {
+      const fixture = structuredClone(validCompletedBaseline);
+      fixture.cells[0].quality.passed = false;
+      fixture.cells[0].quality.passed_trials = 1;
+      fixture.cells[0].quality.pass_rate = 0.5;
+      fixture.cells[0].quality.passed_assertions = 1;
+      fixture.cells[0].quality.assertion_score = 0.3;
+      return fixture;
+    })(), /assertion_score contradicts assertion counts/],
+    ["completed percentile ordering", (() => {
+      const fixture = structuredClone(validCompletedBaseline);
+      fixture.cells[0].quality.median = 1;
+      fixture.cells[0].quality.p95 = 0;
+      return fixture;
+    })(), /median must not exceed p95/],
   ];
   for (const [name, malformedBaseline, pattern] of malformedBaselines) {
     await writeFile(baselinePath, `${JSON.stringify(malformedBaseline, null, 2)}\n`, "utf8");
@@ -170,7 +225,28 @@ try {
     );
   }
 
-  console.log("Evaluation contract self-test passed; 4 malformed baseline fixtures were rejected.");
+  const rawBaseline = `${JSON.stringify(baseline, null, 2)}\n`;
+  const duplicateMembers = [
+    ["duplicate top-level result", rawBaseline.replace(
+      '  "result": "unavailable",',
+      '  "result": "completed",\n  "result": "unavailable",',
+    ), /duplicate JSON object member result/],
+    ["duplicate nested evidence", rawBaseline.replace(
+      '      "input_tokens": "unavailable",',
+      '      "input_tokens": 1,\n      "input_tokens": "unavailable",',
+    ), /duplicate JSON object member input_tokens/],
+  ];
+  for (const [name, rawFixture, pattern] of duplicateMembers) {
+    await writeFile(baselinePath, rawFixture, "utf8");
+    await expectReject(
+      () => execFileAsync(process.execPath, [path.join(crlfFixture, "scripts", "validate.mjs")], { encoding: "utf8" }),
+      pattern,
+      name,
+    );
+  }
+
+  const malformedCount = malformedBaselines.length + duplicateMembers.length;
+  console.log(`Evaluation contract self-test passed; ${malformedCount} malformed baseline fixtures were rejected.`);
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
 }

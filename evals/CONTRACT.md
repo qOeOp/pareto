@@ -60,7 +60,10 @@ contains `provider`, `model`, `reasoning_effort`, `planned_trials`, `completed_t
 - `completed`: `quality`, `elapsed_ms`, `input_tokens`, `output_tokens`, `cached_input_tokens`,
   `reasoning_tokens`, and `cost`; `reason` is
   forbidden. All planned trials completed without error. `quality` contains only `passed`,
-  `assertion_score`, `rubric_score`, `pass_rate`, `mean`, `median`, `p95`, and `variance`.
+  `passed_trials`, `total_assertions`, `passed_assertions`, `assertion_score`, `rubric_score`,
+  `pass_rate`, `mean`, `median`, `p95`, and `variance`. Trial counts determine `pass_rate`; assertion
+  counts determine `assertion_score`; `passed` means every trial and assertion passed; and
+  `median <= p95`.
 - `unavailable`: `reason` plus `quality`, `elapsed_ms`, `input_tokens`, `output_tokens`,
   `cached_input_tokens`, `reasoning_tokens`, and `cost`,
   with every evidence field exactly `unavailable`. All planned trials errored and none completed.
@@ -69,6 +72,10 @@ contains `provider`, `model`, `reasoning_effort`, `planned_trials`, `completed_t
 
 Unknown, missing, or status-forbidden fields fail validation. `result` is `completed` only when every
 cell completed; otherwise it is `unavailable` and at least one cell must have status `unavailable`.
+Duplicate raw JSON object members fail before normalization. Every cell provider must equal the sole
+provider in `promptfooconfig.yaml`. The recorded historical candidate must exist in the repository,
+resolve to the recorded tree, expose exactly the recorded Skill names, and reproduce every recorded
+`SKILL.md` SHA-256 digest.
 
 Never estimate a missing provider field or expose a local absolute path, credential, thread/session
 identifier, private source locator, prompt cache, or raw transcript in a committed baseline.

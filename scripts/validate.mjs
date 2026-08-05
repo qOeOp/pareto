@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -137,7 +139,141 @@ function validateUnitNumber(value, label) {
   if (value > 1) fail(`${label}: expected a number no greater than 1`);
 }
 
-function validateBaseline(baseline, cases, matrix) {
+function rejectDuplicateJsonObjectMembers(source, label) {
+  let index = 0;
+
+  function skipWhitespace() {
+    while (/\s/.test(source[index] ?? "")) index += 1;
+  }
+
+  function readString() {
+    const start = index;
+    if (source[index] !== '"') fail(`${label}: expected a JSON string at byte ${index}`);
+    index += 1;
+    while (index < source.length) {
+      if (source[index] === "\\") {
+        index += 2;
+        continue;
+      }
+      if (source[index] === '"') {
+        index += 1;
+        try {
+          return JSON.parse(source.slice(start, index));
+        } catch {
+          fail(`${label}: invalid JSON string at byte ${start}`);
+        }
+      }
+      index += 1;
+    }
+    fail(`${label}: unterminated JSON string at byte ${start}`);
+  }
+
+  function readValue() {
+    skipWhitespace();
+    if (source[index] === "{") return readObject();
+    if (source[index] === "[") return readArray();
+    if (source[index] === '"') {
+      readString();
+      return;
+    }
+    const start = index;
+    while (index < source.length && !/[\s,\]}]/.test(source[index])) index += 1;
+    if (index === start) fail(`${label}: expected a JSON value at byte ${index}`);
+  }
+
+  function readObject() {
+    index += 1;
+    const members = new Set();
+    skipWhitespace();
+    if (source[index] === "}") {
+      index += 1;
+      return;
+    }
+    while (index < source.length) {
+      skipWhitespace();
+      const member = readString();
+      if (members.has(member)) fail(`${label}: duplicate JSON object member ${member}`);
+      members.add(member);
+      skipWhitespace();
+      if (source[index] !== ":") fail(`${label}: expected : after object member ${member}`);
+      index += 1;
+      readValue();
+      skipWhitespace();
+      if (source[index] === "}") {
+        index += 1;
+        return;
+      }
+      if (source[index] !== ",") fail(`${label}: expected , after object member ${member}`);
+      index += 1;
+    }
+    fail(`${label}: unterminated JSON object`);
+  }
+
+  function readArray() {
+    index += 1;
+    skipWhitespace();
+    if (source[index] === "]") {
+      index += 1;
+      return;
+    }
+    while (index < source.length) {
+      readValue();
+      skipWhitespace();
+      if (source[index] === "]") {
+        index += 1;
+        return;
+      }
+      if (source[index] !== ",") fail(`${label}: expected , in JSON array`);
+      index += 1;
+    }
+    fail(`${label}: unterminated JSON array`);
+  }
+
+  readValue();
+}
+
+function gitBytes(args, label) {
+  try {
+    return execFileSync("git", args, { cwd: root, encoding: "buffer", maxBuffer: 16 * 1024 * 1024 });
+  } catch {
+    fail(`${label}: Git object is unavailable`);
+  }
+}
+
+function gitText(args, label) {
+  return gitBytes(args, label).toString("utf8").trim();
+}
+
+function validateBaselineProvenance(candidate) {
+  if (gitText(["cat-file", "-t", candidate.commit], "smoke baseline candidate commit") !== "commit") {
+    fail("smoke baseline candidate must resolve to a commit");
+  }
+  const historicalTree = gitText(["show", "-s", "--format=%T", candidate.commit],
+    "smoke baseline candidate tree");
+  if (historicalTree !== candidate.tree) fail("smoke baseline candidate tree does not match its commit");
+
+  const historicalSkillNames = gitText(["ls-tree", "-r", "--name-only", `${candidate.commit}:skills`],
+    "smoke baseline historical Skills")
+    .split("\n")
+    .filter((name) => /^[^/]+\/SKILL\.md$/.test(name))
+    .map((name) => name.slice(0, -"/SKILL.md".length))
+    .sort();
+  const declaredSkillNames = Object.keys(candidate.skill_sha256).sort();
+  if (historicalSkillNames.length !== declaredSkillNames.length ||
+      historicalSkillNames.some((name, position) => name !== declaredSkillNames[position])) {
+    fail("smoke baseline Skill digest names do not match the historical candidate");
+  }
+  for (const name of declaredSkillNames) {
+    const bytes = gitBytes(["cat-file", "blob", `${candidate.commit}:skills/${name}/SKILL.md`],
+      `smoke baseline historical Skill ${name}`);
+    const digest = createHash("sha256").update(bytes).digest("hex");
+    if (digest !== candidate.skill_sha256[name]) {
+      fail(`smoke baseline Skill digest does not match historical ${name}/SKILL.md`);
+    }
+  }
+}
+
+function validateBaseline(baseline, cases, matrix, canonicalProvider) {
   const topFields = new Set([
     "schema_version", "suite", "attempted_at", "candidate", "case_ids", "environment", "cells",
     "result", "claims", "raw_result_committed",
@@ -163,6 +299,7 @@ function validateBaseline(baseline, cases, matrix) {
     !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || !/^[0-9a-f]{64}$/.test(digest))) {
     fail("smoke baseline must contain named SHA-256 Skill digests");
   }
+  validateBaselineProvenance(baseline.candidate);
 
   const expectedCaseIds = cases
     .filter((testCase) => /^\[smoke\]/.test(testCase.description))
@@ -201,7 +338,9 @@ function validateBaseline(baseline, cases, matrix) {
     if (cell.model !== expectedMatrixCell.model || cell.reasoning_effort !== expectedMatrixCell.effort) {
       fail(`smoke baseline cell ${index}: model/effort must match the matrix`);
     }
-    validateNonEmptyString(cell.provider, `smoke baseline cell ${index}.provider`);
+    if (cell.provider !== canonicalProvider) {
+      fail(`smoke baseline cell ${index}.provider must match the canonical Promptfoo provider`);
+    }
     if (cell.planned_trials !== plannedTrials || !Number.isInteger(cell.completed_trials) ||
         !Number.isInteger(cell.errored_trials)) {
       fail(`smoke baseline cell ${index}: invalid trial counts`);
@@ -213,7 +352,10 @@ function validateBaseline(baseline, cases, matrix) {
         fail(`smoke baseline completed cell ${index}: every planned trial must complete without error`);
       }
       validateExactKeys(cell.quality,
-        new Set(["passed", "assertion_score", "rubric_score", "pass_rate", "mean", "median", "p95", "variance"]),
+        new Set([
+          "passed", "passed_trials", "total_assertions", "passed_assertions", "assertion_score", "rubric_score",
+          "pass_rate", "mean", "median", "p95", "variance",
+        ]),
         `smoke baseline completed cell ${index}.quality`);
       if (typeof cell.quality.passed !== "boolean") {
         fail(`smoke baseline completed cell ${index}.quality.passed: expected a boolean`);
@@ -227,8 +369,31 @@ function validateBaseline(baseline, cases, matrix) {
       }
       validateNonNegativeNumber(cell.quality.variance,
         `smoke baseline completed cell ${index}.quality.variance`);
-      if (cell.quality.passed !== (cell.quality.pass_rate === 1)) {
-        fail(`smoke baseline completed cell ${index}: passed must agree with pass_rate`);
+      if (cell.quality.variance > 0.25) {
+        fail(`smoke baseline completed cell ${index}.quality.variance: expected a number no greater than 0.25`);
+      }
+      if (!Number.isInteger(cell.quality.passed_trials) || cell.quality.passed_trials < 0 ||
+          cell.quality.passed_trials > cell.completed_trials) {
+        fail(`smoke baseline completed cell ${index}.quality.passed_trials: invalid pass count`);
+      }
+      if (cell.quality.pass_rate !== cell.quality.passed_trials / cell.completed_trials) {
+        fail(`smoke baseline completed cell ${index}: pass_rate contradicts trial counts`);
+      }
+      if (!Number.isInteger(cell.quality.total_assertions) || cell.quality.total_assertions < 1 ||
+          !Number.isInteger(cell.quality.passed_assertions) || cell.quality.passed_assertions < 0 ||
+          cell.quality.passed_assertions > cell.quality.total_assertions) {
+        fail(`smoke baseline completed cell ${index}: invalid assertion counts`);
+      }
+      if (cell.quality.assertion_score !== cell.quality.passed_assertions / cell.quality.total_assertions) {
+        fail(`smoke baseline completed cell ${index}: assertion_score contradicts assertion counts`);
+      }
+      const allTrialsPassed = cell.quality.passed_trials === cell.completed_trials;
+      const allAssertionsPassed = cell.quality.passed_assertions === cell.quality.total_assertions;
+      if (cell.quality.passed !== allTrialsPassed || allTrialsPassed !== allAssertionsPassed) {
+        fail(`smoke baseline completed cell ${index}: assertion and pass evidence contradict trial counts`);
+      }
+      if (cell.quality.median > cell.quality.p95) {
+        fail(`smoke baseline completed cell ${index}: median must not exceed p95`);
       }
       validateNonNegativeNumber(cell.elapsed_ms, `smoke baseline completed cell ${index}.elapsed_ms`);
       for (const field of ["input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens"]) {
@@ -303,8 +468,15 @@ const families = JSON.parse(await readFile(path.join(root, "evals/cases/workflow
 const familyCount = validateWorkflowFamilies(families);
 const matrix = JSON.parse(await readFile(path.join(root, "evals/matrix.json"), "utf8"));
 validateMatrix(matrix);
-const baseline = JSON.parse(await readFile(path.join(root, "evals/baselines/2026-08-06-smoke.json"), "utf8"));
-validateBaseline(baseline, cases, matrix);
+const promptfooConfig = parseYaml(await readFile(path.join(root, "evals/promptfooconfig.yaml"), "utf8"));
+if (!Array.isArray(promptfooConfig?.providers) || promptfooConfig.providers.length !== 1 ||
+    typeof promptfooConfig.providers[0]?.id !== "string" || promptfooConfig.providers[0].id.length === 0) {
+  fail("Promptfoo configuration must declare exactly one canonical provider");
+}
+const baselineSource = await readFile(path.join(root, "evals/baselines/2026-08-06-smoke.json"), "utf8");
+rejectDuplicateJsonObjectMembers(baselineSource, "smoke baseline");
+const baseline = JSON.parse(baselineSource);
+validateBaseline(baseline, cases, matrix, promptfooConfig.providers[0].id);
 await scanPublicEvidence([
   "README.md",
   "evals/CONTRACT.md",
