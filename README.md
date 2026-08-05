@@ -31,7 +31,7 @@ Node.js 22.22 or newer is required for repository development. Skill consumers d
 development dependencies.
 
 ```bash
-npm ci
+npm ci --ignore-scripts
 npm run check
 npm run eval:smoke
 npm run eval:full
@@ -76,6 +76,8 @@ model selection, telemetry, hooks, and persistent state remain consumer-specific
 
 - Treat Skill scripts, Promptfoo configuration, providers, assertions, and fixtures as code with the
   invoking user's permissions; they are not a sandbox boundary.
+- Evaluation dependencies are development-only and may carry transitive advisories. Bootstrap with
+  lifecycle scripts disabled, review `npm audit`, and do not expose the evaluator to untrusted input.
 - Never commit credentials, private transcripts, private task locators, incident text, or business
   repositories to public cases.
 - Run dynamic evaluations with least-privileged credentials and restricted egress.

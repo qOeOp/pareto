@@ -8,6 +8,7 @@
     "node": ">=22.22.0"
   },
   "scripts": {
+    "audit:consumer": "npm audit --omit=dev",
     "check": "node scripts/validate.mjs && promptfoo validate -c evals/promptfooconfig.yaml",
     "eval:smoke": "node scripts/eval.mjs smoke",
     "eval:full": "node scripts/eval.mjs full",
