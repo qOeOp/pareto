@@ -128,6 +128,22 @@ function validateBaseline(baseline) {
   }
 }
 
+function validateMatrix(matrix) {
+  if (matrix.schema_version !== 1 || matrix.suite !== "smoke" ||
+      !Number.isInteger(matrix.trials_per_cell) || matrix.trials_per_cell < 1) {
+    fail("invalid model/effort matrix identity");
+  }
+  if (!Array.isArray(matrix.cells) || matrix.cells.length === 0) fail("model/effort matrix must contain cells");
+  const allowedEfforts = new Set(["minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
+  const identities = new Set();
+  for (const cell of matrix.cells) {
+    if (typeof cell.model !== "string" || !allowedEfforts.has(cell.effort)) fail("model/effort matrix contains an invalid cell");
+    const identity = `${cell.model}/${cell.effort}`;
+    if (identities.has(identity)) fail(`duplicate model/effort matrix cell: ${identity}`);
+    identities.add(identity);
+  }
+}
+
 async function scanPublicEvidence(files) {
   for (const relative of files) {
     const source = await readFile(path.join(root, relative), "utf8");
@@ -148,6 +164,8 @@ const families = JSON.parse(await readFile(path.join(root, "evals/cases/workflow
 const familyCount = validateWorkflowFamilies(families);
 const baseline = JSON.parse(await readFile(path.join(root, "evals/baselines/2026-08-06-smoke.json"), "utf8"));
 validateBaseline(baseline);
+const matrix = JSON.parse(await readFile(path.join(root, "evals/matrix.json"), "utf8"));
+validateMatrix(matrix);
 await scanPublicEvidence([
   "README.md",
   "evals/CONTRACT.md",

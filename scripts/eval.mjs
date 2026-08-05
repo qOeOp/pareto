@@ -2,7 +2,7 @@ import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -44,7 +44,7 @@ try {
   await cp(path.join(root, "skills"), skillTarget, { recursive: true });
   await writeFile(path.join(workspace, "README.md"), "Disposable read-only Skill evaluation workspace.\n", "utf8");
   const gitCode = await run("git", ["init", "--quiet"], { cwd: workspace });
-  if (gitCode !== 0) process.exit(gitCode);
+  if (gitCode !== 0) throw new Error(`git init failed with exit ${gitCode}`);
   await mkdir(resultsDir, { recursive: true });
   const config = parseYaml(await readFile(path.join(root, "evals", "promptfooconfig.yaml"), "utf8"));
   const provider = config.providers[0];
@@ -52,7 +52,7 @@ try {
   provider.config.model = model;
   provider.config.model_reasoning_effort = effort;
   provider.config.working_dir = workspace;
-  config.tests = `file://${path.join(root, "evals", "cases", "cases.yaml")}`;
+  config.tests = pathToFileURL(path.join(root, "evals", "cases", "cases.yaml")).href;
   await writeFile(configPath, stringifyYaml(config), "utf8");
 
   const code = await run(promptfoo, [

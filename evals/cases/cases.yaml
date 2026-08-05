@@ -21,8 +21,10 @@
   assert:
     - type: equals
       value: SKILL-EVAL-NEGATIVE-CONTROL
-    - type: javascript
-      value: "(context.metadata?.skillCalls ?? []).length === 0"
+    - type: skill-used
+      value:
+        pattern: ".*"
+        max: 0
 
 - description: "[full] lightweight-charts incremental update"
   vars:
@@ -79,8 +81,8 @@
   assert:
     - type: contains
       value: getByRole
-    - type: javascript
-      value: "!(context.metadata?.skillCalls ?? []).some((call) => call.name === 'midscene-visual-testing')"
+    - type: not-skill-used
+      value: midscene-visual-testing
 
 - description: "[holdout] lightweight-charts deprecated API rejection"
   vars:
