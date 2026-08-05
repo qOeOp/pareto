@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -86,6 +86,29 @@ try {
   assert.match(identity.matrix_sha256, /^[0-9a-f]{64}$/);
   await writeFile(path.join(repository, "dirty.txt"), "dirty\n", "utf8");
   await expectReject(() => readHoldoutIdentity(repository), /clean tracked and untracked worktree/);
+
+  const crlfFixture = path.join(temporaryRoot, "crlf-fixture");
+  await cp(root, crlfFixture, {
+    recursive: true,
+    filter: (source) => {
+      const relative = path.relative(root, source);
+      return relative !== ".git" && !relative.startsWith(`.git${path.sep}`) &&
+        relative !== "node_modules" && !relative.startsWith(`node_modules${path.sep}`) &&
+        relative !== path.join("evals", "results") && !relative.startsWith(`${path.join("evals", "results")}${path.sep}`);
+    },
+  });
+  await symlink(
+    path.join(root, "node_modules"),
+    path.join(crlfFixture, "node_modules"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  const crlfSkillPath = path.join(crlfFixture, "skills", "lightweight-charts", "SKILL.md");
+  const crlfSkill = (await readFile(crlfSkillPath, "utf8")).replace(/\r?\n/g, "\r\n");
+  await writeFile(crlfSkillPath, crlfSkill, "utf8");
+  const crlfValidation = await execFileAsync(process.execPath, [path.join(crlfFixture, "scripts", "validate.mjs")], {
+    encoding: "utf8",
+  });
+  assert.match(crlfValidation.stdout, /Validated 2 skills/);
 
   console.log("Evaluation contract self-test passed.");
 } finally {

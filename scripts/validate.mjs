@@ -21,7 +21,7 @@ function fail(message) {
 }
 
 function splitFrontmatter(source, file) {
-  const match = source.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+  const match = source.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/);
   if (!match) fail(`${file}: expected YAML frontmatter bounded by ---`);
   return { metadata: parseYaml(match[1]), body: match[2] };
 }
@@ -62,7 +62,7 @@ async function validateSkills() {
       fail(`${file}: description must be a non-empty string`);
     }
     if (metadata.description.length > 1024) fail(`${file}: description exceeds 1024 characters`);
-    if (body.split("\n").length > 500) {
+    if (body.split(/\r?\n/).length > 500) {
       warnings.push(`${path.relative(root, file)} exceeds the recommended 500-line authoring target`);
     }
     await validateLinks(body, skillDir, file);
