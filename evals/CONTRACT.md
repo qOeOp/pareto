@@ -49,9 +49,12 @@ Keep Promptfoo's raw per-trial evidence locally. A committed baseline summary ma
 - trial count, pass rate, mean, median, p95, and variance when repeated observations exist;
 - environment and tool versions needed to reproduce the comparison.
 
+Repository acceptance reads Promptfoo result artifacts as raw JSON and rejects duplicate object
+members before normalization; exit zero never authorizes a last-wins representation.
+
 The committed smoke baseline has one exact representation. Its top-level keys are
 `schema_version`, `suite`, `attempted_at`, `candidate`, `case_ids`, `environment`, `cells`, `result`,
-`claims`, and `raw_result_committed`. `candidate` contains only `commit`, `tree`, `skill_sha256`, and
+and `raw_result_committed`. `candidate` contains only `commit`, `tree`, `skill_sha256`, and
 `promptfoo_config`. `promptfoo_config` contains only the historical repo-relative `path`, Git
 `blob_oid`, raw-byte `sha256`, and sole parsed `provider`; `environment` contains only `node`, `npm`,
 `promptfoo`, and `skills_cli`. `case_ids` must exactly match the smoke cases, and cells must exactly
@@ -64,8 +67,9 @@ status-dependent fields:
   forbidden. All planned trials completed without error. `quality` contains only `passed`,
   `passed_trials`, `total_assertions`, `passed_assertions`, `assertion_score`, `rubric_score`,
   `pass_rate`, `mean`, `median`, `p95`, and `variance`. Trial counts determine `pass_rate`; assertion
-  counts determine `assertion_score`; `passed` means every trial and assertion passed; and
-  `median <= p95`.
+  counts determine `assertion_score`; `total_assertions` equals the sum of assertions in every
+  selected smoke case multiplied by `trials_per_cell`; `passed` means every trial and assertion
+  passed; and `median <= p95`.
 - `unavailable`: `reason` plus `quality`, `elapsed_ms`, `input_tokens`, `output_tokens`,
   `cached_input_tokens`, `reasoning_tokens`, and `cost`,
   with every evidence field exactly `unavailable`. All planned trials errored and none completed.

@@ -41,7 +41,7 @@ try {
     success: true,
     testCase: { description },
   }));
-  await writeFile(resultPath, JSON.stringify({
+  const validResultArtifact = {
     results: {
       results: { results: rows },
       stats: { successes: rows.length, failures: 0, errors: 0 },
@@ -51,7 +51,8 @@ try {
       metadata: {},
     },
     runtimeOptions: { repeat: 1 },
-  }), "utf8");
+  };
+  await writeFile(resultPath, JSON.stringify(validResultArtifact), "utf8");
   await validateResultArtifact({
     resultPath,
     suite: "smoke",
@@ -68,6 +69,18 @@ try {
     model: "synthetic-model",
     effort: "low",
   }), /ENOENT/);
+  await writeFile(resultPath, JSON.stringify(validResultArtifact).replace(
+    '"success":true',
+    '"success":false,"success":true',
+  ), "utf8");
+  await expectReject(() => validateResultArtifact({
+    resultPath,
+    suite: "smoke",
+    repeat: 1,
+    cases,
+    model: "synthetic-model",
+    effort: "low",
+  }), /duplicate JSON object member success/, "duplicate Promptfoo result member");
 
   const repository = path.join(temporaryRoot, "repository");
   await mkdir(path.join(repository, "skills", "example"), { recursive: true });
@@ -113,6 +126,10 @@ try {
 
   const baselinePath = path.join(crlfFixture, "evals", "baselines", "2026-08-06-smoke.json");
   const baseline = JSON.parse(await readFile(baselinePath, "utf8"));
+  const matrix = JSON.parse(await readFile(path.join(crlfFixture, "evals", "matrix.json"), "utf8"));
+  const smokeCases = cases.filter((testCase) => /^\[smoke\]/.test(testCase.description));
+  const expectedAssertions = smokeCases.reduce((total, testCase) => total + testCase.assert.length, 0) *
+    matrix.trials_per_cell;
   const completedCell = (matrixCell) => ({
     provider: "openai:codex-sdk",
     model: matrixCell.model,
@@ -124,8 +141,8 @@ try {
     quality: {
       passed: true,
       passed_trials: 2,
-      total_assertions: 2,
-      passed_assertions: 2,
+      total_assertions: expectedAssertions,
+      passed_assertions: expectedAssertions,
       assertion_score: 1,
       rubric_score: "unavailable",
       pass_rate: 1,
@@ -141,7 +158,6 @@ try {
     reasoning_tokens: 0,
     cost: 0,
   });
-  const matrix = JSON.parse(await readFile(path.join(crlfFixture, "evals", "matrix.json"), "utf8"));
   const validCompletedBaseline = {
     ...baseline,
     cells: matrix.cells.map(completedCell),
@@ -149,6 +165,13 @@ try {
   };
   const completedBaseline = structuredClone(validCompletedBaseline);
   delete completedBaseline.cells[0].cost;
+  await writeFile(baselinePath, `${JSON.stringify(validCompletedBaseline, null, 2)}\n`, "utf8");
+  const completedValidation = await execFileAsync(
+    process.execPath,
+    [path.join(crlfFixture, "scripts", "validate.mjs")],
+    { encoding: "utf8" },
+  );
+  assert.match(completedValidation.stdout, /Validated 2 skills/);
 
   const malformedBaselines = [
     ["completed required field", completedBaseline, /completed cell 0: expected exact fields/],
@@ -165,6 +188,10 @@ try {
       delete fixture.environment;
       return fixture;
     })(), /expected exact fields/],
+    ["undeclared claims", {
+      ...baseline,
+      claims: ["Provider ran successfully."],
+    }, /expected exact fields/],
     ["historical provider provenance", {
       ...baseline,
       cells: baseline.cells.map((cell, index) => index === 0 ? { ...cell, provider: "other-provider" } : cell),
@@ -238,6 +265,12 @@ try {
       fixture.cells[0].quality.assertion_score = 0.3;
       return fixture;
     })(), /assertion_score contradicts assertion counts/],
+    ["completed assertion inventory", (() => {
+      const fixture = structuredClone(validCompletedBaseline);
+      fixture.cells[0].quality.total_assertions = 2;
+      fixture.cells[0].quality.passed_assertions = 2;
+      return fixture;
+    })(), /total_assertions must match the smoke assertion inventory/],
     ["completed percentile ordering", (() => {
       const fixture = structuredClone(validCompletedBaseline);
       fixture.cells[0].quality.median = 1;

@@ -6,6 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const patterns = {
@@ -77,9 +78,11 @@ export async function validateResultArtifact({
 }) {
   const info = await lstat(resultPath);
   if (!info.isFile()) throw new Error("Promptfoo output must be a regular JSON file");
+  const source = await readFile(resultPath, "utf8");
+  rejectDuplicateJsonObjectMembers(source, "Promptfoo output");
   let artifact;
   try {
-    artifact = JSON.parse(await readFile(resultPath, "utf8"));
+    artifact = JSON.parse(source);
   } catch {
     throw new Error("Promptfoo output must be parseable JSON");
   }

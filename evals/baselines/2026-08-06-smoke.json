@@ -63,9 +63,5 @@
     }
   ],
   "result": "unavailable",
-  "claims": [
-    "Promptfoo loaded the versioned configuration and invoked the Codex SDK provider.",
-    "No model output, quality score, token usage, cost, or effort comparison was produced."
-  ],
   "raw_result_committed": false
 }

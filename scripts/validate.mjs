@@ -4,6 +4,7 @@ import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
+import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const skillRoot = path.join(root, "skills");
@@ -139,99 +140,6 @@ function validateUnitNumber(value, label) {
   if (value > 1) fail(`${label}: expected a number no greater than 1`);
 }
 
-function rejectDuplicateJsonObjectMembers(source, label) {
-  let index = 0;
-
-  function skipWhitespace() {
-    while (/\s/.test(source[index] ?? "")) index += 1;
-  }
-
-  function readString() {
-    const start = index;
-    if (source[index] !== '"') fail(`${label}: expected a JSON string at byte ${index}`);
-    index += 1;
-    while (index < source.length) {
-      if (source[index] === "\\") {
-        index += 2;
-        continue;
-      }
-      if (source[index] === '"') {
-        index += 1;
-        try {
-          return JSON.parse(source.slice(start, index));
-        } catch {
-          fail(`${label}: invalid JSON string at byte ${start}`);
-        }
-      }
-      index += 1;
-    }
-    fail(`${label}: unterminated JSON string at byte ${start}`);
-  }
-
-  function readValue() {
-    skipWhitespace();
-    if (source[index] === "{") return readObject();
-    if (source[index] === "[") return readArray();
-    if (source[index] === '"') {
-      readString();
-      return;
-    }
-    const start = index;
-    while (index < source.length && !/[\s,\]}]/.test(source[index])) index += 1;
-    if (index === start) fail(`${label}: expected a JSON value at byte ${index}`);
-  }
-
-  function readObject() {
-    index += 1;
-    const members = new Set();
-    skipWhitespace();
-    if (source[index] === "}") {
-      index += 1;
-      return;
-    }
-    while (index < source.length) {
-      skipWhitespace();
-      const member = readString();
-      if (members.has(member)) fail(`${label}: duplicate JSON object member ${member}`);
-      members.add(member);
-      skipWhitespace();
-      if (source[index] !== ":") fail(`${label}: expected : after object member ${member}`);
-      index += 1;
-      readValue();
-      skipWhitespace();
-      if (source[index] === "}") {
-        index += 1;
-        return;
-      }
-      if (source[index] !== ",") fail(`${label}: expected , after object member ${member}`);
-      index += 1;
-    }
-    fail(`${label}: unterminated JSON object`);
-  }
-
-  function readArray() {
-    index += 1;
-    skipWhitespace();
-    if (source[index] === "]") {
-      index += 1;
-      return;
-    }
-    while (index < source.length) {
-      readValue();
-      skipWhitespace();
-      if (source[index] === "]") {
-        index += 1;
-        return;
-      }
-      if (source[index] !== ",") fail(`${label}: expected , in JSON array`);
-      index += 1;
-    }
-    fail(`${label}: unterminated JSON array`);
-  }
-
-  readValue();
-}
-
 function gitBytes(args, label) {
   try {
     return execFileSync("git", args, { cwd: root, encoding: "buffer", maxBuffer: 16 * 1024 * 1024 });
@@ -325,7 +233,7 @@ function validateBaselineProvenance(candidate, attemptedAt) {
 function validateBaseline(baseline, cases, matrix) {
   const topFields = new Set([
     "schema_version", "suite", "attempted_at", "candidate", "case_ids", "environment", "cells",
-    "result", "claims", "raw_result_committed",
+    "result", "raw_result_committed",
   ]);
   validateExactKeys(baseline, topFields, "smoke baseline");
   if (baseline.schema_version !== 1 || baseline.suite !== "smoke") fail("invalid smoke baseline identity");
@@ -360,9 +268,8 @@ function validateBaseline(baseline, cases, matrix) {
     "smoke baseline Promptfoo config provider");
   const historicalProvider = validateBaselineProvenance(baseline.candidate, baseline.attempted_at);
 
-  const expectedCaseIds = cases
-    .filter((testCase) => /^\[smoke\]/.test(testCase.description))
-    .map((testCase) => testCase.description);
+  const smokeCases = cases.filter((testCase) => /^\[smoke\]/.test(testCase.description));
+  const expectedCaseIds = smokeCases.map((testCase) => testCase.description);
   if (!Array.isArray(baseline.case_ids) || baseline.case_ids.length !== expectedCaseIds.length ||
       baseline.case_ids.some((caseId, index) => caseId !== expectedCaseIds[index])) {
     fail("smoke baseline case_ids must exactly match the smoke cases");
@@ -372,10 +279,6 @@ function validateBaseline(baseline, cases, matrix) {
     "smoke baseline environment");
   for (const [name, version] of Object.entries(baseline.environment)) {
     validateNonEmptyString(version, `smoke baseline environment.${name}`);
-  }
-  if (!Array.isArray(baseline.claims) || baseline.claims.length === 0 ||
-      baseline.claims.some((claim) => typeof claim !== "string" || claim.trim().length === 0)) {
-    fail("smoke baseline claims must be non-empty strings");
   }
   if (baseline.raw_result_committed !== false) fail("smoke baseline must not commit raw provider results");
 
@@ -391,6 +294,8 @@ function validateBaseline(baseline, cases, matrix) {
   const completedFields = new Set([...commonFields, ...evidenceFields]);
   const unavailableFields = new Set([...commonFields, "reason", ...evidenceFields]);
   const plannedTrials = expectedCaseIds.length * matrix.trials_per_cell;
+  const expectedAssertions = smokeCases.reduce((total, testCase) => total + testCase.assert.length, 0) *
+    matrix.trials_per_cell;
 
   for (const [index, cell] of baseline.cells.entries()) {
     const expectedMatrixCell = matrix.cells[index];
@@ -442,6 +347,9 @@ function validateBaseline(baseline, cases, matrix) {
           !Number.isInteger(cell.quality.passed_assertions) || cell.quality.passed_assertions < 0 ||
           cell.quality.passed_assertions > cell.quality.total_assertions) {
         fail(`smoke baseline completed cell ${index}: invalid assertion counts`);
+      }
+      if (cell.quality.total_assertions !== expectedAssertions) {
+        fail(`smoke baseline completed cell ${index}: total_assertions must match the smoke assertion inventory`);
       }
       if (cell.quality.assertion_score !== cell.quality.passed_assertions / cell.quality.total_assertions) {
         fail(`smoke baseline completed cell ${index}: assertion_score contradicts assertion counts`);
