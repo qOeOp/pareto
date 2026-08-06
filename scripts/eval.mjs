@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { isDeepStrictEqual, promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { assertions } from "promptfoo";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
@@ -43,7 +44,13 @@ export async function materializeSkillsFromGit(repositoryRoot, commit, destinati
     throw new Error("Skill snapshot commit is not an exact Git object");
   }
   const listing = await gitBytes(repositoryRoot, ["ls-tree", "-rz", `${exactCommit}:skills`]);
-  const entries = listing.toString("utf8").split("\0").filter(Boolean);
+  let decodedListing;
+  try {
+    decodedListing = new TextDecoder("utf-8", { fatal: true }).decode(listing);
+  } catch {
+    throw new Error("Skill snapshot tree paths must be valid UTF-8");
+  }
+  const entries = decodedListing.split("\0").filter(Boolean);
   if (entries.length === 0) throw new Error("Skill snapshot tree is empty");
   try {
     await lstat(destination);
@@ -54,16 +61,20 @@ export async function materializeSkillsFromGit(repositoryRoot, commit, destinati
   await mkdir(destination, { recursive: true });
   const destinationRoot = path.resolve(destination);
   const seen = new Set();
+  const seenNormalized = new Set();
 
   for (const entry of entries) {
     const match = /^(100644|100755) blob ([0-9a-f]{40}|[0-9a-f]{64})\t(.+)$/.exec(entry);
     if (!match) throw new Error(`Skill snapshot contains an unsupported Git entry: ${entry}`);
     const [, mode, oid, gitPath] = match;
     const segments = gitPath.split("/");
-    if (segments.some((segment) => segment === "" || segment === "." || segment === "..") || seen.has(gitPath)) {
+    const normalizedPath = gitPath.normalize("NFC");
+    if (segments.some((segment) => segment === "" || segment === "." || segment === "..") ||
+        seen.has(gitPath) || seenNormalized.has(normalizedPath)) {
       throw new Error(`Skill snapshot contains an unsafe or duplicate path: ${gitPath}`);
     }
     seen.add(gitPath);
+    seenNormalized.add(normalizedPath);
     const target = path.resolve(destinationRoot, ...segments);
     if (!target.startsWith(`${destinationRoot}${path.sep}`)) {
       throw new Error(`Skill snapshot path escapes its destination: ${gitPath}`);
@@ -165,6 +176,24 @@ export async function validateResultArtifact({
       const component = grading.componentResults[assertionIndex];
       if (component?.pass !== true || !isDeepStrictEqual(component.assertion, assertion)) {
         throw new Error(`Promptfoo result row ${index} assertion ${assertionIndex} did not pass exactly`);
+      }
+    }
+    const nativeSkillAssertions = expectedAssertions.filter((assertion) =>
+      assertion.type === "skill-used" || assertion.type === "not-skill-used");
+    if (nativeSkillAssertions.length > 0) {
+      if (!Array.isArray(row.response?.metadata?.skillCalls)) {
+        throw new Error(`Promptfoo result row ${index} is missing explicit native Skill-use evidence`);
+      }
+      const nativeResult = await assertions.runAssertions({
+        providerResponse: row.response,
+        test: { vars: row.testCase?.vars ?? {}, assert: nativeSkillAssertions },
+      });
+      if (nativeResult.pass !== true || !Array.isArray(nativeResult.componentResults) ||
+          nativeResult.componentResults.length !== nativeSkillAssertions.length ||
+          nativeResult.componentResults.some((component, nativeIndex) =>
+            component?.pass !== true ||
+            !isDeepStrictEqual(component.assertion, nativeSkillAssertions[nativeIndex]))) {
+        throw new Error(`Promptfoo result row ${index} has contradictory native Skill-use evidence`);
       }
     }
   }

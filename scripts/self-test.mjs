@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -52,6 +52,14 @@ try {
   const rows = smokeCases.map((testCase) => ({
     success: true,
     provider: { id: expectedProviderId },
+    response: {
+      output: "ok",
+      metadata: {
+        skillCalls: testCase.description === "[smoke] near-miss negative control"
+          ? []
+          : [{ name: "lightweight-charts" }],
+      },
+    },
     testCase: { description: testCase.description, assert: structuredClone(testCase.assert) },
     gradingResult: {
       pass: true,
@@ -139,6 +147,16 @@ try {
       fixture.results.results.results[0].gradingResult.componentResults[0].pass = false;
       return fixture;
     })(), /did not pass exactly/],
+    ["contradictory positive Skill-use evidence", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.results.results.results[0].response.metadata.skillCalls = [];
+      return fixture;
+    })(), /contradictory native Skill-use evidence/],
+    ["contradictory negative Skill-use evidence", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.results.results.results[1].response.metadata.skillCalls = [{ name: "forbidden-skill" }];
+      return fixture;
+    })(), /contradictory native Skill-use evidence/],
   ];
   for (const [name, fixture, pattern] of resultFixtures) {
     await writeFile(resultPath, JSON.stringify(fixture), "utf8");
@@ -179,6 +197,39 @@ try {
     () => readFile(path.join(snapshot, "node_modules", "SKILL.md"), "utf8"),
     /ENOENT/,
     "ignored Skill material must not enter a Git-tree snapshot",
+  );
+  const pathRepository = path.join(temporaryRoot, "path-repository");
+  await mkdir(pathRepository, { recursive: true });
+  execFileSync("git", ["-C", pathRepository, "init", "--quiet"]);
+  const gitObject = (args, input) => execFileSync("git", ["-C", pathRepository, ...args], { input })
+    .toString("utf8").trim();
+  const blob = gitObject(["hash-object", "-w", "--stdin"], Buffer.from("path fixture\n"));
+  const commitTree = (skillEntries, message) => {
+    const exampleTree = gitObject(["mktree", "-z"], Buffer.concat(skillEntries.sort(Buffer.compare)));
+    const skillsTree = gitObject(["mktree", "-z"], Buffer.from(`040000 tree ${exampleTree}\texample\0`));
+    const rootTree = gitObject(["mktree", "-z"], Buffer.from(`040000 tree ${skillsTree}\tskills\0`));
+    return gitObject([
+      "-c", "user.name=Skill Eval Self Test",
+      "-c", "user.email=skill-eval@example.invalid",
+      "commit-tree", rootTree, "-m", message,
+    ]);
+  };
+  const invalidUtf8Commit = commitTree([
+    Buffer.concat([Buffer.from(`100644 blob ${blob}\t`), Buffer.from([0xff]), Buffer.from(".md\0")]),
+  ], "invalid UTF-8 path");
+  await expectReject(
+    () => materializeSkillsFromGit(pathRepository, invalidUtf8Commit, path.join(temporaryRoot, "invalid-utf8-snapshot")),
+    /paths must be valid UTF-8/,
+    "invalid UTF-8 Git paths must fail closed",
+  );
+  const normalizationCommit = commitTree([
+    Buffer.from(`100644 blob ${blob}\te\u0301.md\0`),
+    Buffer.from(`100644 blob ${blob}\t\u00e9.md\0`),
+  ], "normalization collision");
+  await expectReject(
+    () => materializeSkillsFromGit(pathRepository, normalizationCommit, path.join(temporaryRoot, "normalization-snapshot")),
+    /unsafe or duplicate path/,
+    "Unicode-normalization-colliding Git paths must fail closed",
   );
   await writeFile(path.join(repository, "dirty.txt"), "dirty\n", "utf8");
   await expectReject(() => readHoldoutIdentity(repository), /clean tracked and untracked worktree/);
