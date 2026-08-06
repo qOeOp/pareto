@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { execFile, spawn } from "node:child_process";
-import { cp, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
+import { isDeepStrictEqual, promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
@@ -27,6 +27,57 @@ async function gitText(repositoryRoot, args) {
     maxBuffer: 1024 * 1024,
   });
   return stdout.trim();
+}
+
+async function gitBytes(repositoryRoot, args) {
+  const { stdout } = await execFileAsync("git", ["-C", repositoryRoot, ...args], {
+    encoding: null,
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  return stdout;
+}
+
+export async function materializeSkillsFromGit(repositoryRoot, commit, destination) {
+  const exactCommit = await gitText(repositoryRoot, ["rev-parse", `${commit}^{commit}`]);
+  if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(exactCommit)) {
+    throw new Error("Skill snapshot commit is not an exact Git object");
+  }
+  const listing = await gitBytes(repositoryRoot, ["ls-tree", "-rz", `${exactCommit}:skills`]);
+  const entries = listing.toString("utf8").split("\0").filter(Boolean);
+  if (entries.length === 0) throw new Error("Skill snapshot tree is empty");
+  try {
+    await lstat(destination);
+    throw new Error("Skill snapshot destination must not already exist");
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  await mkdir(destination, { recursive: true });
+  const destinationRoot = path.resolve(destination);
+  const seen = new Set();
+
+  for (const entry of entries) {
+    const match = /^(100644|100755) blob ([0-9a-f]{40}|[0-9a-f]{64})\t(.+)$/.exec(entry);
+    if (!match) throw new Error(`Skill snapshot contains an unsupported Git entry: ${entry}`);
+    const [, mode, oid, gitPath] = match;
+    const segments = gitPath.split("/");
+    if (segments.some((segment) => segment === "" || segment === "." || segment === "..") || seen.has(gitPath)) {
+      throw new Error(`Skill snapshot contains an unsafe or duplicate path: ${gitPath}`);
+    }
+    seen.add(gitPath);
+    const target = path.resolve(destinationRoot, ...segments);
+    if (!target.startsWith(`${destinationRoot}${path.sep}`)) {
+      throw new Error(`Skill snapshot path escapes its destination: ${gitPath}`);
+    }
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, await gitBytes(repositoryRoot, ["cat-file", "blob", oid]));
+    await chmod(target, mode === "100755" ? 0o755 : 0o644);
+  }
+
+  return {
+    commit: exactCommit,
+    files: entries.length,
+    skills_tree_oid: await gitText(repositoryRoot, ["rev-parse", `${exactCommit}:skills`]),
+  };
 }
 
 export async function readHoldoutIdentity(repositoryRoot = root) {
@@ -59,12 +110,12 @@ export async function readHoldoutIdentity(repositoryRoot = root) {
   };
 }
 
-function expectedDescriptions(cases, suite, repeat) {
+function expectedCaseTrials(cases, suite, repeat) {
   const pattern = new RegExp(patterns[suite]);
   return cases
     .filter((testCase) => pattern.test(testCase.description ?? ""))
-    .flatMap((testCase) => Array.from({ length: repeat }, () => testCase.description))
-    .sort();
+    .flatMap((testCase) => Array.from({ length: repeat }, () => testCase))
+    .sort((left, right) => left.description.localeCompare(right.description));
 }
 
 export async function validateResultArtifact({
@@ -72,6 +123,7 @@ export async function validateResultArtifact({
   suite,
   repeat,
   cases,
+  providerId,
   model,
   effort,
   holdoutIdentity = null,
@@ -89,13 +141,32 @@ export async function validateResultArtifact({
 
   const rows = artifact?.results?.results?.results;
   if (!Array.isArray(rows)) throw new Error("Promptfoo output is missing result rows");
-  const expected = expectedDescriptions(cases, suite, repeat);
-  const actual = rows.map((row) => row?.testCase?.description).sort();
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+  const expected = expectedCaseTrials(cases, suite, repeat);
+  const actual = [...rows].sort((left, right) =>
+    String(left?.testCase?.description).localeCompare(String(right?.testCase?.description)));
+  if (JSON.stringify(actual.map((row) => row?.testCase?.description)) !==
+      JSON.stringify(expected.map((testCase) => testCase.description))) {
     throw new Error(`Promptfoo output does not match ${suite} case/trial expectations`);
   }
-  if (rows.some((row) => row.success !== true || row.error || row.response?.error)) {
-    throw new Error("Promptfoo output contains a failed or errored trial despite exit zero");
+  for (const [index, row] of actual.entries()) {
+    const expectedAssertions = expected[index].assert ?? [];
+    if (row.success !== true || row.error || row.response?.error || row.provider?.id !== providerId) {
+      throw new Error("Promptfoo output contains a failed, errored, or wrong-provider trial despite exit zero");
+    }
+    if (!isDeepStrictEqual(row.testCase?.assert ?? [], expectedAssertions)) {
+      throw new Error(`Promptfoo result row ${index} does not contain the exact selected assertion inventory`);
+    }
+    const grading = row.gradingResult;
+    if (grading?.pass !== true || !Array.isArray(grading.componentResults) ||
+        grading.componentResults.length !== expectedAssertions.length) {
+      throw new Error(`Promptfoo result row ${index} is missing explicit assertion outcomes`);
+    }
+    for (const [assertionIndex, assertion] of expectedAssertions.entries()) {
+      const component = grading.componentResults[assertionIndex];
+      if (component?.pass !== true || !isDeepStrictEqual(component.assertion, assertion)) {
+        throw new Error(`Promptfoo result row ${index} assertion ${assertionIndex} did not pass exactly`);
+      }
+    }
   }
   const stats = artifact?.results?.stats;
   if (stats?.successes !== rows.length || stats?.failures !== 0 || stats?.errors !== 0) {
@@ -103,9 +174,14 @@ export async function validateResultArtifact({
   }
   if (artifact?.runtimeOptions?.repeat !== repeat) throw new Error("Promptfoo output has the wrong repeat count");
 
-  const provider = artifact?.config?.providers?.[0];
-  if (provider?.config?.model !== model || provider?.config?.model_reasoning_effort !== effort) {
-    throw new Error("Promptfoo output is not bound to the invoked model/effort cell");
+  const providers = artifact?.config?.providers;
+  if (!Array.isArray(providers) || providers.length !== 1) {
+    throw new Error("Promptfoo output must contain exactly one provider");
+  }
+  const provider = providers[0];
+  if (provider?.id !== providerId || provider?.config?.model !== model ||
+      provider?.config?.model_reasoning_effort !== effort) {
+    throw new Error("Promptfoo output is not bound to the exact invoked provider/model/effort cell");
   }
   if (holdoutIdentity &&
       JSON.stringify(artifact?.config?.metadata?.holdout_candidate) !== JSON.stringify(holdoutIdentity)) {
@@ -144,8 +220,8 @@ async function main() {
   const promptfoo = path.join(root, "node_modules", ".bin", process.platform === "win32" ? "promptfoo.cmd" : "promptfoo");
 
   try {
-    await mkdir(skillTarget, { recursive: true });
-    await cp(path.join(root, "skills"), skillTarget, { recursive: true });
+    const snapshotCommit = holdoutBefore?.commit ?? await gitText(root, ["rev-parse", "HEAD"]);
+    await materializeSkillsFromGit(root, snapshotCommit, skillTarget);
     await writeFile(path.join(workspace, "README.md"), "Disposable read-only Skill evaluation workspace.\n", "utf8");
     const gitCode = await run("git", ["init", "--quiet"], { cwd: workspace });
     if (gitCode !== 0) throw new Error(`git init failed with exit ${gitCode}`);
@@ -204,6 +280,7 @@ async function main() {
       suite,
       repeat: repeats[suite],
       cases,
+      providerId: provider.id,
       model,
       effort,
       holdoutIdentity: holdoutBefore,

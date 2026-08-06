@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { assertions } from "promptfoo";
 import { parse as parseYaml } from "yaml";
-import { readHoldoutIdentity, validateResultArtifact } from "./eval.mjs";
+import { materializeSkillsFromGit, readHoldoutIdentity, validateResultArtifact } from "./eval.mjs";
 
 const execFileAsync = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -19,6 +19,19 @@ async function expectReject(action, pattern, message) {
 
 try {
   const cases = parseYaml(await readFile(path.join(root, "evals", "cases", "cases.yaml"), "utf8"));
+  const positiveControl = cases.find((testCase) => testCase.description === "[smoke] explicit lightweight-charts v5 route");
+  const skillAssertion = positiveControl?.assert?.find((assertion) => assertion.type === "skill-used");
+  assert.ok(skillAssertion, "smoke positive control must use the native skill-used assertion");
+  const expectedSkill = await assertions.runAssertions({
+    providerResponse: { output: "ok", metadata: { skillCalls: [{ name: "lightweight-charts" }] } },
+    test: { vars: {}, assert: [skillAssertion] },
+  });
+  const missingSkill = await assertions.runAssertions({
+    providerResponse: { output: "ok", metadata: { skillCalls: [] } },
+    test: { vars: {}, assert: [skillAssertion] },
+  });
+  assert.equal(expectedSkill.pass, true, "positive Skill oracle must accept the expected Skill call");
+  assert.equal(missingSkill.pass, false, "positive Skill oracle must reject a missing Skill call");
   const negativeControl = cases.find((testCase) => testCase.description === "[smoke] near-miss negative control");
   const noSkillAssertion = negativeControl?.assert?.find((assertion) => assertion.type === "skill-used");
   assert.ok(noSkillAssertion, "smoke negative control must use the native skill-used assertion");
@@ -34,12 +47,19 @@ try {
   assert.equal(usedSkill.pass, false, "no-skill oracle must reject any actual Skill call");
 
   const resultPath = path.join(temporaryRoot, "result.json");
-  const smokeDescriptions = cases
-    .filter((testCase) => /^\[smoke\]/.test(testCase.description))
-    .map((testCase) => testCase.description);
-  const rows = smokeDescriptions.map((description) => ({
+  const smokeCases = cases.filter((testCase) => /^\[smoke\]/.test(testCase.description));
+  const expectedProviderId = "openai:codex-sdk";
+  const rows = smokeCases.map((testCase) => ({
     success: true,
-    testCase: { description },
+    provider: { id: expectedProviderId },
+    testCase: { description: testCase.description, assert: structuredClone(testCase.assert) },
+    gradingResult: {
+      pass: true,
+      componentResults: testCase.assert.map((assertion) => ({
+        pass: true,
+        assertion: structuredClone(assertion),
+      })),
+    },
   }));
   const validResultArtifact = {
     results: {
@@ -47,7 +67,10 @@ try {
       stats: { successes: rows.length, failures: 0, errors: 0 },
     },
     config: {
-      providers: [{ config: { model: "synthetic-model", model_reasoning_effort: "low" } }],
+      providers: [{
+        id: expectedProviderId,
+        config: { model: "synthetic-model", model_reasoning_effort: "low" },
+      }],
       metadata: {},
     },
     runtimeOptions: { repeat: 1 },
@@ -58,6 +81,7 @@ try {
     suite: "smoke",
     repeat: 1,
     cases,
+    providerId: expectedProviderId,
     model: "synthetic-model",
     effort: "low",
   });
@@ -66,6 +90,7 @@ try {
     suite: "smoke",
     repeat: 1,
     cases,
+    providerId: expectedProviderId,
     model: "synthetic-model",
     effort: "low",
   }), /ENOENT/);
@@ -78,15 +103,62 @@ try {
     suite: "smoke",
     repeat: 1,
     cases,
+    providerId: expectedProviderId,
     model: "synthetic-model",
     effort: "low",
   }), /duplicate JSON object member success/, "duplicate Promptfoo result member");
+  const resultFixtures = [
+    ["missing provider identity", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      delete fixture.config.providers[0].id;
+      return fixture;
+    })(), /exact invoked provider\/model\/effort/],
+    ["unknown provider identity", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.config.providers[0].id = "unknown-provider";
+      fixture.results.results.results.forEach((row) => { row.provider.id = "unknown-provider"; });
+      return fixture;
+    })(), /exact invoked provider\/model\/effort|wrong-provider/],
+    ["additional provider", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.config.providers.push(structuredClone(fixture.config.providers[0]));
+      return fixture;
+    })(), /exactly one provider/],
+    ["missing assertion evidence", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      delete fixture.results.results.results[0].gradingResult;
+      return fixture;
+    })(), /missing explicit assertion outcomes/],
+    ["mismatched assertion inventory", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.results.results.results[0].testCase.assert.pop();
+      return fixture;
+    })(), /exact selected assertion inventory/],
+    ["failed assertion outcome", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.results.results.results[0].gradingResult.componentResults[0].pass = false;
+      return fixture;
+    })(), /did not pass exactly/],
+  ];
+  for (const [name, fixture, pattern] of resultFixtures) {
+    await writeFile(resultPath, JSON.stringify(fixture), "utf8");
+    await expectReject(() => validateResultArtifact({
+      resultPath,
+      suite: "smoke",
+      repeat: 1,
+      cases,
+      providerId: expectedProviderId,
+      model: "synthetic-model",
+      effort: "low",
+    }), pattern, name);
+  }
 
   const repository = path.join(temporaryRoot, "repository");
   await mkdir(path.join(repository, "skills", "example"), { recursive: true });
   await mkdir(path.join(repository, "evals"), { recursive: true });
   await writeFile(path.join(repository, "skills", "example", "SKILL.md"), "example\n", "utf8");
   await writeFile(path.join(repository, "evals", "matrix.json"), "{}\n", "utf8");
+  await writeFile(path.join(repository, ".gitignore"), "node_modules/\n", "utf8");
   await execFileAsync("git", ["-C", repository, "init", "--quiet"]);
   await execFileAsync("git", ["-C", repository, "config", "user.name", "Skill Eval Self Test"]);
   await execFileAsync("git", ["-C", repository, "config", "user.email", "skill-eval@example.invalid"]);
@@ -97,6 +169,17 @@ try {
   assert.match(identity.tree, /^[0-9a-f]{40}$/);
   assert.match(identity.skills_tree_oid, /^[0-9a-f]{40}$/);
   assert.match(identity.matrix_sha256, /^[0-9a-f]{64}$/);
+  await mkdir(path.join(repository, "skills", "node_modules"), { recursive: true });
+  await writeFile(path.join(repository, "skills", "node_modules", "SKILL.md"), "ignored\n", "utf8");
+  const snapshot = path.join(temporaryRoot, "skill-snapshot");
+  const materialized = await materializeSkillsFromGit(repository, identity.commit, snapshot);
+  assert.equal(materialized.skills_tree_oid, identity.skills_tree_oid);
+  assert.equal(await readFile(path.join(snapshot, "example", "SKILL.md"), "utf8"), "example\n");
+  await expectReject(
+    () => readFile(path.join(snapshot, "node_modules", "SKILL.md"), "utf8"),
+    /ENOENT/,
+    "ignored Skill material must not enter a Git-tree snapshot",
+  );
   await writeFile(path.join(repository, "dirty.txt"), "dirty\n", "utf8");
   await expectReject(() => readHoldoutIdentity(repository), /clean tracked and untracked worktree/);
 
@@ -127,7 +210,6 @@ try {
   const baselinePath = path.join(crlfFixture, "evals", "baselines", "2026-08-06-smoke.json");
   const baseline = JSON.parse(await readFile(baselinePath, "utf8"));
   const matrix = JSON.parse(await readFile(path.join(crlfFixture, "evals", "matrix.json"), "utf8"));
-  const smokeCases = cases.filter((testCase) => /^\[smoke\]/.test(testCase.description));
   const expectedAssertions = smokeCases.reduce((total, testCase) => total + testCase.assert.length, 0) *
     matrix.trials_per_cell;
   const completedCell = (matrixCell) => ({

@@ -51,6 +51,14 @@ Keep Promptfoo's raw per-trial evidence locally. A committed baseline summary ma
 
 Repository acceptance reads Promptfoo result artifacts as raw JSON and rejects duplicate object
 members before normalization; exit zero never authorizes a last-wins representation.
+It also requires exactly one provider with the invoked provider identity, model, and reasoning effort;
+every result row names that provider and reproduces its selected case's exact assertion inventory;
+and every assertion has an explicit passing component outcome. Row success and aggregate counts alone
+never authorize an evaluation result, including the positive and negative native Skill-use oracles.
+
+The runner materializes its Skill workspace only from regular tracked blobs in the exact Git
+`HEAD:skills` tree. It never copies working-tree, untracked, or ignored Skill material into an
+evaluation workspace; unsupported Git entry modes and unsafe paths fail closed.
 
 The committed smoke baseline has one exact representation. Its top-level keys are
 `schema_version`, `suite`, `attempted_at`, `candidate`, `case_ids`, `environment`, `cells`, `result`,
