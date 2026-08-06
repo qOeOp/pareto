@@ -70,5 +70,13 @@
     "prompt": "A change has an admitted behavioral oracle and a fast focused test, while a documentation-only correction does not. Route BDD, TDD, mutation, and playbook loading conditionally.",
     "required": ["use testing only where its predicate holds", "keep behavior authority outside tests", "load one relevant repair owner"],
     "forbidden": ["force BDD or TDD on every task", "use mutation as a fixed cost", "preload all playbooks"]
+  },
+  {
+    "case_id": "workflow-repository-selection-cleanup-001",
+    "family": "repository-selection-cleanup",
+    "suite": "holdout",
+    "prompt": "A Skill evaluation repository was selected even though it already contained unrelated legacy Skills. Those Skills were incorporated into official smoke cases and baseline evidence before a user rejected them. Restore one repository authority without treating the obsolete evidence as transferable.",
+    "required": ["inventory direct and indirect consumers", "delete obsolete Skills and dependent evidence", "keep an empty inventory fail closed", "separate cleanup from replacement readiness"],
+    "forbidden": ["retain compatibility aliases or placeholders", "reuse obsolete Skill evidence", "invent a generalized fake Skill", "block independent cleanup on replacement readiness"]
   }
 ]

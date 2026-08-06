@@ -6,24 +6,9 @@ The repository keeps runtime skills under one authority, `skills/`, and evaluati
 
 ## Install
 
-List or install skills across Codex, Claude Code, Cursor, and other supported consumers with the
-pinned [`skills`](https://github.com/vercel-labs/skills) CLI:
-
-```bash
-npx -y skills@1.5.22 add qOeOp/skills --list
-npx -y skills@1.5.22 add qOeOp/skills --skill lightweight-charts --agent codex --global --copy --yes
-npx -y skills@1.5.22 add qOeOp/skills --skill midscene-visual-testing --agent claude-code --global --copy --yes
-```
-
-Use a release tag or commit after the repository name when reproducibility matters, for example
-`qOeOp/skills@v0.1.0`. Update and uninstall through the same CLI:
-
-```bash
-npx -y skills@1.5.22 update --global --yes
-npx -y skills@1.5.22 remove --global lightweight-charts --yes
-```
-
-Codex can also install one skill directly from its GitHub directory with `$skill-installer`.
+Runtime installation is intentionally unavailable in this cleanup candidate. Distribution is
+admitted only when `skills/` contains at least one real maintained Skill with matching validation and
+evaluation evidence; an empty inventory fails closed.
 
 ## Validate and evaluate
 
@@ -33,30 +18,12 @@ development dependencies.
 ```bash
 npm ci --ignore-scripts
 npm run check
-npm run eval:smoke
-npm run eval:full
-npm run eval:holdout
-npm run eval:matrix
 ```
 
-The dynamic commands use Promptfoo's Codex SDK provider in a disposable Git repository with a
-read-only filesystem sandbox, network disabled, approvals disabled, and a fresh response cache.
-They require a working Codex login or an explicitly supplied provider credential. Raw results are
-local ignored artifacts; only reviewed, sanitized summaries may become baselines.
-
-The first bounded provider probe is recorded as an honest
-[`unavailable` baseline](evals/baselines/2026-08-06-smoke.json): the runner reached the Codex SDK,
-but the provider rejected both low-effort trials before inference because credits were unavailable.
-No quality, usage, cost, or effort comparison is claimed from that receipt.
-
-- `smoke` proves the runner, Skill discovery, one positive task, and one near-miss negative control.
-- `full` adds maintained public regression cases and repeats trials.
-- `holdout` is excluded from normal tuning and runs only from a clean, committed candidate; its
-  output binds the exact commit, tree, `skills/` tree, and matrix digest and rejects drift.
-- `matrix` changes only the declared model/reasoning-effort cell and records provider-reported usage.
-
-See [the evaluation contract](evals/CONTRACT.md) for thresholds, evidence fields, holdout rules, and
-the generalized workflow scenario families.
+The cleanup candidate intentionally cannot pass `npm run check`: the production validator requires a
+real Skill, executable cases, and a bound baseline. Evaluation commands and install instructions are
+re-admitted only with those real consumers. See [the evaluation contract](evals/CONTRACT.md) for the
+fail-closed requirements and generalized workflow scenario families.
 
 ## Capability boundary
 

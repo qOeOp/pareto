@@ -100,6 +100,7 @@ function validateWorkflowFamilies(families) {
     "exact-head-delivery",
     "coordination-churn",
     "conditional-bdd-tdd-playbook-routing",
+    "repository-selection-cleanup",
   ]);
   const ids = new Set();
   for (const item of families) {

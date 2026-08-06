@@ -34,7 +34,8 @@ authority, not runtime workflow authority, and are not executable until a real t
 consumer contract are deliberately admitted. The required families are task recovery, hub/child
 authority, dependency DAG and supersession, evaluator admission, provider unavailability fallback,
 stale worktree bootstrap, exact-head delivery, coordination churn, and conditional BDD/TDD/playbook
-routing.
+routing. Repository selection and cleanup also covers rejecting unrelated legacy Skills and
+invalidating every case, baseline, installation receipt, and result that consumed them.
 
 ## Trial evidence
 
@@ -66,7 +67,7 @@ evaluation workspace; unsupported Git entry modes, invalid UTF-8 paths, normaliz
 unsafe paths fail closed. The complete tree is validated before any destination write; Windows
 separator, case, or resolved-target collisions also fail closed on every host.
 
-The committed smoke baseline has one exact representation. Its top-level keys are
+Any committed smoke baseline has one exact representation. Its top-level keys are
 `schema_version`, `suite`, `attempted_at`, `candidate`, `case_ids`, `environment`, `cells`, `result`,
 and `raw_result_committed`. `candidate` contains only `commit`, `tree`, `skill_sha256`, and
 `promptfoo_config`. `promptfoo_config` contains only the historical repo-relative `path`, Git
