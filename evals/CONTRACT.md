@@ -51,17 +51,20 @@ Keep Promptfoo's raw per-trial evidence locally. A committed baseline summary ma
 
 Repository acceptance reads Promptfoo result artifacts as raw JSON and rejects duplicate object
 members before normalization; exit zero never authorizes a last-wins representation.
-It also requires exactly one provider with the invoked provider identity, model, and reasoning effort;
-every result row names that provider and reproduces its selected case's exact assertion inventory;
-and every assertion has an explicit passing component outcome. Native Skill-use assertions are also
-replayed against the row's explicit `response.metadata.skillCalls`; declared component success cannot
-override contradictory positive or negative oracle evidence. Row success and aggregate counts alone
-never authorize an evaluation result.
+Before any provider-capable command, the runner requires exactly one canonical provider and the exact
+invoked model, reasoning effort, working directory, and read-only provider configuration. Result
+acceptance requires exactly that provider identity, model, and reasoning effort; every result row
+names that provider and reproduces its selected case's exact vars and assertion inventory; and every
+assertion has an explicit passing component outcome. Native Skill-use assertions are replayed with
+the selected case's expected vars against the row's explicit `response.metadata.skillCalls`;
+artifact-controlled vars or declared component success cannot override contradictory positive or
+negative oracle evidence. Row success and aggregate counts alone never authorize an evaluation result.
 
 The runner materializes its Skill workspace only from regular tracked blobs in the exact Git
 `HEAD:skills` tree. It never copies working-tree, untracked, or ignored Skill material into an
 evaluation workspace; unsupported Git entry modes, invalid UTF-8 paths, normalization collisions, and
-unsafe paths fail closed.
+unsafe paths fail closed. The complete tree is validated before any destination write; Windows
+separator, case, or resolved-target collisions also fail closed on every host.
 
 The committed smoke baseline has one exact representation. Its top-level keys are
 `schema_version`, `suite`, `attempted_at`, `candidate`, `case_ids`, `environment`, `cells`, `result`,

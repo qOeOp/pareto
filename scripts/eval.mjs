@@ -17,6 +17,27 @@ const patterns = {
 };
 const repeats = { smoke: 1, full: 2, holdout: 3 };
 const execFileAsync = promisify(execFile);
+export const CANONICAL_PROVIDER_ID = "openai:codex-sdk";
+const providerFields = ["config", "id", "label"];
+const providerConfigFields = [
+  "approval_policy",
+  "enable_streaming",
+  "inherit_process_env",
+  "model",
+  "model_reasoning_effort",
+  "network_access_enabled",
+  "sandbox_mode",
+  "web_search_enabled",
+  "working_dir",
+];
+const providerSafetyConfig = {
+  sandbox_mode: "read-only",
+  approval_policy: "never",
+  network_access_enabled: false,
+  web_search_enabled: false,
+  enable_streaming: true,
+  inherit_process_env: false,
+};
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -36,6 +57,58 @@ async function gitBytes(repositoryRoot, args) {
     maxBuffer: 16 * 1024 * 1024,
   });
   return stdout;
+}
+
+function hasExactFields(value, fields) {
+  return value && typeof value === "object" && !Array.isArray(value) &&
+    isDeepStrictEqual(Object.keys(value).sort(), [...fields].sort());
+}
+
+function exactInvocationValue(value, label) {
+  if (typeof value !== "string" || value.length === 0 || value.trim() !== value || /[\0\r\n]/.test(value)) {
+    throw new Error(`Promptfoo ${label} must be one exact non-empty value`);
+  }
+  return value;
+}
+
+export function preparePromptfooConfig(config, { model, effort, workingDirectory }) {
+  if (!Array.isArray(config?.providers) || config.providers.length !== 1) {
+    throw new Error("Promptfoo config must contain exactly one provider before evaluation");
+  }
+  const sourceProvider = config.providers[0];
+  if (!hasExactFields(sourceProvider, providerFields) || sourceProvider.id !== CANONICAL_PROVIDER_ID) {
+    throw new Error(`Promptfoo config must contain only the canonical provider ${CANONICAL_PROVIDER_ID}`);
+  }
+  if (!hasExactFields(sourceProvider.config, providerConfigFields)) {
+    throw new Error("Promptfoo provider config must contain the exact supported fields");
+  }
+  for (const [field, expected] of Object.entries(providerSafetyConfig)) {
+    if (sourceProvider.config[field] !== expected) {
+      throw new Error(`Promptfoo provider config ${field} must remain ${JSON.stringify(expected)}`);
+    }
+  }
+
+  const exactModel = exactInvocationValue(model, "model");
+  const exactEffort = exactInvocationValue(effort, "reasoning effort");
+  if (typeof workingDirectory !== "string" || !path.isAbsolute(workingDirectory) ||
+      path.resolve(workingDirectory) !== workingDirectory) {
+    throw new Error("Promptfoo working directory must be one canonical absolute path");
+  }
+
+  const prepared = structuredClone(config);
+  const provider = prepared.providers[0];
+  provider.label = `${exactModel}/${exactEffort}`;
+  provider.config = {
+    model: exactModel,
+    model_reasoning_effort: exactEffort,
+    working_dir: workingDirectory,
+    ...providerSafetyConfig,
+  };
+  if (!hasExactFields(provider, providerFields) || !hasExactFields(provider.config, providerConfigFields) ||
+      provider.id !== CANONICAL_PROVIDER_ID) {
+    throw new Error("Prepared Promptfoo provider configuration is not exact");
+  }
+  return { config: prepared, providerId: CANONICAL_PROVIDER_ID };
 }
 
 export async function materializeSkillsFromGit(repositoryRoot, commit, destination) {
@@ -58,12 +131,13 @@ export async function materializeSkillsFromGit(repositoryRoot, commit, destinati
   } catch (error) {
     if (error?.code !== "ENOENT") throw error;
   }
-  await mkdir(destination, { recursive: true });
   const destinationRoot = path.resolve(destination);
+  const windowsDestinationRoot = path.win32.resolve("C:\\agent-skill-eval");
   const seen = new Set();
   const seenNormalized = new Set();
+  const seenWindowsTargets = new Set();
 
-  for (const entry of entries) {
+  const materializedEntries = entries.map((entry) => {
     const match = /^(100644|100755) blob ([0-9a-f]{40}|[0-9a-f]{64})\t(.+)$/.exec(entry);
     if (!match) throw new Error(`Skill snapshot contains an unsupported Git entry: ${entry}`);
     const [, mode, oid, gitPath] = match;
@@ -79,6 +153,19 @@ export async function materializeSkillsFromGit(repositoryRoot, commit, destinati
     if (!target.startsWith(`${destinationRoot}${path.sep}`)) {
       throw new Error(`Skill snapshot path escapes its destination: ${gitPath}`);
     }
+    const windowsTarget = path.win32.resolve(windowsDestinationRoot, ...segments);
+    const windowsRelative = path.win32.relative(windowsDestinationRoot, windowsTarget);
+    const windowsTargetKey = windowsTarget.normalize("NFC").toLowerCase();
+    if (windowsRelative === "" || windowsRelative === ".." || windowsRelative.startsWith(`..${path.win32.sep}`) ||
+        path.win32.isAbsolute(windowsRelative) || seenWindowsTargets.has(windowsTargetKey)) {
+      throw new Error(`Skill snapshot contains a Windows platform path collision: ${gitPath}`);
+    }
+    seenWindowsTargets.add(windowsTargetKey);
+    return { mode, oid, gitPath, target };
+  });
+
+  await mkdir(destination, { recursive: true });
+  for (const { mode, oid, target } of materializedEntries) {
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, await gitBytes(repositoryRoot, ["cat-file", "blob", oid]));
     await chmod(target, mode === "100755" ? 0o755 : 0o644);
@@ -161,8 +248,12 @@ export async function validateResultArtifact({
   }
   for (const [index, row] of actual.entries()) {
     const expectedAssertions = expected[index].assert ?? [];
+    const expectedVars = expected[index].vars ?? {};
     if (row.success !== true || row.error || row.response?.error || row.provider?.id !== providerId) {
       throw new Error("Promptfoo output contains a failed, errored, or wrong-provider trial despite exit zero");
+    }
+    if (!isDeepStrictEqual(row.testCase?.vars, expectedVars)) {
+      throw new Error(`Promptfoo result row ${index} does not contain the exact selected case vars`);
     }
     if (!isDeepStrictEqual(row.testCase?.assert ?? [], expectedAssertions)) {
       throw new Error(`Promptfoo result row ${index} does not contain the exact selected assertion inventory`);
@@ -186,7 +277,7 @@ export async function validateResultArtifact({
       }
       const nativeResult = await assertions.runAssertions({
         providerResponse: row.response,
-        test: { vars: row.testCase?.vars ?? {}, assert: nativeSkillAssertions },
+        test: { vars: expectedVars, assert: nativeSkillAssertions },
       });
       if (nativeResult.pass !== true || !Array.isArray(nativeResult.componentResults) ||
           nativeResult.componentResults.length !== nativeSkillAssertions.length ||
@@ -256,12 +347,12 @@ async function main() {
     if (gitCode !== 0) throw new Error(`git init failed with exit ${gitCode}`);
     await mkdir(resultsDir, { recursive: true });
     const cases = parseYaml(await readFile(path.join(root, "evals", "cases", "cases.yaml"), "utf8"));
-    const config = parseYaml(await readFile(path.join(root, "evals", "promptfooconfig.yaml"), "utf8"));
-    const provider = config.providers[0];
-    provider.label = `${model}/${effort}`;
-    provider.config.model = model;
-    provider.config.model_reasoning_effort = effort;
-    provider.config.working_dir = workspace;
+    const sourceConfig = parseYaml(await readFile(path.join(root, "evals", "promptfooconfig.yaml"), "utf8"));
+    const { config, providerId } = preparePromptfooConfig(sourceConfig, {
+      model,
+      effort,
+      workingDirectory: workspace,
+    });
     config.tests = pathToFileURL(path.join(root, "evals", "cases", "cases.yaml")).href;
     if (holdoutBefore) {
       config.metadata = { ...config.metadata, holdout_candidate: holdoutBefore };
@@ -309,7 +400,7 @@ async function main() {
       suite,
       repeat: repeats[suite],
       cases,
-      providerId: provider.id,
+      providerId,
       model,
       effort,
       holdoutIdentity: holdoutBefore,
