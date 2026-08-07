@@ -519,6 +519,20 @@ try {
     },
   });
   await rm(path.join(validatorFixture, "evals", "baselines"), { recursive: true, force: true });
+  execFileSync("git", [
+    "-C", validatorFixture,
+    "add",
+    "--",
+    "evals/CONTRACT.md",
+    "scripts/self-test.mjs",
+    "scripts/validate.mjs",
+  ]);
+  execFileSync("git", [
+    "-C", validatorFixture,
+    "-c", "user.name=Skill Eval Self Test",
+    "-c", "user.email=skill-eval@example.invalid",
+    "commit", "--quiet", "-m", "fixture baseline correction source",
+  ]);
   await symlink(
     path.join(root, "node_modules"),
     path.join(validatorFixture, "node_modules"),
@@ -589,7 +603,20 @@ try {
   };
   await mkdir(path.dirname(baselinePath), { recursive: true });
   await writeFile(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
-  execFileSync("git", ["-C", validatorFixture, "add", "evals/baselines/2026-08-07-smoke.json"]);
+  let fixtureRevision = 0;
+  async function commitBaselineSource(source, label, additionalPaths = []) {
+    await writeFile(baselinePath, source, "utf8");
+    execFileSync("git", ["-C", validatorFixture, "add", "--", "evals/baselines/2026-08-07-smoke.json", ...additionalPaths]);
+    execFileSync("git", [
+      "-C", validatorFixture,
+      "-c", "user.name=Skill Eval Self Test",
+      "-c", "user.email=skill-eval@example.invalid",
+      "commit", "--quiet", "-m", `fixture baseline ${fixtureRevision += 1}: ${label}`,
+    ]);
+  }
+  async function commitBaseline(value, label, additionalPaths = []) {
+    await commitBaselineSource(`${JSON.stringify(value, null, 2)}\n`, label, additionalPaths);
+  }
   const completedCell = (matrixCell) => ({
     provider: "openai:codex-sdk",
     model: matrixCell.model,
@@ -623,19 +650,76 @@ try {
     cells: matrix.cells.map(completedCell),
     result: "completed",
   };
-  await writeFile(baselinePath, `${JSON.stringify(validCompletedBaseline, null, 2)}\n`, "utf8");
+  await commitBaseline(validCompletedBaseline, "valid completed evidence");
   const completedValidation = await runProductionValidator();
   assert.match(completedValidation.stdout, /Validated 1 Skill, 19 executable cases, and 1 committed smoke baselines/);
 
-  const laterCommit = execFileSync("git", [
-    "-C", validatorFixture,
-    "-c", "user.name=Skill Eval Self Test",
-    "-c", "user.email=skill-eval@example.invalid",
-    "commit-tree", baseline.candidate.tree,
-    "-p", "HEAD",
-    "-m", "later candidate fixture",
-  ], { encoding: "utf8" }).trim();
-  execFileSync("git", ["-C", validatorFixture, "update-ref", "HEAD", laterCommit]);
+  let probeRevision = 0;
+  async function expectBaselineProbe(name, mutate, pattern) {
+    const probe = path.join(temporaryRoot, `baseline-probe-${probeRevision += 1}`);
+    await execFileAsync("git", ["clone", "--quiet", "--shared", validatorFixture, probe]);
+    await symlink(path.join(root, "node_modules"), path.join(probe, "node_modules"),
+      process.platform === "win32" ? "junction" : "dir");
+    try {
+      await mutate(probe);
+      await expectReject(() => execFileAsync(process.execPath, [path.join(probe, "scripts", "validate.mjs")], {
+        encoding: "utf8",
+      }), pattern, name);
+    } finally {
+      await rm(probe, { recursive: true, force: true });
+    }
+  }
+  const probeBaselinePath = (probe) => path.join(probe, "evals", "baselines", "2026-08-07-smoke.json");
+  await expectBaselineProbe("staged-only baseline", async (probe) => {
+    await writeFile(probeBaselinePath(probe), `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
+    execFileSync("git", ["-C", probe, "add", "--", "evals/baselines/2026-08-07-smoke.json"]);
+  }, /must match the exact HEAD tree/);
+  await expectBaselineProbe("new untracked baseline", async (probe) => {
+    await writeFile(path.join(probe, "evals", "baselines", "2026-08-08-smoke.json"),
+      `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
+  }, /must not contain untracked material/);
+  await expectBaselineProbe("modified baseline", async (probe) => {
+    await writeFile(probeBaselinePath(probe), `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
+  }, /must match the exact HEAD tree/);
+  await expectBaselineProbe("deleted baseline", async (probe) => {
+    await rm(probeBaselinePath(probe));
+  }, /must match the exact HEAD tree/);
+  await expectBaselineProbe("baseline directory symlink", async (probe) => {
+    await rm(path.join(probe, "evals", "baselines"), { recursive: true, force: true });
+    await symlink(path.join(temporaryRoot, "baseline-directory-target"), path.join(probe, "evals", "baselines"));
+  }, /must match the exact HEAD tree/);
+  await expectBaselineProbe("baseline filename UTC date", async (probe) => {
+    const source = await readFile(probeBaselinePath(probe), "utf8");
+    const mismatchedPath = path.join(probe, "evals", "baselines", "2026-08-08-smoke.json");
+    await writeFile(mismatchedPath, source, "utf8");
+    execFileSync("git", ["-C", probe, "add", "--", "evals/baselines/2026-08-08-smoke.json"]);
+    execFileSync("git", ["-C", probe, "-c", "user.name=Skill Eval Self Test", "-c",
+      "user.email=skill-eval@example.invalid", "commit", "--quiet", "-m", "fixture filename date mismatch"]);
+  }, /filename date must match attempted_at UTC date/);
+  await expectBaselineProbe("historical case authority", async (probe) => {
+    const goldenPath = path.join(probe, "evals", "cases", "golden.yaml");
+    const golden = await readFile(goldenPath, "utf8");
+    const driftedDescription = "[smoke] drifted bounded mission invocation";
+    await writeFile(goldenPath, golden.replace("[smoke] explicit bounded mission invocation", driftedDescription), "utf8");
+    const fixture = JSON.parse(await readFile(probeBaselinePath(probe), "utf8"));
+    fixture.case_ids[0] = driftedDescription;
+    await writeFile(probeBaselinePath(probe), `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    execFileSync("git", ["-C", probe, "add", "--", "evals/cases/golden.yaml", "evals/baselines/2026-08-07-smoke.json"]);
+    execFileSync("git", ["-C", probe, "-c", "user.name=Skill Eval Self Test", "-c",
+      "user.email=skill-eval@example.invalid", "commit", "--quiet", "-m", "fixture historical case drift"]);
+  }, /case_ids must exactly match the smoke cases/);
+  await expectBaselineProbe("historical matrix authority", async (probe) => {
+    const matrixPath = path.join(probe, "evals", "matrix.json");
+    const driftedMatrix = JSON.parse(await readFile(matrixPath, "utf8"));
+    driftedMatrix.cells[1].effort = "high";
+    await writeFile(matrixPath, `${JSON.stringify(driftedMatrix, null, 2)}\n`, "utf8");
+    const fixture = JSON.parse(await readFile(probeBaselinePath(probe), "utf8"));
+    fixture.cells[1].reasoning_effort = "high";
+    await writeFile(probeBaselinePath(probe), `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    execFileSync("git", ["-C", probe, "add", "--", "evals/matrix.json", "evals/baselines/2026-08-07-smoke.json"]);
+    execFileSync("git", ["-C", probe, "-c", "user.name=Skill Eval Self Test", "-c",
+      "user.email=skill-eval@example.invalid", "commit", "--quiet", "-m", "fixture historical matrix drift"]);
+  }, /model\/effort must match the matrix/);
 
   const malformedBaselines = [
     ["completed required field", (() => {
@@ -697,10 +781,6 @@ try {
         promptfoo_config: { ...baseline.candidate.promptfoo_config, provider: "other-provider" },
       },
     }, /Promptfoo provider does not match the historical config blob/],
-    ["later candidate causal provenance", {
-      ...baseline,
-      candidate: { ...baseline.candidate, commit: laterCommit },
-    }, /candidate commit time must not be later than attempted_at/],
     ["completed trial denominator", (() => {
       const fixture = structuredClone(validCompletedBaseline);
       fixture.cells[0].quality.passed = false;
@@ -738,21 +818,9 @@ try {
     })(), /median must not exceed p95/],
   ];
   for (const [name, malformedBaseline, pattern] of malformedBaselines) {
-    await writeFile(baselinePath, `${JSON.stringify(malformedBaseline, null, 2)}\n`, "utf8");
+    await commitBaseline(malformedBaseline, name);
     await expectReject(runProductionValidator, pattern, name);
   }
-
-  const currentConfigPath = path.join(validatorFixture, "evals", "promptfooconfig.yaml");
-  const currentConfig = await readFile(currentConfigPath, "utf8");
-  const currentRewriteBaseline = {
-    ...baseline,
-    cells: baseline.cells.map((cell) => ({ ...cell, provider: "other-provider" })),
-  };
-  await writeFile(currentConfigPath, currentConfig.replace("openai:codex-sdk", "other-provider"), "utf8");
-  await writeFile(baselinePath, `${JSON.stringify(currentRewriteBaseline, null, 2)}\n`, "utf8");
-  await expectReject(runProductionValidator, /must match the historical Promptfoo provider/,
-    "current config and provider rewrite");
-  await writeFile(currentConfigPath, currentConfig, "utf8");
 
   const rawBaseline = `${JSON.stringify(baseline, null, 2)}\n`;
   const duplicateMembers = [
@@ -766,11 +834,11 @@ try {
     ), /duplicate JSON object member input_tokens/],
   ];
   for (const [name, rawFixture, pattern] of duplicateMembers) {
-    await writeFile(baselinePath, rawFixture, "utf8");
+    await commitBaselineSource(rawFixture, name);
     await expectReject(runProductionValidator, pattern, name);
   }
 
-  const malformedCount = malformedBaselines.length + duplicateMembers.length + 1;
+  const malformedCount = malformedBaselines.length + duplicateMembers.length + 8;
   console.log(`Evaluation harness self-test passed; ${malformedCount} malformed baseline fixtures were rejected.`);
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });

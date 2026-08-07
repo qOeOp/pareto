@@ -101,7 +101,8 @@ and `raw_result_committed`. `candidate` contains only `commit`, `tree`, `skill_s
 `skills_tree_oid`, plus `promptfoo_config`. `promptfoo_config` contains only the historical repo-relative `path`, Git
 `blob_oid`, raw-byte `sha256`, and sole parsed `provider`; `environment` contains only `node`, `npm`,
 `promptfoo`, and `skills_cli`. `case_ids` must exactly match the smoke cases, and cells must exactly
-match the model/effort matrix. Every cell contains `provider`, `model`, `reasoning_effort`,
+match the model/effort matrix. A `YYYY-MM-DD-smoke.json` filename must match `attempted_at`'s UTC
+date, so there is intentionally at most one committed smoke baseline per UTC day. Every cell contains `provider`, `model`, `reasoning_effort`,
 `planned_trials`, `completed_trials`, `errored_trials`, and `status`, plus the following
 status-dependent fields:
 
@@ -126,16 +127,19 @@ provider parsed from the recorded historical Promptfoo blob, not the mutable wor
 The recorded historical candidate must exist in the current repository history, resolve to the
 recorded tree and complete `skills/` tree, predate or equal `attempted_at`, expose exactly the recorded
 Skill names, reproduce every recorded `SKILL.md` SHA-256 digest, and expose the recorded config path
-as the recorded blob and raw-byte digest.
+as the recorded blob and raw-byte digest. Its smoke cases and model/effort matrix are loaded from that
+same candidate commit, never from the mutable current checkout.
 
 Static repository validation proves referential and causal consistency among committed Git objects
 and the baseline representation. It does not prove that the provider actually ran, provide
 tamper-proof external attestation, or make the repository history an immutable service.
 
-The validator accepts no `evals/baselines/` directory or an empty one, and validates every present
-tracked regular `YYYY-MM-DD-smoke.json` file independently. A future committed baseline therefore
-still needs its own reconstructable candidate; it cannot borrow an unreachable pull-request object
-or an ignored raw result from an earlier run.
+The validator accepts no `evals/baselines/` directory or an empty one. It inventories and reads every
+present `100644` `YYYY-MM-DD-smoke.json` only from the exact `HEAD` Git tree, in deterministic path
+order, and rejects tracked, index, working-tree, or untracked drift under `evals/baselines/` before
+any baseline is consumed. Ignored material is not read by that consumer. A future committed baseline
+therefore still needs its own reconstructable candidate; it cannot borrow an unreachable pull-request
+object or an ignored raw result from an earlier run.
 
 Never estimate a missing provider field or expose a local absolute path, credential, thread/session
 identifier, private source locator, prompt cache, or raw transcript in a committed baseline.

@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -270,7 +270,36 @@ function validateBaselineProvenance(candidate, attemptedAt) {
   return historicalProvider;
 }
 
-function validateBaseline(baseline, cases, matrix) {
+function readHistoricalBaselineInputs(candidateCommit) {
+  const goldenSource = gitBytes(["cat-file", "blob", `${candidateCommit}:evals/cases/golden.yaml`],
+    "smoke baseline historical golden cases");
+  const matrixSource = gitBytes(["cat-file", "blob", `${candidateCommit}:evals/matrix.json`],
+    "smoke baseline historical model/effort matrix");
+  let goldenCases;
+  let matrix;
+  try {
+    goldenCases = parseYaml(goldenSource.toString("utf8"));
+  } catch {
+    fail("smoke baseline historical golden cases must be valid YAML");
+  }
+  try {
+    matrix = JSON.parse(matrixSource.toString("utf8"));
+  } catch {
+    fail("smoke baseline historical model/effort matrix must be valid JSON");
+  }
+  validatePromptfooCases(goldenCases, {
+    file: "smoke baseline historical golden cases",
+    suites: new Set(["smoke", "full"]),
+    count: 15,
+  });
+  if (goldenCases.filter((testCase) => /^\[smoke\]/.test(testCase.description)).length !== 2) {
+    fail("smoke baseline historical golden cases: expected exactly two smoke cases");
+  }
+  validateMatrix(matrix);
+  return { goldenCases, matrix };
+}
+
+function validateBaseline(baseline, filename) {
   const topFields = new Set([
     "schema_version", "suite", "attempted_at", "candidate", "case_ids", "environment", "cells",
     "result", "raw_result_committed",
@@ -281,6 +310,9 @@ function validateBaseline(baseline, cases, matrix) {
       !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(baseline.attempted_at) ||
       Number.isNaN(Date.parse(baseline.attempted_at))) {
     fail("smoke baseline attempted_at must be an ISO timestamp");
+  }
+  if (filename.slice(0, 10) !== new Date(Date.parse(baseline.attempted_at)).toISOString().slice(0, 10)) {
+    fail("smoke baseline filename date must match attempted_at UTC date");
   }
 
   validateExactKeys(baseline.candidate,
@@ -310,8 +342,9 @@ function validateBaseline(baseline, cases, matrix) {
   validateNonEmptyString(baseline.candidate.promptfoo_config.provider,
     "smoke baseline Promptfoo config provider");
   const historicalProvider = validateBaselineProvenance(baseline.candidate, baseline.attempted_at);
+  const { goldenCases, matrix } = readHistoricalBaselineInputs(baseline.candidate.commit);
 
-  const smokeCases = cases.filter((testCase) => /^\[smoke\]/.test(testCase.description));
+  const smokeCases = goldenCases.filter((testCase) => /^\[smoke\]/.test(testCase.description));
   const expectedCaseIds = smokeCases.map((testCase) => testCase.description);
   if (!Array.isArray(baseline.case_ids) || baseline.case_ids.length !== expectedCaseIds.length ||
       baseline.case_ids.some((caseId, index) => caseId !== expectedCaseIds[index])) {
@@ -458,41 +491,75 @@ function validateMatrix(matrix) {
   }
 }
 
-async function validateCommittedBaselines(cases, matrix) {
-  const directory = path.join(root, "evals", "baselines");
-  let names;
+function validateBaselineWorkspaceDrift() {
   try {
-    names = await readdir(directory);
-  } catch (error) {
-    if (error?.code === "ENOENT") return [];
-    throw error;
+    execFileSync("git", ["diff", "--quiet", "HEAD", "--", "evals/baselines"], {
+      cwd: root,
+      stdio: "ignore",
+    });
+  } catch {
+    fail("evals/baselines must match the exact HEAD tree");
   }
+  const untracked = gitText(["ls-files", "--others", "--exclude-standard", "--", "evals/baselines"],
+    "evals/baselines untracked inventory");
+  if (untracked !== "") {
+    fail("evals/baselines must not contain untracked material");
+  }
+}
 
+function readHeadBaselineEntries() {
+  const listing = gitBytes(["ls-tree", "-rz", "HEAD", "--", "evals/baselines"],
+    "committed smoke baseline inventory");
+  const entries = [];
+  for (const record of listing.toString("binary").split("\0").filter(Boolean)) {
+    const tab = record.indexOf("\t");
+    const header = record.slice(0, tab);
+    const relative = Buffer.from(record.slice(tab + 1), "binary").toString("utf8");
+    const match = /^(\d+) (blob) ([0-9a-f]{40})$/.exec(header);
+    if (tab === -1 || !match || match[1] !== "100644" ||
+        !/^evals\/baselines\/\d{4}-\d{2}-\d{2}-smoke\.json$/.test(relative)) {
+      fail(`committed smoke baseline inventory contains an unsupported entry: ${relative}`);
+    }
+    entries.push({ relative, filename: path.basename(relative), oid: match[3] });
+  }
+  entries.sort((left, right) => left.relative.localeCompare(right.relative));
+  for (const [index, entry] of entries.entries()) {
+    if (entries[index - 1]?.relative === entry.relative) {
+      fail(`committed smoke baseline inventory repeats ${entry.relative}`);
+    }
+  }
+  return entries;
+}
+
+function validateCommittedBaselines() {
+  validateBaselineWorkspaceDrift();
   const baselines = [];
-  for (const name of names.sort()) {
-    if (!/^\d{4}-\d{2}-\d{2}-smoke\.json$/.test(name)) {
-      fail(`evals/baselines/${name}: expected a YYYY-MM-DD-smoke.json baseline name`);
-    }
-    const relative = path.join("evals", "baselines", name);
-    const info = await lstat(path.join(root, relative));
-    if (!info.isFile()) fail(`${relative}: expected a regular baseline file`);
-    if (gitText(["ls-files", "--error-unmatch", "--", relative], `${relative}: committed baseline`) !== relative) {
-      fail(`${relative}: expected one committed baseline path`);
-    }
-    const source = await readFile(path.join(root, relative), "utf8");
+  for (const entry of readHeadBaselineEntries()) {
+    const source = gitBytes(["cat-file", "blob", entry.oid], `${entry.relative} committed baseline blob`).toString("utf8");
     rejectDuplicateJsonObjectMembers(source, "smoke baseline");
-    validateBaseline(JSON.parse(source), cases, matrix);
-    baselines.push(relative);
+    validateBaseline(JSON.parse(source), entry.filename);
+    baselines.push(entry.relative);
   }
   return baselines;
+}
+
+function scanPublicEvidenceSource(relative, source) {
+  for (const pattern of forbiddenPublicEvidence) {
+    if (pattern.test(source)) fail(`${relative}: forbidden private evidence matched ${pattern}`);
+  }
 }
 
 async function scanPublicEvidence(files) {
   for (const relative of files) {
     const source = await readFile(path.join(root, relative), "utf8");
-    for (const pattern of forbiddenPublicEvidence) {
-      if (pattern.test(source)) fail(`${relative}: forbidden private evidence matched ${pattern}`);
-    }
+    scanPublicEvidenceSource(relative, source);
+  }
+}
+
+function scanCommittedBaselineEvidence(baselines) {
+  for (const relative of baselines) {
+    const source = gitBytes(["show", `HEAD:${relative}`], `${relative} committed baseline blob`).toString("utf8");
+    scanPublicEvidenceSource(relative, source);
   }
 }
 
@@ -522,7 +589,7 @@ const cases = [...goldenCases, ...holdoutCases];
 const caseCount = cases.length;
 const matrix = JSON.parse(await readFile(path.join(root, "evals/matrix.json"), "utf8"));
 validateMatrix(matrix);
-const baselines = await validateCommittedBaselines(cases, matrix);
+const baselines = validateCommittedBaselines();
 await scanPublicEvidence([
   "README.md",
   "evals/CONTRACT.md",
@@ -530,8 +597,8 @@ await scanPublicEvidence([
   "evals/cases/holdout.yaml",
   "evals/matrix.json",
   "evals/promptfooconfig.yaml",
-  ...baselines,
 ]);
+scanCommittedBaselineEvidence(baselines);
 
 for (const warning of skills.warnings) console.warn(`Warning: ${warning}.`);
 console.log(`Validated ${skills.count} Skill, ${caseCount} executable cases, and ${baselines.length} committed smoke baselines.`);
