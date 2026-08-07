@@ -258,6 +258,13 @@ try {
       fixture.results.results[0].testCase.vars.prompt = "different prompt";
       return fixture;
     })(), /exact selected case vars/],
+    ["raw prompt mismatch", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      const turn = JSON.parse(fixture.results.results[0].response.raw);
+      turn.conversationMessages[0].content = "different prompt";
+      fixture.results.results[0].response.raw = JSON.stringify(turn);
+      return fixture;
+    })(), /does not match the selected prompt/],
     ["missing assertion outcome", (() => {
       const fixture = structuredClone(validResultArtifact);
       fixture.results.results[0].gradingResult.componentResults.pop();
@@ -337,6 +344,13 @@ try {
       fixture.results.results[0].response.raw = JSON.stringify(turn);
       return fixture;
     })(), /partial file_change/],
+    ["successful row raw error", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      const turn = JSON.parse(fixture.results.results[0].response.raw);
+      turn.items.splice(-1, 0, { id: "raw-error", type: "error", message: "provider reported an error" });
+      fixture.results.results[0].response.raw = JSON.stringify(turn);
+      return fixture;
+    })(), /contains raw error evidence/],
     ["reordered terminal items", (() => {
       const fixture = structuredClone(validResultArtifact);
       const turn = JSON.parse(fixture.results.results[0].response.raw);
@@ -365,6 +379,43 @@ try {
     await writeFile(resultPath, JSON.stringify(fixture), "utf8");
     await expectReject(validateSyntheticResult, pattern, name);
   }
+
+  const repeatedRows = resultRows.flatMap((row, caseIndex) => [0, 1].map((trialIndex) => {
+    const repeated = structuredClone(row);
+    const turn = JSON.parse(repeated.response.raw);
+    turn.items = turn.items.map((item) => ({ ...item, id: `${item.id}-${caseIndex}-${trialIndex}` }));
+    repeated.response.raw = JSON.stringify(turn);
+    return repeated;
+  }));
+  const repeatedArtifact = {
+    ...structuredClone(validResultArtifact),
+    results: {
+      results: repeatedRows,
+      stats: { successes: repeatedRows.length, failures: 0, errors: 0 },
+    },
+    runtimeOptions: { repeat: 2 },
+  };
+  const validateRepeatedSyntheticResult = () => validateResultArtifact({
+    resultPath,
+    suite: "smoke",
+    repeat: 2,
+    cases: syntheticCases,
+    providerId: CANONICAL_PROVIDER_ID,
+    model: "synthetic-model",
+    effort: "low",
+    workingDirectory: temporaryRoot,
+  });
+  await writeFile(resultPath, JSON.stringify(repeatedArtifact), "utf8");
+  await validateRepeatedSyntheticResult();
+  const duplicateTrialArtifact = structuredClone(repeatedArtifact);
+  duplicateTrialArtifact.results.results[1].response.raw =
+    duplicateTrialArtifact.results.results[0].response.raw;
+  await writeFile(resultPath, JSON.stringify(duplicateTrialArtifact), "utf8");
+  await expectReject(
+    validateRepeatedSyntheticResult,
+    /reuses raw turn evidence across trials/,
+    "duplicate repeated-trial raw evidence",
+  );
 
   const repository = path.join(temporaryRoot, "repository");
   await mkdir(path.join(repository, "skills", "example"), { recursive: true });

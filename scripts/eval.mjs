@@ -295,9 +295,12 @@ function validateCodexRawItem(item, rowIndex) {
   }
 }
 
-function parseCodexRawItems(raw, output, rowIndex) {
+function parseCodexRawItems(raw, output, expectedPrompt, rowIndex) {
   if (typeof raw !== "string") {
     throw new Error(`Promptfoo result row ${rowIndex} is missing the Codex raw turn receipt`);
+  }
+  if (typeof expectedPrompt !== "string") {
+    throw new Error(`Promptfoo result row ${rowIndex} selected prompt is not one exact string`);
   }
   rejectDuplicateJsonObjectMembers(raw, `Promptfoo result row ${rowIndex} response.raw`);
   let turn;
@@ -317,9 +320,12 @@ function parseCodexRawItems(raw, output, rowIndex) {
       turn.conversationMessages.some((message) => !hasExactFields(message, ["role", "content"]) ||
         !["user", "assistant"].includes(message.role) || typeof message.content !== "string") ||
       turn.conversationMessages[0].role !== "user" ||
+      turn.conversationMessages[0].content !== expectedPrompt ||
       turn.conversationMessages.at(-1).role !== "assistant" ||
       turn.conversationMessages.at(-1).content !== output) {
-    throw new Error(`Promptfoo result row ${rowIndex} response.raw is not an exact completed Codex turn`);
+    throw new Error(
+      `Promptfoo result row ${rowIndex} response.raw is not an exact completed Codex turn or does not match the selected prompt`,
+    );
   }
   const ids = new Set();
   for (const item of turn.items) {
@@ -389,6 +395,8 @@ export async function validateResultArtifact({
       JSON.stringify(expected.map((testCase) => testCase.description))) {
     throw new Error(`Promptfoo output does not match ${suite} case/trial expectations`);
   }
+  const seenRawTurns = new Set();
+  const seenRawItemIds = new Set();
   for (const [index, row] of actual.entries()) {
     const expectedAssertions = expected[index].assert ?? [];
     const expectedVars = expected[index].vars ?? {};
@@ -405,6 +413,24 @@ export async function validateResultArtifact({
     if (!isDeepStrictEqual(row.testCase?.metadata ?? {}, expectedMetadata)) {
       throw new Error(`Promptfoo result row ${index} does not contain the exact selected observation contract`);
     }
+    if (typeof row.response?.output !== "string") {
+      throw new Error(`Promptfoo result row ${index} is missing the exact response output`);
+    }
+    const rawItems = parseCodexRawItems(row.response.raw, row.response.output, expectedVars.prompt, index);
+    if (rawItems.some((item) => item.type === "error")) {
+      throw new Error(`Promptfoo result row ${index} contains raw error evidence despite successful admission`);
+    }
+    const rawTurnDigest = sha256(Buffer.from(row.response.raw, "utf8"));
+    if (seenRawTurns.has(rawTurnDigest)) {
+      throw new Error(`Promptfoo result row ${index} reuses raw turn evidence across trials`);
+    }
+    seenRawTurns.add(rawTurnDigest);
+    for (const item of rawItems) {
+      if (seenRawItemIds.has(item.id)) {
+        throw new Error(`Promptfoo result row ${index} repeats a raw item id across trials`);
+      }
+      seenRawItemIds.add(item.id);
+    }
     const grading = row.gradingResult;
     if (grading?.pass !== true || !Array.isArray(grading.componentResults) ||
         grading.componentResults.length !== expectedAssertions.length) {
@@ -419,10 +445,6 @@ export async function validateResultArtifact({
     const heuristicSkillAssertions = expectedAssertions.filter((assertion) =>
       assertion.type === "skill-used" || assertion.type === "not-skill-used");
     if (heuristicSkillAssertions.length > 0) {
-      if (typeof row.response?.output !== "string") {
-        throw new Error(`Promptfoo result row ${index} is missing the exact response output`);
-      }
-      const rawItems = parseCodexRawItems(row.response.raw, row.response.output, index);
       const observedTypes = new Set(rawItems.map((item) => item.type));
       const requiredTypes = expectedMetadata?.observations?.required_raw_item_types;
       if (!Array.isArray(requiredTypes) || requiredTypes.some((type) =>

@@ -79,7 +79,10 @@ status and exit evidence where defined, and end in the agent message that equals
 partial, in-progress, or reordered terminal items fail closed. Raw items do not expose Hub fan-in,
 dependency release, Goal state, or native Task state, so cases about those mechanisms remain
 behavioral text plus `unavailable` runtime axes and require an external real-session trace for stronger
-claims. Row success and aggregate counts alone never authorize an evaluation result.
+claims. The first raw user message must equal the selected case's exact `vars.prompt`; a successful row
+must contain no raw `error` item; and repeated trials must carry distinct raw-turn receipts with
+provider-produced item IDs that are disjoint across rows. Row success and aggregate counts alone never
+authorize an evaluation result.
 
 The runner materializes its Skill workspace only from regular tracked blobs in the exact Git
 `HEAD:skills` tree. It never copies working-tree, untracked, or ignored Skill material into an
