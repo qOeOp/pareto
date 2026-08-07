@@ -53,10 +53,11 @@ const replayableRawItemTypes = new Set([
   "command_execution",
   "file_change",
   "mcp_tool_call",
-  "collaboration_tool_call",
-  "spawn_agent",
-  "send_input",
-  "agent_wait",
+  "agent_message",
+  "reasoning",
+  "web_search",
+  "todo_list",
+  "error",
 ]);
 
 function sha256(bytes) {
@@ -236,7 +237,65 @@ function expectedCaseTrials(cases, suite, repeat) {
     .sort((left, right) => left.description.localeCompare(right.description));
 }
 
-function parseCodexRawItems(raw, rowIndex) {
+function validateCodexRawItem(item, rowIndex) {
+  if (!item || typeof item !== "object" || Array.isArray(item) ||
+      typeof item.id !== "string" || item.id.length === 0 || !replayableRawItemTypes.has(item.type)) {
+    throw new Error(`Promptfoo result row ${rowIndex} response.raw contains an unknown or malformed item`);
+  }
+  if (item.type === "command_execution") {
+    if (!hasExactFields(item, ["id", "type", "command", "aggregated_output", "exit_code", "status"]) ||
+        typeof item.command !== "string" || typeof item.aggregated_output !== "string" ||
+        !Number.isInteger(item.exit_code) ||
+        !((item.status === "completed" && item.exit_code === 0) ||
+          (item.status === "failed" && item.exit_code !== 0))) {
+      throw new Error(`Promptfoo result row ${rowIndex} response.raw contains a partial command_execution`);
+    }
+    return;
+  }
+  if (item.type === "file_change") {
+    if (!hasExactFields(item, ["id", "type", "changes", "status"]) ||
+        !["completed", "failed"].includes(item.status) || !Array.isArray(item.changes) ||
+        item.changes.some((change) => !hasExactFields(change, ["path", "kind"]) ||
+          typeof change.path !== "string" || !["add", "delete", "update"].includes(change.kind))) {
+      throw new Error(`Promptfoo result row ${rowIndex} response.raw contains a partial file_change`);
+    }
+    return;
+  }
+  if (item.type === "mcp_tool_call") {
+    const fields = Object.keys(item);
+    const allowed = new Set(["id", "type", "server", "tool", "arguments", "result", "error", "status"]);
+    if (fields.some((field) => !allowed.has(field)) ||
+        !["id", "type", "server", "tool", "arguments", "status"].every((field) => fields.includes(field)) ||
+        typeof item.server !== "string" || typeof item.tool !== "string" ||
+        !["completed", "failed"].includes(item.status) ||
+        (item.status === "completed" && item.error !== undefined) ||
+        (item.status === "failed" && (!hasExactFields(item.error, ["message"]) ||
+          typeof item.error.message !== "string" || item.result !== undefined))) {
+      throw new Error(`Promptfoo result row ${rowIndex} response.raw contains a partial mcp_tool_call`);
+    }
+    return;
+  }
+  const scalarSchemas = {
+    agent_message: ["text"],
+    reasoning: ["text"],
+    web_search: ["query"],
+    error: ["message"],
+  };
+  if (item.type in scalarSchemas) {
+    const field = scalarSchemas[item.type][0];
+    if (!hasExactFields(item, ["id", "type", field]) || typeof item[field] !== "string") {
+      throw new Error(`Promptfoo result row ${rowIndex} response.raw contains a partial ${item.type}`);
+    }
+    return;
+  }
+  if (!hasExactFields(item, ["id", "type", "items"]) || !Array.isArray(item.items) ||
+      item.items.some((todo) => !hasExactFields(todo, ["text", "completed"]) ||
+        typeof todo.text !== "string" || typeof todo.completed !== "boolean")) {
+    throw new Error(`Promptfoo result row ${rowIndex} response.raw contains a partial todo_list`);
+  }
+}
+
+function parseCodexRawItems(raw, output, rowIndex) {
   if (typeof raw !== "string") {
     throw new Error(`Promptfoo result row ${rowIndex} is missing the Codex raw turn receipt`);
   }
@@ -247,13 +306,30 @@ function parseCodexRawItems(raw, rowIndex) {
   } catch {
     throw new Error(`Promptfoo result row ${rowIndex} response.raw must be parseable JSON`);
   }
-  if (!turn || typeof turn !== "object" || Array.isArray(turn) || !Array.isArray(turn.items)) {
-    throw new Error(`Promptfoo result row ${rowIndex} response.raw must contain an items array`);
+  if (!hasExactFields(turn,
+    ["finalResponse", "items", "usage", "reasoningTexts", "conversationMessages"]) ||
+      typeof turn.finalResponse !== "string" || turn.finalResponse !== output || !Array.isArray(turn.items) ||
+      !hasExactFields(turn.usage,
+        ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens"]) ||
+      Object.values(turn.usage).some((value) => !Number.isInteger(value) || value < 0) ||
+      !Array.isArray(turn.reasoningTexts) || turn.reasoningTexts.some((text) => typeof text !== "string") ||
+      !Array.isArray(turn.conversationMessages) || turn.conversationMessages.length < 2 ||
+      turn.conversationMessages.some((message) => !hasExactFields(message, ["role", "content"]) ||
+        !["user", "assistant"].includes(message.role) || typeof message.content !== "string") ||
+      turn.conversationMessages[0].role !== "user" ||
+      turn.conversationMessages.at(-1).role !== "assistant" ||
+      turn.conversationMessages.at(-1).content !== output) {
+    throw new Error(`Promptfoo result row ${rowIndex} response.raw is not an exact completed Codex turn`);
   }
+  const ids = new Set();
   for (const item of turn.items) {
-    if (!item || typeof item !== "object" || Array.isArray(item) || typeof item.type !== "string") {
-      throw new Error(`Promptfoo result row ${rowIndex} response.raw contains a malformed item`);
-    }
+    validateCodexRawItem(item, rowIndex);
+    if (ids.has(item.id)) throw new Error(`Promptfoo result row ${rowIndex} response.raw repeats an item id`);
+    ids.add(item.id);
+  }
+  const finalItem = turn.items.at(-1);
+  if (finalItem?.type !== "agent_message" || finalItem.text !== output) {
+    throw new Error(`Promptfoo result row ${rowIndex} response.raw lacks the terminal agent message`);
   }
   return turn.items;
 }
@@ -304,7 +380,7 @@ export async function validateResultArtifact({
     throw new Error("Promptfoo output must be parseable JSON");
   }
 
-  const rows = artifact?.results?.results?.results;
+  const rows = artifact?.results?.results;
   if (!Array.isArray(rows)) throw new Error("Promptfoo output is missing result rows");
   const expected = expectedCaseTrials(cases, suite, repeat);
   const actual = [...rows].sort((left, right) =>
@@ -343,7 +419,10 @@ export async function validateResultArtifact({
     const heuristicSkillAssertions = expectedAssertions.filter((assertion) =>
       assertion.type === "skill-used" || assertion.type === "not-skill-used");
     if (heuristicSkillAssertions.length > 0) {
-      const rawItems = parseCodexRawItems(row.response?.raw, index);
+      if (typeof row.response?.output !== "string") {
+        throw new Error(`Promptfoo result row ${index} is missing the exact response output`);
+      }
+      const rawItems = parseCodexRawItems(row.response.raw, row.response.output, index);
       const observedTypes = new Set(rawItems.map((item) => item.type));
       const requiredTypes = expectedMetadata?.observations?.required_raw_item_types;
       if (!Array.isArray(requiredTypes) || requiredTypes.some((type) =>
@@ -373,6 +452,16 @@ export async function validateResultArtifact({
         throw new Error(`Promptfoo result row ${index} has contradictory heuristic Skill-use evidence`);
       }
     }
+    const replayedAssertions = await assertions.runAssertions({
+      providerResponse: row.response,
+      test: { vars: expectedVars, assert: expectedAssertions },
+    });
+    if (replayedAssertions.pass !== true || !Array.isArray(replayedAssertions.componentResults) ||
+        replayedAssertions.componentResults.length !== expectedAssertions.length ||
+        replayedAssertions.componentResults.some((component, assertionIndex) =>
+          component?.pass !== true || !isDeepStrictEqual(component.assertion, expectedAssertions[assertionIndex]))) {
+      throw new Error(`Promptfoo result row ${index} deterministic assertions fail production replay`);
+    }
   }
   const stats = artifact?.results?.stats;
   if (stats?.successes !== rows.length || stats?.failures !== 0 || stats?.errors !== 0) {
@@ -387,7 +476,7 @@ export async function validateResultArtifact({
   const provider = providers[0];
   if (!hasExactFields(provider, providerFields) || !hasExactFields(provider.config, providerConfigFields) ||
       provider.id !== providerId || provider.config.model !== model ||
-      provider.config.model_reasoning_effort !== effort || provider.config.working_dir !== workingDirectory ||
+      provider.config.model_reasoning_effort !== effort || provider.config.working_dir !== "[REDACTED]" ||
       Object.entries(providerSafetyConfig).some(([field, value]) => provider.config[field] !== value)) {
     throw new Error("Promptfoo output is not bound to the exact invoked provider/model/effort cell");
   }

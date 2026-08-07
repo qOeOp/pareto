@@ -137,8 +137,10 @@
   vars:
     prompt: >-
       Use $run-bounded-mission. A recovered Hub has several approved task attempts, including one
-      unresolved create receipt and one completed child. Return the identity reconciliation rules
-      before any new create or release.
+      unresolved create receipt and one completed child. A proposed type-number was checked only
+      against its packet, created, and then found to collide with two identities in the live task
+      inventory. Return the identity reconciliation and collision recovery rules before any new
+      create or release.
   assert:
     - type: skill-used
       value: run-bounded-mission
@@ -149,6 +151,10 @@
         - "fuzzy_title_adoption: forbidden"
         - "duplicate_create: forbidden"
         - "release_before_identity: forbidden"
+        - "pre_create_live_type_number_inventory: required"
+        - "collision_recovery: rename-existing-identity"
+        - "superseding_identity: required"
+        - "substitute_task: forbidden"
 
 - description: "[full] task creation failure needs fresh authority"
   metadata:

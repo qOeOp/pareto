@@ -63,15 +63,23 @@ Keep Promptfoo's raw per-trial evidence locally. A committed baseline summary ma
 Repository acceptance reads Promptfoo result artifacts as raw JSON and rejects duplicate object
 members before normalization; exit zero never authorizes a last-wins representation.
 Before any provider-capable command, the runner requires exactly one canonical provider and the exact
-invoked model, reasoning effort, working directory, and read-only provider configuration. Result
-acceptance requires exactly that provider identity, model, and reasoning effort; every result row
+invoked model, reasoning effort, working directory, and read-only provider configuration. Promptfoo
+redacts the working-directory value in exported JSON; result acceptance requires that exact redaction
+marker plus the invoked provider identity, model, reasoning effort, and all remaining safety fields. Every result row
 names that provider and reproduces its selected case's exact vars and assertion inventory; and every
 assertion has an explicit passing component outcome. Heuristic Skill-use assertions are replayed with
 the selected case's expected vars against `response.metadata.skillCalls`, and those calls must exactly
 match successful Skill-path `command_execution` items parsed from duplicate-safe `response.raw` JSON;
 artifact-controlled vars or declared component success cannot override contradictory positive or
 negative oracle evidence. Required replayable item classes and unavailable mechanism axes are bound
-per case outside the prompt. Row success and aggregate counts alone never authorize an evaluation result.
+per case outside the prompt. The production assertion engine recomputes every deterministic assertion
+from `response.output`; artifact-declared component success is non-authorizing. A successful raw turn
+must match the current Codex SDK's exact completed item union, contain unique ordered item IDs, terminal
+status and exit evidence where defined, and end in the agent message that equals the response. Unknown,
+partial, in-progress, or reordered terminal items fail closed. Raw items do not expose Hub fan-in,
+dependency release, Goal state, or native Task state, so cases about those mechanisms remain
+behavioral text plus `unavailable` runtime axes and require an external real-session trace for stronger
+claims. Row success and aggregate counts alone never authorize an evaluation result.
 
 The runner materializes its Skill workspace only from regular tracked blobs in the exact Git
 `HEAD:skills` tree. It never copies working-tree, untracked, or ignored Skill material into an

@@ -22,10 +22,11 @@ const replayableRawItemTypes = new Set([
   "command_execution",
   "file_change",
   "mcp_tool_call",
-  "collaboration_tool_call",
-  "spawn_agent",
-  "send_input",
-  "agent_wait",
+  "agent_message",
+  "reasoning",
+  "web_search",
+  "todo_list",
+  "error",
 ]);
 const forbiddenPublicEvidence = [
   /qOeOp\/trade/i,

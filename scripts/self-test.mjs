@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
-import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -122,12 +122,17 @@ try {
         { type: "contains", value: "receipt: bounded" },
       ],
       output: "receipt: bounded",
-      items: [{
-        type: "command_execution",
-        status: "completed",
-        exit_code: 0,
-        command: "sed -n 1,20p .agents/skills/run-bounded-mission/SKILL.md",
-      }],
+      items: [
+        {
+          id: "command-positive",
+          type: "command_execution",
+          command: "sed -n 1,20p .agents/skills/run-bounded-mission/SKILL.md",
+          aggregated_output: "---\nname: run-bounded-mission\n",
+          exit_code: 0,
+          status: "completed",
+        },
+        { id: "message-positive", type: "agent_message", text: "receipt: bounded" },
+      ],
       skillCalls: [{
         name: "run-bounded-mission",
         path: ".agents/skills/run-bounded-mission/SKILL.md",
@@ -150,10 +155,35 @@ try {
         { type: "contains", value: "receipt: answer-only" },
       ],
       output: "receipt: answer-only",
-      items: [{ type: "command_execution", status: "completed", exit_code: 0, command: "pwd" }],
+      items: [
+        {
+          id: "command-negative",
+          type: "command_execution",
+          command: "pwd",
+          aggregated_output: "/workspace\n",
+          exit_code: 0,
+          status: "completed",
+        },
+        { id: "message-negative", type: "agent_message", text: "receipt: answer-only" },
+      ],
       skillCalls: [],
     },
   ];
+  const rawTurnFor = (testCase) => JSON.stringify({
+    finalResponse: testCase.output,
+    items: testCase.items,
+    usage: {
+      input_tokens: 1,
+      cached_input_tokens: 0,
+      output_tokens: 1,
+      reasoning_output_tokens: 0,
+    },
+    reasoningTexts: [],
+    conversationMessages: [
+      { role: "user", content: testCase.vars.prompt },
+      { role: "assistant", content: testCase.output },
+    ],
+  });
   const resultPath = path.join(temporaryRoot, "result.json");
   const resultRows = syntheticCases.map((testCase) => ({
     success: true,
@@ -161,7 +191,7 @@ try {
     response: {
       output: testCase.output,
       metadata: { skillCalls: structuredClone(testCase.skillCalls) },
-      raw: JSON.stringify({ finalResponse: testCase.output, items: testCase.items }),
+      raw: rawTurnFor(testCase),
     },
     testCase: {
       description: testCase.description,
@@ -179,7 +209,7 @@ try {
   }));
   const validResultArtifact = {
     results: {
-      results: { results: resultRows },
+      results: resultRows,
       stats: { successes: resultRows.length, failures: 0, errors: 0 },
     },
     config: {
@@ -188,6 +218,7 @@ try {
     },
     runtimeOptions: { repeat: 1 },
   };
+  validResultArtifact.config.providers[0].config.working_dir = "[REDACTED]";
   const validateSyntheticResult = () => validateResultArtifact({
     resultPath,
     suite: "smoke",
@@ -224,60 +255,109 @@ try {
     })(), /exactly one provider/],
     ["altered selected prompt", (() => {
       const fixture = structuredClone(validResultArtifact);
-      fixture.results.results.results[0].testCase.vars.prompt = "different prompt";
+      fixture.results.results[0].testCase.vars.prompt = "different prompt";
       return fixture;
     })(), /exact selected case vars/],
     ["missing assertion outcome", (() => {
       const fixture = structuredClone(validResultArtifact);
-      fixture.results.results.results[0].gradingResult.componentResults.pop();
+      fixture.results.results[0].gradingResult.componentResults.pop();
       return fixture;
     })(), /missing explicit assertion outcomes/],
     ["altered observation contract", (() => {
       const fixture = structuredClone(validResultArtifact);
-      fixture.results.results.results[0].testCase.metadata.observations.unavailable = [];
+      fixture.results.results[0].testCase.metadata.observations.unavailable = [];
       return fixture;
     })(), /exact selected observation contract/],
     ["failed assertion outcome", (() => {
       const fixture = structuredClone(validResultArtifact);
-      fixture.results.results.results[0].gradingResult.componentResults[0].pass = false;
+      fixture.results.results[0].gradingResult.componentResults[0].pass = false;
       return fixture;
     })(), /did not pass exactly/],
+    ["forged deterministic grading", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      const row = fixture.results.results[0];
+      row.response.output = "wrong output";
+      const turn = JSON.parse(row.response.raw);
+      turn.finalResponse = "wrong output";
+      turn.items.at(-1).text = "wrong output";
+      turn.conversationMessages.at(-1).content = "wrong output";
+      row.response.raw = JSON.stringify(turn);
+      return fixture;
+    })(), /deterministic assertions fail production replay/],
     ["contradictory heuristic activation", (() => {
       const fixture = structuredClone(validResultArtifact);
-      fixture.results.results.results[0].response.metadata.skillCalls = [];
+      fixture.results.results[0].response.metadata.skillCalls = [];
       return fixture;
     })(), /skillCalls inconsistent with raw command evidence/],
     ["missing raw turn", (() => {
       const fixture = structuredClone(validResultArtifact);
-      delete fixture.results.results.results[0].response.raw;
+      delete fixture.results.results[0].response.raw;
       return fixture;
     })(), /missing the Codex raw turn receipt/],
     ["malformed raw turn", (() => {
       const fixture = structuredClone(validResultArtifact);
-      fixture.results.results.results[0].response.raw = "{";
+      fixture.results.results[0].response.raw = "{";
       return fixture;
     })(), /response.raw/],
     ["duplicate raw turn member", (() => {
       const fixture = structuredClone(validResultArtifact);
-      fixture.results.results.results[0].response.raw = '{"items":[],"items":[]}';
+      fixture.results.results[0].response.raw = '{"items":[],"items":[]}';
       return fixture;
     })(), /duplicate JSON object member items/],
     ["missing raw items", (() => {
       const fixture = structuredClone(validResultArtifact);
-      fixture.results.results.results[0].response.raw = JSON.stringify({ finalResponse: "receipt: bounded" });
+      fixture.results.results[0].response.raw = JSON.stringify({ finalResponse: "receipt: bounded" });
       return fixture;
-    })(), /response.raw must contain an items array/],
+    })(), /not an exact completed Codex turn/],
+    ["command missing status", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      const turn = JSON.parse(fixture.results.results[0].response.raw);
+      delete turn.items[0].status;
+      fixture.results.results[0].response.raw = JSON.stringify(turn);
+      return fixture;
+    })(), /partial command_execution/],
+    ["command missing exit", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      const turn = JSON.parse(fixture.results.results[0].response.raw);
+      delete turn.items[0].exit_code;
+      fixture.results.results[0].response.raw = JSON.stringify(turn);
+      return fixture;
+    })(), /partial command_execution/],
+    ["unknown raw item", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      const turn = JSON.parse(fixture.results.results[0].response.raw);
+      turn.items.splice(-1, 0, { id: "unknown", type: "unknown_event" });
+      fixture.results.results[0].response.raw = JSON.stringify(turn);
+      return fixture;
+    })(), /unknown or malformed item/],
+    ["partial raw item", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      const turn = JSON.parse(fixture.results.results[0].response.raw);
+      turn.items.splice(-1, 0, { id: "partial", type: "file_change", changes: [] });
+      fixture.results.results[0].response.raw = JSON.stringify(turn);
+      return fixture;
+    })(), /partial file_change/],
+    ["reordered terminal items", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      const turn = JSON.parse(fixture.results.results[0].response.raw);
+      turn.items.reverse();
+      fixture.results.results[0].response.raw = JSON.stringify(turn);
+      return fixture;
+    })(), /lacks the terminal agent message/],
     ["missing required raw class", (() => {
       const fixture = structuredClone(validResultArtifact);
-      fixture.results.results.results[0].response.raw = JSON.stringify({
-        items: [{ type: "agent_message", text: "receipt: bounded" }],
-      });
-      fixture.results.results.results[0].response.metadata.skillCalls = [];
+      const turn = JSON.parse(fixture.results.results[0].response.raw);
+      turn.items = [turn.items.at(-1)];
+      fixture.results.results[0].response.raw = JSON.stringify(turn);
+      fixture.results.results[0].response.metadata.skillCalls = [];
       return fixture;
     })(), /missing a required raw item observation/],
     ["negative raw Skill contradiction", (() => {
       const fixture = structuredClone(validResultArtifact);
-      fixture.results.results.results[1].response.raw = fixture.results.results.results[0].response.raw;
+      const positiveTurn = JSON.parse(fixture.results.results[0].response.raw);
+      const negativeTurn = JSON.parse(fixture.results.results[1].response.raw);
+      negativeTurn.items[0] = positiveTurn.items[0];
+      fixture.results.results[1].response.raw = JSON.stringify(negativeTurn);
       return fixture;
     })(), /skillCalls inconsistent with raw command evidence/],
   ];
@@ -373,7 +453,224 @@ try {
   );
   await writeFile(path.join(repository, "dirty.txt"), "dirty\n", "utf8");
   await expectReject(() => readHoldoutIdentity(repository), /clean tracked and untracked worktree/);
-  console.log("Evaluation harness self-test passed.");
+
+  const validatorFixture = path.join(temporaryRoot, "validator-fixture");
+  await execFileAsync("git", ["clone", "--quiet", "--shared", root, validatorFixture]);
+  await cp(root, validatorFixture, {
+    recursive: true,
+    filter: (source) => {
+      const relative = path.relative(root, source);
+      return relative !== ".git" && !relative.startsWith(`.git${path.sep}`) &&
+        relative !== "node_modules" && !relative.startsWith(`node_modules${path.sep}`) &&
+        relative !== path.join("evals", "results") &&
+        !relative.startsWith(`${path.join("evals", "results")}${path.sep}`);
+    },
+  });
+  await symlink(
+    path.join(root, "node_modules"),
+    path.join(validatorFixture, "node_modules"),
+    process.platform === "win32" ? "junction" : "dir",
+  );
+  const crlfSkillPath = path.join(validatorFixture, "skills", "run-bounded-mission", "SKILL.md");
+  const crlfSkill = (await readFile(crlfSkillPath, "utf8")).replace(/\r?\n/g, "\r\n");
+  await writeFile(crlfSkillPath, crlfSkill, "utf8");
+  const runProductionValidator = () => execFileAsync(
+    process.execPath,
+    [path.join(validatorFixture, "scripts", "validate.mjs")],
+    { encoding: "utf8" },
+  );
+  const crlfValidation = await runProductionValidator();
+  assert.match(crlfValidation.stdout, /Validated 1 Skill and 19 executable cases/);
+
+  const baselinePath = path.join(validatorFixture, "evals", "baselines", "2026-08-07-smoke.json");
+  const baseline = JSON.parse(await readFile(baselinePath, "utf8"));
+  const matrix = JSON.parse(await readFile(path.join(validatorFixture, "evals", "matrix.json"), "utf8"));
+  const smokeCases = goldenCases.filter((testCase) => /^\[smoke\]/.test(testCase.description));
+  const expectedAssertions = smokeCases.reduce((total, testCase) => total + testCase.assert.length, 0) *
+    matrix.trials_per_cell;
+  const plannedTrials = smokeCases.length * matrix.trials_per_cell;
+  const completedCell = (matrixCell) => ({
+    provider: "openai:codex-sdk",
+    model: matrixCell.model,
+    reasoning_effort: matrixCell.effort,
+    planned_trials: plannedTrials,
+    completed_trials: plannedTrials,
+    errored_trials: 0,
+    status: "completed",
+    quality: {
+      passed: true,
+      passed_trials: plannedTrials,
+      total_assertions: expectedAssertions,
+      passed_assertions: expectedAssertions,
+      assertion_score: 1,
+      rubric_score: "unavailable",
+      pass_rate: 1,
+      mean: 1,
+      median: 1,
+      p95: 1,
+      variance: 0,
+    },
+    elapsed_ms: 1,
+    input_tokens: 1,
+    output_tokens: 1,
+    cached_input_tokens: 0,
+    reasoning_tokens: 0,
+    cost: 0,
+  });
+  const validCompletedBaseline = {
+    ...baseline,
+    cells: matrix.cells.map(completedCell),
+    result: "completed",
+  };
+  await writeFile(baselinePath, `${JSON.stringify(validCompletedBaseline, null, 2)}\n`, "utf8");
+  const completedValidation = await runProductionValidator();
+  assert.match(completedValidation.stdout, /Validated 1 Skill and 19 executable cases/);
+
+  const laterCommit = execFileSync("git", [
+    "-C", validatorFixture,
+    "-c", "user.name=Skill Eval Self Test",
+    "-c", "user.email=skill-eval@example.invalid",
+    "commit-tree", baseline.candidate.tree,
+    "-p", "HEAD",
+    "-m", "later candidate fixture",
+  ], { encoding: "utf8" }).trim();
+  execFileSync("git", ["-C", validatorFixture, "update-ref", "HEAD", laterCommit]);
+
+  const malformedBaselines = [
+    ["completed required field", (() => {
+      const fixture = structuredClone(validCompletedBaseline);
+      delete fixture.cells[0].cost;
+      return fixture;
+    })(), /completed cell 0: expected exact fields/],
+    ["unavailable forbidden field", {
+      ...baseline,
+      cells: baseline.cells.map((cell, index) => index === 0 ? { ...cell, unexpected: true } : cell),
+    }, /not_run cell 0: expected exact fields/],
+    ["not_run status consistency", {
+      ...baseline,
+      cells: baseline.cells.map((cell, index) => index === 0 ? { ...cell, errored_trials: 1 } : cell),
+    }, /not_run cell 0: trial counts contradict status/],
+    ["required environment", (() => {
+      const fixture = { ...baseline };
+      delete fixture.environment;
+      return fixture;
+    })(), /expected exact fields/],
+    ["undeclared claims", { ...baseline, claims: ["Provider ran successfully."] }, /expected exact fields/],
+    ["historical provider provenance", {
+      ...baseline,
+      cells: baseline.cells.map((cell, index) => index === 1 ? { ...cell, provider: "other-provider" } : cell),
+    }, /must match the historical Promptfoo provider/],
+    ["historical candidate commit provenance", {
+      ...baseline,
+      candidate: { ...baseline.candidate, commit: "0".repeat(40) },
+    }, /candidate commit: Git object is unavailable/],
+    ["historical candidate tree provenance", {
+      ...baseline,
+      candidate: { ...baseline.candidate, tree: "0".repeat(40) },
+    }, /candidate tree does not match its commit/],
+    ["historical Skill digest provenance", {
+      ...baseline,
+      candidate: {
+        ...baseline.candidate,
+        skill_sha256: { "run-bounded-mission": "0".repeat(64) },
+      },
+    }, /Skill digest does not match historical run-bounded-mission/],
+    ["historical Promptfoo config blob provenance", {
+      ...baseline,
+      candidate: {
+        ...baseline.candidate,
+        promptfoo_config: { ...baseline.candidate.promptfoo_config, blob_oid: "0".repeat(40) },
+      },
+    }, /Promptfoo config blob does not match the historical candidate/],
+    ["historical Promptfoo config digest provenance", {
+      ...baseline,
+      candidate: {
+        ...baseline.candidate,
+        promptfoo_config: { ...baseline.candidate.promptfoo_config, sha256: "0".repeat(64) },
+      },
+    }, /Promptfoo config digest does not match the historical blob/],
+    ["historical Promptfoo config provider provenance", {
+      ...baseline,
+      candidate: {
+        ...baseline.candidate,
+        promptfoo_config: { ...baseline.candidate.promptfoo_config, provider: "other-provider" },
+      },
+    }, /Promptfoo provider does not match the historical config blob/],
+    ["later candidate causal provenance", {
+      ...baseline,
+      candidate: { ...baseline.candidate, commit: laterCommit },
+    }, /candidate commit time must not be later than attempted_at/],
+    ["completed trial denominator", (() => {
+      const fixture = structuredClone(validCompletedBaseline);
+      fixture.cells[0].quality.passed = false;
+      fixture.cells[0].quality.passed_trials = 1;
+      fixture.cells[0].quality.pass_rate = 0.3;
+      return fixture;
+    })(), /pass_rate contradicts trial counts/],
+    ["completed assertion pass coherence", (() => {
+      const fixture = structuredClone(validCompletedBaseline);
+      fixture.cells[0].quality.passed = false;
+      fixture.cells[0].quality.passed_trials = 1;
+      fixture.cells[0].quality.pass_rate = 0.5;
+      return fixture;
+    })(), /assertion and pass evidence contradict trial counts/],
+    ["completed assertion denominator", (() => {
+      const fixture = structuredClone(validCompletedBaseline);
+      fixture.cells[0].quality.passed = false;
+      fixture.cells[0].quality.passed_trials = 1;
+      fixture.cells[0].quality.pass_rate = 0.5;
+      fixture.cells[0].quality.passed_assertions = 1;
+      fixture.cells[0].quality.assertion_score = 0.3;
+      return fixture;
+    })(), /assertion_score contradicts assertion counts/],
+    ["completed assertion inventory", (() => {
+      const fixture = structuredClone(validCompletedBaseline);
+      fixture.cells[0].quality.total_assertions = 2;
+      fixture.cells[0].quality.passed_assertions = 2;
+      return fixture;
+    })(), /total_assertions must match the smoke assertion inventory/],
+    ["completed percentile ordering", (() => {
+      const fixture = structuredClone(validCompletedBaseline);
+      fixture.cells[0].quality.median = 1;
+      fixture.cells[0].quality.p95 = 0;
+      return fixture;
+    })(), /median must not exceed p95/],
+  ];
+  for (const [name, malformedBaseline, pattern] of malformedBaselines) {
+    await writeFile(baselinePath, `${JSON.stringify(malformedBaseline, null, 2)}\n`, "utf8");
+    await expectReject(runProductionValidator, pattern, name);
+  }
+
+  const currentConfigPath = path.join(validatorFixture, "evals", "promptfooconfig.yaml");
+  const currentConfig = await readFile(currentConfigPath, "utf8");
+  const currentRewriteBaseline = {
+    ...baseline,
+    cells: baseline.cells.map((cell) => ({ ...cell, provider: "other-provider" })),
+  };
+  await writeFile(currentConfigPath, currentConfig.replace("openai:codex-sdk", "other-provider"), "utf8");
+  await writeFile(baselinePath, `${JSON.stringify(currentRewriteBaseline, null, 2)}\n`, "utf8");
+  await expectReject(runProductionValidator, /must match the historical Promptfoo provider/,
+    "current config and provider rewrite");
+  await writeFile(currentConfigPath, currentConfig, "utf8");
+
+  const rawBaseline = `${JSON.stringify(baseline, null, 2)}\n`;
+  const duplicateMembers = [
+    ["duplicate top-level result", rawBaseline.replace(
+      '  "result": "unavailable",',
+      '  "result": "completed",\n  "result": "unavailable",',
+    ), /duplicate JSON object member result/],
+    ["duplicate nested evidence", rawBaseline.replace(
+      '      "input_tokens": "unavailable",',
+      '      "input_tokens": 1,\n      "input_tokens": "unavailable",',
+    ), /duplicate JSON object member input_tokens/],
+  ];
+  for (const [name, rawFixture, pattern] of duplicateMembers) {
+    await writeFile(baselinePath, rawFixture, "utf8");
+    await expectReject(runProductionValidator, pattern, name);
+  }
+
+  const malformedCount = malformedBaselines.length + duplicateMembers.length + 1;
+  console.log(`Evaluation harness self-test passed; ${malformedCount} malformed baseline fixtures were rejected.`);
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
 }
