@@ -1,0 +1,7 @@
+node_modules/
+.promptfoo/
+evals/results/
+*.log
+.env
+.env.*
+!.env.example

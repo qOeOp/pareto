@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "suite": "smoke",
+  "trials_per_cell": 1,
+  "cells": [
+    {
+      "model": "gpt-5.6-terra",
+      "effort": "low"
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "effort": "medium"
+    }
+  ]
+}

@@ -1,0 +1,291 @@
+- description: "[smoke] explicit bounded mission invocation"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission now for a small repository implementation. Do not edit files. Return
+      only the initial lifecycle projection and the next legal stage.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "Frame projection"
+        - "Outcome / consumer"
+        - "Included / excluded"
+        - "Authority / effects"
+        - "Acceptance"
+        - "Origin / Stop"
+
+- description: "[smoke] quoted token answer-only near miss"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: not_used }, required_raw_item_types: [], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      This is answer-only. Explain why quoting the token $run-bounded-mission is not an invocation.
+      Do not run a workflow. Return two lines with the keys classification and activation.
+  assert:
+    - type: not-skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "classification: answer-only"
+        - "activation: none"
+
+- description: "[full] repository rule auto trigger"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Plan a non-trivial repository implementation under the repository instructions. Do not edit
+      files. Return the required initial projection and the next legal stage. Do not explicitly name
+      any Skill in your answer.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "Frame projection"
+        - "Outcome / consumer"
+        - "Origin / Stop"
+
+- description: "[full] nonactivation boundary classification"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: not_used }, required_raw_item_types: [], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      This is an answer-only classification request. Classify explain-only, audit-only,
+      diagnose-only, mechanical edit, routine status, and task-management requests against the
+      bounded-mission activation boundary. Do not invoke a Skill. Return a compact classification
+      receipt.
+  assert:
+    - type: not-skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "explain-only: no"
+        - "audit-only: no"
+        - "diagnose-only: no"
+        - "mechanical-edit: no"
+        - "routine-status: no"
+        - "task-management: no"
+
+- description: "[full] fresh packet completeness and lazy owner loading"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission for a planning-only decision whose only unresolved question is whether
+      current external evidence can change one architecture choice. No delivery or evaluator action
+      is requested. Return a compact packet receipt; if reference-read tracing is not exposed, mark
+      that observation unavailable rather than guessing.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "packet_bytes:"
+        - "packet_length:"
+        - "packet_sha256:"
+        - "activated_owner: planning-decision-evidence"
+        - "load_all_owners: false"
+        - "owner_trace: unavailable"
+        - "next_edge:"
+
+- description: "[full] compaction recovery preserves owner and edge"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, conversation_compaction_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A task resumes after context compression with one preserved candidate,
+      one current owner, completed evidence, and one unissued effect. Explain the recovery gate before
+      any mutation. Return only a recovery receipt.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "mutation: frozen"
+        - "preserve_candidate: true"
+        - "reconcile_current_owner: true"
+        - "reconcile_evidence: true"
+        - "reconcile_unissued_effect: true"
+        - "preserve_next_edge: true"
+
+- description: "[full] mode selection re-evaluates after scope change"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A request initially contains two independent Missions but Goal
+      capability is unavailable, so dispatch cannot be authorized. The user then narrows the Outcome
+      to one Mission. Return the required mode and reframe decisions without creating tasks.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "initial_mode: multi"
+        - "dispatch: frozen"
+        - "reframe: required"
+        - "reevaluate_mode: true"
+        - "final_mode: single"
+
+- description: "[full] task persistence without loss or duplicate"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A recovered Hub has several approved task attempts, including one
+      unresolved create receipt and one completed child. A proposed type-number was checked only
+      against its packet, created, and then found to collide with two identities in the live task
+      inventory. Return the identity reconciliation and collision recovery rules before any new
+      create or release.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "preserve_task_inventory: true"
+        - "unresolved_attempt: retained"
+        - "fuzzy_title_adoption: forbidden"
+        - "duplicate_create: forbidden"
+        - "release_before_identity: forbidden"
+        - "pre_create_live_type_number_inventory: required"
+        - "collision_recovery: rename-existing-identity"
+        - "superseding_identity: required"
+        - "substitute_task: forbidden"
+
+- description: "[full] task creation failure needs fresh authority"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. An authorized native task-create call returned only a generic host
+      error, with no task identity or pending receipt. A bounded task listing confirms no matching
+      identity. Other DAG nodes remain runnable. Return the correct recovery disposition.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "record_attempt: true"
+        - "automatic_retry: forbidden"
+        - "adopt_similar_task: forbidden"
+        - "continue_runnable_nodes: true"
+        - "retry_requires_fresh_authority: true"
+
+- description: "[full] Hub commander duty inversion"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A Hub has runnable and attention-needed children plus pending
+      dependency release and fan-in work. A material leaf implementation is tempting the Hub to work
+      in its foreground. Return the commander decision, the bounded-control near miss, and recovery.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "hub_executes_material_leaf: false"
+        - "dispatch_leaf: true"
+        - "observe_current_wave: true"
+        - "release_dependencies: true"
+        - "fan_in_once: true"
+        - "near_miss: bounded-hub-only-control"
+        - "recovery: restore-wave-without-loss-or-duplicate"
+
+- description: "[full] evaluator admission and recovery boundaries"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_evaluator_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Classify a corrupt evaluator packet, an unavailable evaluator,
+      a terminal no-finding return, and a candidate-provided self-test. State the only valid recovery
+      route without issuing a new evaluator request.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "corrupt_packet: fail-closed"
+        - "unavailable_evaluator: evidence-unavailable"
+        - "terminal_no_finding: not-acceptance"
+        - "candidate_self_test_authority: false"
+        - "recovery: exact-new-authority"
+        - "automatic_retry: false"
+
+- description: "[full] provider unavailable is not a pass"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_provider_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. The single authorized provider attempt fails before inference because
+      capability is unavailable. Return the evidence disposition and retry rule.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "status: unavailable"
+        - "pass: false"
+        - "retry: false"
+        - "preserve_raw_evidence: true"
+        - "quality_claim: unavailable"
+
+- description: "[full] exact head delivery rejects stale evidence"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission for delivery. A candidate received a new commit after prior CI and
+      review evidence. Return which evidence can authorize merge-ready and distinguish it from merge.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "wrong_head: reject"
+        - "stale_ci: reject"
+        - "final_head_only: true"
+        - "merge_ready_is_merge: false"
+        - "merge_authority: external"
+
+- description: "[full] coordination churn is a QA signal"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Repeated low-information Hub-child messages keep invalidating work
+      without changing candidate, authority, or release predicates. Return the QA classification and
+      repair route.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "qa_signal: coordination-churn"
+        - "route_root_owner: true"
+        - "fan_in_once: true"
+        - "message_count_alone: insufficient"
+        - "repeat_unchanged_status: false"
+
+- description: "[full] high score cannot complete an unproved Goal"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_goal_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. An overall Goal is numerically scored above 9.5, but one mandatory
+      floor fails, a major gap remains, and a key claim is unproved. Return the completion decision.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "goal_complete: false"
+        - "threshold_score_authority: false"
+        - "failed_floor: blocking"
+        - "major_gap: blocking"
+        - "unproved_key_claim: blocking"
+        - "status: incomplete"

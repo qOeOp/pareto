@@ -1,0 +1,22 @@
+{
+  "name": "@qoeop/skills",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Portable Agent Skills with deterministic validation and reproducible evaluations",
+  "type": "module",
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "scripts": {
+    "audit:consumer": "npm audit --omit=dev",
+    "check": "node scripts/validate.mjs && node scripts/self-test.mjs && promptfoo validate -c evals/promptfooconfig.yaml",
+    "eval:smoke": "node scripts/eval.mjs smoke",
+    "eval:full": "node scripts/eval.mjs full",
+    "eval:holdout": "node scripts/eval.mjs holdout",
+    "eval:matrix": "node scripts/matrix.mjs"
+  },
+  "devDependencies": {
+    "promptfoo": "0.122.0",
+    "yaml": "2.9.0"
+  }
+}

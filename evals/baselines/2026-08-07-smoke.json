@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "suite": "smoke",
+  "attempted_at": "2026-08-07T10:58:10.815Z",
+  "candidate": {
+    "commit": "73af975e02e5db8ef64c4e3b8aace17680a55849",
+    "tree": "727cd8747a77c5ddbe0c26ee19b721f6a5382528",
+    "skill_sha256": {
+      "run-bounded-mission": "f8ab4835f18434054264926ace00977d785f9246addd145c2af8cf14eb8f680a"
+    },
+    "skills_tree_oid": "1158dc06eea31d1f0adf335d551fe46ce14abab5",
+    "promptfoo_config": {
+      "path": "evals/promptfooconfig.yaml",
+      "blob_oid": "b24fbb7375606e37309f67e7ef71cb7a63ec38f8",
+      "sha256": "6eee492270b38ace6facb5ab108f4770de955f99189894f521372dd600eba055",
+      "provider": "openai:codex-sdk"
+    }
+  },
+  "case_ids": [
+    "[smoke] explicit bounded mission invocation",
+    "[smoke] quoted token answer-only near miss"
+  ],
+  "environment": {
+    "node": "26.5.0",
+    "npm": "11.17.0",
+    "promptfoo": "0.122.0",
+    "skills_cli": "1.5.22"
+  },
+  "cells": [
+    {
+      "provider": "openai:codex-sdk",
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "low",
+      "planned_trials": 2,
+      "completed_trials": 0,
+      "errored_trials": 0,
+      "status": "not_run",
+      "reason": "matrix cell was not attempted",
+      "quality": "unavailable",
+      "elapsed_ms": "unavailable",
+      "input_tokens": "unavailable",
+      "output_tokens": "unavailable",
+      "cached_input_tokens": "unavailable",
+      "reasoning_tokens": "unavailable",
+      "cost": "unavailable"
+    },
+    {
+      "provider": "openai:codex-sdk",
+      "model": "gpt-5.6-terra",
+      "reasoning_effort": "medium",
+      "planned_trials": 2,
+      "completed_trials": 0,
+      "errored_trials": 2,
+      "status": "unavailable",
+      "reason": "provider credits unavailable before inference",
+      "quality": "unavailable",
+      "elapsed_ms": "unavailable",
+      "input_tokens": "unavailable",
+      "output_tokens": "unavailable",
+      "cached_input_tokens": "unavailable",
+      "reasoning_tokens": "unavailable",
+      "cost": "unavailable"
+    }
+  ],
+  "result": "unavailable",
+  "raw_result_committed": false
+}

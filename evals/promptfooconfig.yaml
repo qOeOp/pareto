@@ -1,0 +1,25 @@
+description: qOeOp Agent Skill regression suites
+
+prompts:
+  - "{{prompt}}"
+
+providers:
+  - id: openai:codex-sdk
+    label: "gpt-5.6-terra/medium"
+    config:
+      model: gpt-5.6-terra
+      model_reasoning_effort: medium
+      working_dir: .
+      sandbox_mode: read-only
+      approval_policy: never
+      network_access_enabled: false
+      web_search_enabled: false
+      enable_streaming: true
+      inherit_process_env: false
+
+tests: file://cases/golden.yaml
+
+evaluateOptions:
+  maxConcurrency: 1
+  cache: false
+  timeoutMs: 300000
