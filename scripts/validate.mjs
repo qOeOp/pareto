@@ -9,6 +9,24 @@ import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const skillRoot = path.join(root, "skills");
 const allowedFrontmatter = new Set(["name", "description"]);
+const allowedUnavailableObservations = new Set([
+  "conversation_compaction_state",
+  "external_evaluator_state",
+  "external_provider_state",
+  "github_state",
+  "host_native_skill_route",
+  "native_goal_state",
+  "native_task_state",
+]);
+const replayableRawItemTypes = new Set([
+  "command_execution",
+  "file_change",
+  "mcp_tool_call",
+  "collaboration_tool_call",
+  "spawn_agent",
+  "send_input",
+  "agent_wait",
+]);
 const forbiddenPublicEvidence = [
   /qOeOp\/trade/i,
   /github\.com\/qOeOp\/trade/i,
@@ -91,12 +109,42 @@ function validatePromptfooCases(cases, { file, suites, count }) {
     const native = testCase.assert.filter((assertion) =>
       assertion.type === "skill-used" || assertion.type === "not-skill-used");
     if (native.length !== 1 || native[0].value !== "run-bounded-mission") {
-      fail(`${testCase.description}: expected one exact native run-bounded-mission activation oracle`);
+      fail(`${testCase.description}: expected one exact heuristic run-bounded-mission activation oracle`);
     }
     const deterministic = testCase.assert.filter((assertion) => !native.includes(assertion));
     if (deterministic.length === 0 || deterministic.some((assertion) =>
       !["contains", "contains-all", "not-contains"].includes(assertion.type))) {
       fail(`${testCase.description}: expected admitted deterministic output assertions`);
+    }
+    validateExactKeys(testCase.metadata, new Set(["observations"]), `${testCase.description} metadata`);
+    const observations = testCase.metadata.observations;
+    validateExactKeys(observations,
+      new Set(["behavioral_oracle", "skill_activation", "required_raw_item_types", "unavailable"]),
+      `${testCase.description} observations`);
+    if (observations.behavioral_oracle !== "deterministic_text") {
+      fail(`${testCase.description}: behavioral oracle must be deterministic_text`);
+    }
+    validateExactKeys(observations.skill_activation, new Set(["status", "expected"]),
+      `${testCase.description} skill activation`);
+    const expectedActivation = native[0].type === "skill-used" ? "used" : "not_used";
+    if (observations.skill_activation.status !== "dynamic_heuristic" ||
+        observations.skill_activation.expected !== expectedActivation) {
+      fail(`${testCase.description}: Skill activation must bind the dynamic_heuristic expectation`);
+    }
+    if (!Array.isArray(observations.required_raw_item_types) ||
+        observations.required_raw_item_types.some((type) => !replayableRawItemTypes.has(type)) ||
+        new Set(observations.required_raw_item_types).size !== observations.required_raw_item_types.length) {
+      fail(`${testCase.description}: invalid required raw item types`);
+    }
+    if (expectedActivation === "used" &&
+        !observations.required_raw_item_types.includes("command_execution")) {
+      fail(`${testCase.description}: dynamic Skill-use evidence requires command_execution replay`);
+    }
+    if (!Array.isArray(observations.unavailable) ||
+        !observations.unavailable.includes("host_native_skill_route") ||
+        observations.unavailable.some((axis) => !allowedUnavailableObservations.has(axis)) ||
+        new Set(observations.unavailable).size !== observations.unavailable.length) {
+      fail(`${testCase.description}: invalid unavailable observation axes`);
     }
   }
   return descriptions;

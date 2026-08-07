@@ -1,4 +1,6 @@
 - description: "[holdout] stale source and dependency supersession"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission. A repository checkout is stale, one planned leaf has been superseded
@@ -17,6 +19,8 @@
         - "dependency_graph: acyclic"
 
 - description: "[holdout] Hub recovery after foreground leaf capture"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state, conversation_compaction_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission. A Hub spent several turns implementing a delegable leaf while children
@@ -35,6 +39,8 @@
         - "prove_no_duplicate_create: true"
 
 - description: "[holdout] post delivery cleanup preserves unknown work"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission after delivery. Local worktrees, branches, remote branches, and tags may
@@ -56,6 +62,8 @@
         - "local_main_equals_remote_main: verify"
 
 - description: "[holdout] repository selection cleanup invalidates evidence"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission. An evaluation repository contains unrelated legacy Skills that were

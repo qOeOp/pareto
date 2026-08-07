@@ -1,4 +1,6 @@
 - description: "[smoke] explicit bounded mission invocation"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
   vars:
     prompt: >-
       Use $run-bounded-mission now for a small repository implementation. Do not edit files. Return
@@ -16,6 +18,8 @@
         - "Origin / Stop"
 
 - description: "[smoke] quoted token answer-only near miss"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: not_used }, required_raw_item_types: [], unavailable: [host_native_skill_route] }
   vars:
     prompt: >-
       This is answer-only. Explain why quoting the token $run-bounded-mission is not an invocation.
@@ -29,6 +33,8 @@
         - "activation: none"
 
 - description: "[full] repository rule auto trigger"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
   vars:
     prompt: >-
       Plan a non-trivial repository implementation under the repository instructions. Do not edit
@@ -44,6 +50,8 @@
         - "Origin / Stop"
 
 - description: "[full] nonactivation boundary classification"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: not_used }, required_raw_item_types: [], unavailable: [host_native_skill_route] }
   vars:
     prompt: >-
       This is an answer-only classification request. Classify explain-only, audit-only,
@@ -63,6 +71,8 @@
         - "task-management: no"
 
 - description: "[full] fresh packet completeness and lazy owner loading"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission for a planning-only decision whose only unresolved question is whether
@@ -83,6 +93,8 @@
         - "next_edge:"
 
 - description: "[full] compaction recovery preserves owner and edge"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, conversation_compaction_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission. A task resumes after context compression with one preserved candidate,
@@ -101,6 +113,8 @@
         - "preserve_next_edge: true"
 
 - description: "[full] mode selection re-evaluates after scope change"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission. A request initially contains two independent Missions but Goal
@@ -118,6 +132,8 @@
         - "final_mode: single"
 
 - description: "[full] task persistence without loss or duplicate"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission. A recovered Hub has several approved task attempts, including one
@@ -135,6 +151,8 @@
         - "release_before_identity: forbidden"
 
 - description: "[full] task creation failure needs fresh authority"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission. An authorized native task-create call returned only a generic host
@@ -152,6 +170,8 @@
         - "retry_requires_fresh_authority: true"
 
 - description: "[full] Hub commander duty inversion"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission. A Hub has runnable and attention-needed children plus pending
@@ -171,6 +191,8 @@
         - "recovery: restore-wave-without-loss-or-duplicate"
 
 - description: "[full] evaluator admission and recovery boundaries"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_evaluator_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission. Classify a corrupt evaluator packet, an unavailable evaluator,
@@ -189,6 +211,8 @@
         - "automatic_retry: false"
 
 - description: "[full] provider unavailable is not a pass"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_provider_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission. The single authorized provider attempt fails before inference because
@@ -205,6 +229,8 @@
         - "quality_claim: unavailable"
 
 - description: "[full] exact head delivery rejects stale evidence"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission for delivery. A candidate received a new commit after prior CI and
@@ -221,6 +247,8 @@
         - "merge_authority: external"
 
 - description: "[full] coordination churn is a QA signal"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission. Repeated low-information Hub-child messages keep invalidating work
@@ -238,6 +266,8 @@
         - "repeat_unchanged_status: false"
 
 - description: "[full] high score cannot complete an unproved Goal"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_goal_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission. An overall Goal is numerically scored above 9.5, but one mandatory

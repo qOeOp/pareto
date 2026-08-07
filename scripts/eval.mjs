@@ -49,6 +49,15 @@ const providerSafetyConfig = {
   enable_streaming: true,
   inherit_process_env: false,
 };
+const replayableRawItemTypes = new Set([
+  "command_execution",
+  "file_change",
+  "mcp_tool_call",
+  "collaboration_tool_call",
+  "spawn_agent",
+  "send_input",
+  "agent_wait",
+]);
 
 function sha256(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
@@ -227,6 +236,52 @@ function expectedCaseTrials(cases, suite, repeat) {
     .sort((left, right) => left.description.localeCompare(right.description));
 }
 
+function parseCodexRawItems(raw, rowIndex) {
+  if (typeof raw !== "string") {
+    throw new Error(`Promptfoo result row ${rowIndex} is missing the Codex raw turn receipt`);
+  }
+  rejectDuplicateJsonObjectMembers(raw, `Promptfoo result row ${rowIndex} response.raw`);
+  let turn;
+  try {
+    turn = JSON.parse(raw);
+  } catch {
+    throw new Error(`Promptfoo result row ${rowIndex} response.raw must be parseable JSON`);
+  }
+  if (!turn || typeof turn !== "object" || Array.isArray(turn) || !Array.isArray(turn.items)) {
+    throw new Error(`Promptfoo result row ${rowIndex} response.raw must contain an items array`);
+  }
+  for (const item of turn.items) {
+    if (!item || typeof item !== "object" || Array.isArray(item) || typeof item.type !== "string") {
+      throw new Error(`Promptfoo result row ${rowIndex} response.raw contains a malformed item`);
+    }
+  }
+  return turn.items;
+}
+
+function extractWorkspaceSkillCalls(items, workingDirectory) {
+  const workspacePrefix = `${workingDirectory.replace(/\\/g, "/").replace(/\/+$/g, "")}/.agents/skills/`;
+  const calls = new Map();
+  for (const item of items) {
+    if (item.type !== "command_execution" ||
+        (typeof item.status === "string" && item.status !== "completed") ||
+        (typeof item.exit_code === "number" && item.exit_code !== 0) ||
+        typeof item.command !== "string") continue;
+    for (const rawToken of item.command.split(/\s+/)) {
+      const token = rawToken.replace(/^[`"'([{<]+|[`"',;:)\]}>]+$/g, "").trim().replace(/\\/g, "/");
+      let name;
+      if (token.startsWith(".agents/skills/")) {
+        name = /^\.agents\/skills\/([^/\s]+)\/SKILL\.md$/.exec(token)?.[1];
+      } else if (token.startsWith(workspacePrefix)) {
+        name = /^([^/\s]+)\/SKILL\.md$/.exec(token.slice(workspacePrefix.length))?.[1];
+      }
+      if (name && /^[A-Za-z0-9._:-]+$/.test(name)) {
+        calls.set(token, { name, path: token, source: "heuristic" });
+      }
+    }
+  }
+  return [...calls.values()];
+}
+
 export async function validateResultArtifact({
   resultPath,
   suite,
@@ -235,6 +290,7 @@ export async function validateResultArtifact({
   providerId,
   model,
   effort,
+  workingDirectory,
   holdoutIdentity = null,
 }) {
   const info = await lstat(resultPath);
@@ -260,6 +316,7 @@ export async function validateResultArtifact({
   for (const [index, row] of actual.entries()) {
     const expectedAssertions = expected[index].assert ?? [];
     const expectedVars = expected[index].vars ?? {};
+    const expectedMetadata = expected[index].metadata ?? {};
     if (row.success !== true || row.error || row.response?.error || row.provider?.id !== providerId) {
       throw new Error("Promptfoo output contains a failed, errored, or wrong-provider trial despite exit zero");
     }
@@ -268,6 +325,9 @@ export async function validateResultArtifact({
     }
     if (!isDeepStrictEqual(row.testCase?.assert ?? [], expectedAssertions)) {
       throw new Error(`Promptfoo result row ${index} does not contain the exact selected assertion inventory`);
+    }
+    if (!isDeepStrictEqual(row.testCase?.metadata ?? {}, expectedMetadata)) {
+      throw new Error(`Promptfoo result row ${index} does not contain the exact selected observation contract`);
     }
     const grading = row.gradingResult;
     if (grading?.pass !== true || !Array.isArray(grading.componentResults) ||
@@ -280,22 +340,37 @@ export async function validateResultArtifact({
         throw new Error(`Promptfoo result row ${index} assertion ${assertionIndex} did not pass exactly`);
       }
     }
-    const nativeSkillAssertions = expectedAssertions.filter((assertion) =>
+    const heuristicSkillAssertions = expectedAssertions.filter((assertion) =>
       assertion.type === "skill-used" || assertion.type === "not-skill-used");
-    if (nativeSkillAssertions.length > 0) {
-      if (!Array.isArray(row.response?.metadata?.skillCalls)) {
-        throw new Error(`Promptfoo result row ${index} is missing explicit native Skill-use evidence`);
+    if (heuristicSkillAssertions.length > 0) {
+      const rawItems = parseCodexRawItems(row.response?.raw, index);
+      const observedTypes = new Set(rawItems.map((item) => item.type));
+      const requiredTypes = expectedMetadata?.observations?.required_raw_item_types;
+      if (!Array.isArray(requiredTypes) || requiredTypes.some((type) =>
+        !replayableRawItemTypes.has(type) || !observedTypes.has(type))) {
+        throw new Error(`Promptfoo result row ${index} is missing a required raw item observation`);
       }
-      const nativeResult = await assertions.runAssertions({
+      const replayedSkillCalls = extractWorkspaceSkillCalls(rawItems, workingDirectory);
+      const declaredSkillCalls = row.response?.metadata?.skillCalls ?? [];
+      if (!Array.isArray(declaredSkillCalls) || !isDeepStrictEqual(declaredSkillCalls, replayedSkillCalls)) {
+        throw new Error(`Promptfoo result row ${index} has skillCalls inconsistent with raw command evidence`);
+      }
+      const activation = expectedMetadata?.observations?.skill_activation;
+      const expectedUsed = heuristicSkillAssertions[0].type === "skill-used";
+      if (activation?.status !== "dynamic_heuristic" ||
+          activation?.expected !== (expectedUsed ? "used" : "not_used")) {
+        throw new Error(`Promptfoo result row ${index} has an invalid Skill activation evidence contract`);
+      }
+      const heuristicResult = await assertions.runAssertions({
         providerResponse: row.response,
-        test: { vars: expectedVars, assert: nativeSkillAssertions },
+        test: { vars: expectedVars, assert: heuristicSkillAssertions },
       });
-      if (nativeResult.pass !== true || !Array.isArray(nativeResult.componentResults) ||
-          nativeResult.componentResults.length !== nativeSkillAssertions.length ||
-          nativeResult.componentResults.some((component, nativeIndex) =>
+      if (heuristicResult.pass !== true || !Array.isArray(heuristicResult.componentResults) ||
+          heuristicResult.componentResults.length !== heuristicSkillAssertions.length ||
+          heuristicResult.componentResults.some((component, heuristicIndex) =>
             component?.pass !== true ||
-            !isDeepStrictEqual(component.assertion, nativeSkillAssertions[nativeIndex]))) {
-        throw new Error(`Promptfoo result row ${index} has contradictory native Skill-use evidence`);
+            !isDeepStrictEqual(component.assertion, heuristicSkillAssertions[heuristicIndex]))) {
+        throw new Error(`Promptfoo result row ${index} has contradictory heuristic Skill-use evidence`);
       }
     }
   }
@@ -310,8 +385,10 @@ export async function validateResultArtifact({
     throw new Error("Promptfoo output must contain exactly one provider");
   }
   const provider = providers[0];
-  if (provider?.id !== providerId || provider?.config?.model !== model ||
-      provider?.config?.model_reasoning_effort !== effort) {
+  if (!hasExactFields(provider, providerFields) || !hasExactFields(provider.config, providerConfigFields) ||
+      provider.id !== providerId || provider.config.model !== model ||
+      provider.config.model_reasoning_effort !== effort || provider.config.working_dir !== workingDirectory ||
+      Object.entries(providerSafetyConfig).some(([field, value]) => provider.config[field] !== value)) {
     throw new Error("Promptfoo output is not bound to the exact invoked provider/model/effort cell");
   }
   if (holdoutIdentity &&
@@ -416,6 +493,7 @@ async function main() {
       providerId,
       model,
       effort,
+      workingDirectory: workspace,
       holdoutIdentity: holdoutBefore,
     });
     console.log(`Result: ${resultPath}`);

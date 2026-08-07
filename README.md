@@ -38,8 +38,9 @@ results remain ignored; only reviewed summaries may become baselines.
 
 - `smoke` exercises explicit activation and a quoted-token answer-only near miss.
 - `full` adds the maintained public golden behavior corpus and repeats each case twice.
-- `holdout` uses a separate case file, is excluded from normal tuning, and runs only from a clean
-  committed candidate with exact commit/tree/Skill-tree/matrix binding.
+- `holdout` runs a public withheld-regression file excluded from normal tuning, and only from a clean
+  committed candidate with exact commit/tree/Skill-tree/matrix binding. It is author-readable, so it
+  is not blind-holdout evidence; blind-holdout and 9.5 completion evidence are currently unavailable.
 - `matrix` changes only the declared model/reasoning-effort cell.
 
 See [the evaluation contract](evals/CONTRACT.md) for the observation boundary, thresholds, evidence
@@ -52,7 +53,7 @@ fields, and honest unavailable rules.
 | Agent Skills | `SKILL.md` with progressive `references/`, `scripts/`, and `assets/` | `skills/<name>/` is the only distributable source |
 | Codex | Local Skill discovery and direct installation | No repository-local hook, MCP server, state, or permission grant |
 | Other agents | Consumer-specific install paths and activation behavior | `skills@1.5.22` performs explicit copy/symlink installation |
-| Evaluation | Provider-specific model execution and telemetry | Promptfoo `0.122.0`, versioned cases, frozen matrix, raw unavailable fields |
+| Evaluation | Provider-specific model execution and telemetry | Promptfoo `0.122.0`, versioned cases, frozen matrix, heuristic Skill-path replay, raw unavailable fields |
 
 The open [Agent Skills specification](https://agentskills.io/specification) defines the portable
 format. OpenAI's [Skill documentation](https://learn.chatgpt.com/docs/build-skills) defines Codex and

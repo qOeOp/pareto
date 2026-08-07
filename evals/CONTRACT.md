@@ -14,10 +14,13 @@ locators, business repositories, credentials, and provider receipts remain exter
 
 - `smoke`: the two `[smoke]` cases in `cases/golden.yaml`, one trial each.
 - `full`: all 15 public golden cases in `cases/golden.yaml`, two trials each.
-- `holdout`: the four cases in the separate `cases/holdout.yaml`, three trials each. The runner
-  never loads this file for smoke/full and requires a clean Git
+- `holdout`: the four public withheld-regression cases in the separate `cases/holdout.yaml`, three
+  trials each. The runner never loads this file for smoke/full and requires a clean Git
   commit, binds the exact commit, tree, `skills/` tree, and matrix digest into Promptfoo output, and
-  rejects identity drift before accepting the result.
+  rejects identity drift before accepting the result. Because this file is committed and readable by
+  candidate authors, it is not a blind holdout. Blind-holdout evidence and the corresponding 9.5
+  completion claim remain `unavailable`; this repository does not create a second private runtime or
+  state authority to simulate one.
 
 Changing a Skill, case, rubric, provider configuration, model, effort, permission, tool surface, or
 environment invalidates only results that consume the changed input. A holdout result is never reused
@@ -27,17 +30,22 @@ after its candidate or matrix changes.
 
 `cases/golden.yaml` and `cases/holdout.yaml` are the only corpus authority. Descriptions carry the
 suite selector; prompts express generalized consumer tasks without private repositories, task
-locators, transcripts, or business content. Every case binds native Skill activation/nonactivation
-plus deterministic observable receipt fields. Model-graded rubrics may be added only when semantic
+locators, transcripts, or business content. Every case binds deterministic text behavior plus an
+out-of-prompt observation contract in `metadata.observations`. Model-graded rubrics may be added only when semantic
 quality cannot be reduced to a stable check and every provider-capable grading route is preflighted
 against the exact admitted provider/model/effort authority.
 
 The disposable repository contains one synthetic repository instruction: use the installed Skill for
 non-trivial implementation or delivery, not for answer-only work. This makes repository-rule
-auto-trigger a real consumer path rather than prompt prose. Promptfoo's `response.metadata.skillCalls`
-is the activation observation. Current Codex SDK output does not expose a trustworthy reference-read
-trace, so lazy-owner loading remains behaviorally checked while the actual read trace is recorded as
-`unavailable`; model output cannot upgrade that observation.
+auto-trigger a real consumer path rather than prompt prose. Promptfoo `0.122.0` derives
+`response.metadata.skillCalls` heuristically from a successful `command_execution` whose command text
+contains a recognized `SKILL.md` path; each entry has `source: heuristic`. Result admission replays
+that derivation from `response.raw.items` and rejects disagreement, but classifies the evidence only
+as `dynamic_heuristic`. It is not a host-native route receipt, can miss activation that does not emit
+such a command, and cannot by itself prove stable activation. Current Codex SDK output does not expose
+trustworthy native Task, Goal, compaction, GitHub, evaluator, or reference-read state. Each affected
+case records that mechanism axis as `unavailable`; deterministic answer text remains a
+`deterministic_text` behavioral oracle and cannot upgrade an unavailable runtime observation.
 
 ## Trial evidence
 
@@ -58,10 +66,12 @@ Before any provider-capable command, the runner requires exactly one canonical p
 invoked model, reasoning effort, working directory, and read-only provider configuration. Result
 acceptance requires exactly that provider identity, model, and reasoning effort; every result row
 names that provider and reproduces its selected case's exact vars and assertion inventory; and every
-assertion has an explicit passing component outcome. Native Skill-use assertions are replayed with
-the selected case's expected vars against the row's explicit `response.metadata.skillCalls`;
+assertion has an explicit passing component outcome. Heuristic Skill-use assertions are replayed with
+the selected case's expected vars against `response.metadata.skillCalls`, and those calls must exactly
+match successful Skill-path `command_execution` items parsed from duplicate-safe `response.raw` JSON;
 artifact-controlled vars or declared component success cannot override contradictory positive or
-negative oracle evidence. Row success and aggregate counts alone never authorize an evaluation result.
+negative oracle evidence. Required replayable item classes and unavailable mechanism axes are bound
+per case outside the prompt. Row success and aggregate counts alone never authorize an evaluation result.
 
 The runner materializes its Skill workspace only from regular tracked blobs in the exact Git
 `HEAD:skills` tree. It never copies working-tree, untracked, or ignored Skill material into an
@@ -112,7 +122,8 @@ identifier, private source locator, prompt cache, or raw transcript in a committ
 ## Regression rule
 
 A route below a safety or required-behavior floor fails regardless of aggregate score. For comparable
-pre/post runs, reject a change when any critical deterministic assertion regresses, holdout pass rate
+pre/post runs, reject a change when any critical deterministic assertion regresses, public
+withheld-regression pass rate
 falls, or semantic quality falls without an explicitly accepted tradeoff. Prefer lower latency,
 tokens, cost, or effort only among routes that still pass the same quality and safety floors.
 

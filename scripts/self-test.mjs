@@ -90,47 +90,84 @@ try {
   const goldenCases = parseYaml(await readFile(path.join(root, "evals", "cases", "golden.yaml"), "utf8"));
   const holdoutCases = parseYaml(await readFile(path.join(root, "evals", "cases", "holdout.yaml"), "utf8"));
   const allCases = [...goldenCases, ...holdoutCases];
-  const syntheticOutput = (testCase) => testCase.assert.flatMap((assertion) => {
-    if (assertion.type === "contains") return [assertion.value];
-    if (assertion.type === "contains-all") return assertion.value;
-    return [];
-  }).join("\n");
-  const skillCallsFor = (testCase, invert = false) => {
-    const positive = testCase.assert.some((assertion) => assertion.type === "skill-used");
-    return positive !== invert ? [{ name: "run-bounded-mission" }] : [];
-  };
   for (const testCase of allCases) {
-    const passing = await assertions.runAssertions({
-      providerResponse: {
-        output: syntheticOutput(testCase),
-        metadata: { skillCalls: skillCallsFor(testCase) },
-      },
-      test: testCase,
-    });
-    assert.equal(passing.pass, true, `${testCase.description}: synthetic positive must pass production assertions`);
     const refutation = await assertions.runAssertions({
       providerResponse: {
         output: "unsafe behavior\nfalse pass\nautomatic retry",
-        metadata: { skillCalls: skillCallsFor(testCase, true) },
+        metadata: {
+          skillCalls: testCase.assert.some((assertion) => assertion.type === "skill-used")
+            ? []
+            : [{ name: "run-bounded-mission", path: ".agents/skills/run-bounded-mission/SKILL.md", source: "heuristic" }],
+        },
       },
       test: testCase,
     });
     assert.equal(refutation.pass, false, `${testCase.description}: representative wrong behavior must fail`);
   }
 
-  const smokeCases = goldenCases.filter((testCase) => /^\[smoke\]/.test(testCase.description));
+  const syntheticCases = [
+    {
+      description: "[smoke] harness positive control",
+      metadata: {
+        observations: {
+          behavioral_oracle: "deterministic_text",
+          skill_activation: { status: "dynamic_heuristic", expected: "used" },
+          required_raw_item_types: ["command_execution"],
+          unavailable: ["host_native_skill_route"],
+        },
+      },
+      vars: { prompt: "synthetic positive" },
+      assert: [
+        { type: "skill-used", value: "run-bounded-mission" },
+        { type: "contains", value: "receipt: bounded" },
+      ],
+      output: "receipt: bounded",
+      items: [{
+        type: "command_execution",
+        status: "completed",
+        exit_code: 0,
+        command: "sed -n 1,20p .agents/skills/run-bounded-mission/SKILL.md",
+      }],
+      skillCalls: [{
+        name: "run-bounded-mission",
+        path: ".agents/skills/run-bounded-mission/SKILL.md",
+        source: "heuristic",
+      }],
+    },
+    {
+      description: "[smoke] harness negative control",
+      metadata: {
+        observations: {
+          behavioral_oracle: "deterministic_text",
+          skill_activation: { status: "dynamic_heuristic", expected: "not_used" },
+          required_raw_item_types: [],
+          unavailable: ["host_native_skill_route"],
+        },
+      },
+      vars: { prompt: "synthetic negative" },
+      assert: [
+        { type: "not-skill-used", value: "run-bounded-mission" },
+        { type: "contains", value: "receipt: answer-only" },
+      ],
+      output: "receipt: answer-only",
+      items: [{ type: "command_execution", status: "completed", exit_code: 0, command: "pwd" }],
+      skillCalls: [],
+    },
+  ];
   const resultPath = path.join(temporaryRoot, "result.json");
-  const resultRows = smokeCases.map((testCase) => ({
+  const resultRows = syntheticCases.map((testCase) => ({
     success: true,
     provider: { id: CANONICAL_PROVIDER_ID },
     response: {
-      output: syntheticOutput(testCase),
-      metadata: { skillCalls: skillCallsFor(testCase) },
+      output: testCase.output,
+      metadata: { skillCalls: structuredClone(testCase.skillCalls) },
+      raw: JSON.stringify({ finalResponse: testCase.output, items: testCase.items }),
     },
     testCase: {
       description: testCase.description,
       vars: structuredClone(testCase.vars),
       assert: structuredClone(testCase.assert),
+      metadata: structuredClone(testCase.metadata),
     },
     gradingResult: {
       pass: true,
@@ -146,10 +183,7 @@ try {
       stats: { successes: resultRows.length, failures: 0, errors: 0 },
     },
     config: {
-      providers: [{
-        id: CANONICAL_PROVIDER_ID,
-        config: { model: "synthetic-model", model_reasoning_effort: "low" },
-      }],
+      providers: [structuredClone(preparedConfig.providers[0])],
       metadata: {},
     },
     runtimeOptions: { repeat: 1 },
@@ -158,10 +192,11 @@ try {
     resultPath,
     suite: "smoke",
     repeat: 1,
-    cases: goldenCases,
+    cases: syntheticCases,
     providerId: CANONICAL_PROVIDER_ID,
     model: "synthetic-model",
     effort: "low",
+    workingDirectory: temporaryRoot,
   });
   await writeFile(resultPath, JSON.stringify(validResultArtifact), "utf8");
   await validateSyntheticResult();
@@ -172,11 +207,21 @@ try {
   await expectReject(validateSyntheticResult, /duplicate JSON object member success/,
     "duplicate Promptfoo result member");
   const resultFixtures = [
+    ["missing provider identity", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      delete fixture.config.providers[0].id;
+      return fixture;
+    })(), /exact invoked provider\/model\/effort/],
     ["wrong provider", (() => {
       const fixture = structuredClone(validResultArtifact);
       fixture.config.providers[0].id = "other-provider";
       return fixture;
     })(), /exact invoked provider\/model\/effort/],
+    ["additional provider", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.config.providers.push(structuredClone(fixture.config.providers[0]));
+      return fixture;
+    })(), /exactly one provider/],
     ["altered selected prompt", (() => {
       const fixture = structuredClone(validResultArtifact);
       fixture.results.results.results[0].testCase.vars.prompt = "different prompt";
@@ -187,11 +232,54 @@ try {
       fixture.results.results.results[0].gradingResult.componentResults.pop();
       return fixture;
     })(), /missing explicit assertion outcomes/],
-    ["contradictory native activation", (() => {
+    ["altered observation contract", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.results.results.results[0].testCase.metadata.observations.unavailable = [];
+      return fixture;
+    })(), /exact selected observation contract/],
+    ["failed assertion outcome", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.results.results.results[0].gradingResult.componentResults[0].pass = false;
+      return fixture;
+    })(), /did not pass exactly/],
+    ["contradictory heuristic activation", (() => {
       const fixture = structuredClone(validResultArtifact);
       fixture.results.results.results[0].response.metadata.skillCalls = [];
       return fixture;
-    })(), /contradictory native Skill-use evidence/],
+    })(), /skillCalls inconsistent with raw command evidence/],
+    ["missing raw turn", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      delete fixture.results.results.results[0].response.raw;
+      return fixture;
+    })(), /missing the Codex raw turn receipt/],
+    ["malformed raw turn", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.results.results.results[0].response.raw = "{";
+      return fixture;
+    })(), /response.raw/],
+    ["duplicate raw turn member", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.results.results.results[0].response.raw = '{"items":[],"items":[]}';
+      return fixture;
+    })(), /duplicate JSON object member items/],
+    ["missing raw items", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.results.results.results[0].response.raw = JSON.stringify({ finalResponse: "receipt: bounded" });
+      return fixture;
+    })(), /response.raw must contain an items array/],
+    ["missing required raw class", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.results.results.results[0].response.raw = JSON.stringify({
+        items: [{ type: "agent_message", text: "receipt: bounded" }],
+      });
+      fixture.results.results.results[0].response.metadata.skillCalls = [];
+      return fixture;
+    })(), /missing a required raw item observation/],
+    ["negative raw Skill contradiction", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.results.results.results[1].response.raw = fixture.results.results.results[0].response.raw;
+      return fixture;
+    })(), /skillCalls inconsistent with raw command evidence/],
   ];
   for (const [name, fixture, pattern] of resultFixtures) {
     await writeFile(resultPath, JSON.stringify(fixture), "utf8");
