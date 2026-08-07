@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile, execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { cp, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -517,6 +518,7 @@ try {
         !relative.startsWith(`${path.join("evals", "results")}${path.sep}`);
     },
   });
+  await rm(path.join(validatorFixture, "evals", "baselines"), { recursive: true, force: true });
   await symlink(
     path.join(root, "node_modules"),
     path.join(validatorFixture, "node_modules"),
@@ -531,15 +533,63 @@ try {
     { encoding: "utf8" },
   );
   const crlfValidation = await runProductionValidator();
-  assert.match(crlfValidation.stdout, /Validated 1 Skill and 19 executable cases/);
+  assert.match(crlfValidation.stdout, /Validated 1 Skill, 19 executable cases, and 0 committed smoke baselines/);
 
   const baselinePath = path.join(validatorFixture, "evals", "baselines", "2026-08-07-smoke.json");
-  const baseline = JSON.parse(await readFile(baselinePath, "utf8"));
+  const gitText = (args) => execFileSync("git", ["-C", validatorFixture, ...args], { encoding: "utf8" }).trim();
+  const candidateCommit = gitText(["rev-parse", "HEAD"]);
+  const candidateTime = Number(gitText(["show", "-s", "--format=%ct", candidateCommit]));
+  const candidateConfig = await readFile(path.join(validatorFixture, "evals", "promptfooconfig.yaml"));
+  const candidateSkill = execFileSync("git", ["-C", validatorFixture, "show",
+    `${candidateCommit}:skills/run-bounded-mission/SKILL.md`]);
   const matrix = JSON.parse(await readFile(path.join(validatorFixture, "evals", "matrix.json"), "utf8"));
   const smokeCases = goldenCases.filter((testCase) => /^\[smoke\]/.test(testCase.description));
   const expectedAssertions = smokeCases.reduce((total, testCase) => total + testCase.assert.length, 0) *
     matrix.trials_per_cell;
   const plannedTrials = smokeCases.length * matrix.trials_per_cell;
+  const baseline = {
+    schema_version: 1,
+    suite: "smoke",
+    attempted_at: new Date((candidateTime + 1) * 1000).toISOString(),
+    candidate: {
+      commit: candidateCommit,
+      tree: gitText(["rev-parse", "HEAD^{tree}"]),
+      skill_sha256: {
+        "run-bounded-mission": createHash("sha256").update(candidateSkill).digest("hex"),
+      },
+      skills_tree_oid: gitText(["rev-parse", "HEAD:skills"]),
+      promptfoo_config: {
+        path: "evals/promptfooconfig.yaml",
+        blob_oid: gitText(["rev-parse", "HEAD:evals/promptfooconfig.yaml"]),
+        sha256: createHash("sha256").update(candidateConfig).digest("hex"),
+        provider: sourceConfig.providers[0].id,
+      },
+    },
+    case_ids: smokeCases.map((testCase) => testCase.description),
+    environment: { node: "test", npm: "test", promptfoo: "0.122.0", skills_cli: "test" },
+    cells: matrix.cells.map((matrixCell, index) => ({
+      provider: sourceConfig.providers[0].id,
+      model: matrixCell.model,
+      reasoning_effort: matrixCell.effort,
+      planned_trials: plannedTrials,
+      completed_trials: 0,
+      errored_trials: index === 0 ? 0 : plannedTrials,
+      status: index === 0 ? "not_run" : "unavailable",
+      reason: index === 0 ? "synthetic unattempted fixture" : "synthetic provider unavailable fixture",
+      quality: "unavailable",
+      elapsed_ms: "unavailable",
+      input_tokens: "unavailable",
+      output_tokens: "unavailable",
+      cached_input_tokens: "unavailable",
+      reasoning_tokens: "unavailable",
+      cost: "unavailable",
+    })),
+    result: "unavailable",
+    raw_result_committed: false,
+  };
+  await mkdir(path.dirname(baselinePath), { recursive: true });
+  await writeFile(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
+  execFileSync("git", ["-C", validatorFixture, "add", "evals/baselines/2026-08-07-smoke.json"]);
   const completedCell = (matrixCell) => ({
     provider: "openai:codex-sdk",
     model: matrixCell.model,
@@ -575,7 +625,7 @@ try {
   };
   await writeFile(baselinePath, `${JSON.stringify(validCompletedBaseline, null, 2)}\n`, "utf8");
   const completedValidation = await runProductionValidator();
-  assert.match(completedValidation.stdout, /Validated 1 Skill and 19 executable cases/);
+  assert.match(completedValidation.stdout, /Validated 1 Skill, 19 executable cases, and 1 committed smoke baselines/);
 
   const laterCommit = execFileSync("git", [
     "-C", validatorFixture,

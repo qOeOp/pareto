@@ -90,6 +90,11 @@ evaluation workspace; unsupported Git entry modes, invalid UTF-8 paths, normaliz
 unsafe paths fail closed. The complete tree is validated before any destination write; Windows
 separator, case, or resolved-target collisions also fail closed on every host.
 
+The repository may contain zero committed smoke baselines. That is an explicit no-dynamic-evidence
+state: it makes no quality, provider-execution, or regression claim. A baseline whose candidate can
+no longer be reconstructed from the committed repository is removed rather than translated onto a
+different commit or treated as a current-main run.
+
 Any committed smoke baseline has one exact representation. Its top-level keys are
 `schema_version`, `suite`, `attempted_at`, `candidate`, `case_ids`, `environment`, `cells`, `result`,
 and `raw_result_committed`. `candidate` contains only `commit`, `tree`, `skill_sha256`, and
@@ -126,6 +131,11 @@ as the recorded blob and raw-byte digest.
 Static repository validation proves referential and causal consistency among committed Git objects
 and the baseline representation. It does not prove that the provider actually ran, provide
 tamper-proof external attestation, or make the repository history an immutable service.
+
+The validator accepts no `evals/baselines/` directory or an empty one, and validates every present
+tracked regular `YYYY-MM-DD-smoke.json` file independently. A future committed baseline therefore
+still needs its own reconstructable candidate; it cannot borrow an unreachable pull-request object
+or an ignored raw result from an earlier run.
 
 Never estimate a missing provider field or expose a local absolute path, credential, thread/session
 identifier, private source locator, prompt cache, or raw transcript in a committed baseline.

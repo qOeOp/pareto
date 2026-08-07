@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
@@ -458,6 +458,35 @@ function validateMatrix(matrix) {
   }
 }
 
+async function validateCommittedBaselines(cases, matrix) {
+  const directory = path.join(root, "evals", "baselines");
+  let names;
+  try {
+    names = await readdir(directory);
+  } catch (error) {
+    if (error?.code === "ENOENT") return [];
+    throw error;
+  }
+
+  const baselines = [];
+  for (const name of names.sort()) {
+    if (!/^\d{4}-\d{2}-\d{2}-smoke\.json$/.test(name)) {
+      fail(`evals/baselines/${name}: expected a YYYY-MM-DD-smoke.json baseline name`);
+    }
+    const relative = path.join("evals", "baselines", name);
+    const info = await lstat(path.join(root, relative));
+    if (!info.isFile()) fail(`${relative}: expected a regular baseline file`);
+    if (gitText(["ls-files", "--error-unmatch", "--", relative], `${relative}: committed baseline`) !== relative) {
+      fail(`${relative}: expected one committed baseline path`);
+    }
+    const source = await readFile(path.join(root, relative), "utf8");
+    rejectDuplicateJsonObjectMembers(source, "smoke baseline");
+    validateBaseline(JSON.parse(source), cases, matrix);
+    baselines.push(relative);
+  }
+  return baselines;
+}
+
 async function scanPublicEvidence(files) {
   for (const relative of files) {
     const source = await readFile(path.join(root, relative), "utf8");
@@ -493,19 +522,16 @@ const cases = [...goldenCases, ...holdoutCases];
 const caseCount = cases.length;
 const matrix = JSON.parse(await readFile(path.join(root, "evals/matrix.json"), "utf8"));
 validateMatrix(matrix);
-const baselineSource = await readFile(path.join(root, "evals/baselines/2026-08-07-smoke.json"), "utf8");
-rejectDuplicateJsonObjectMembers(baselineSource, "smoke baseline");
-const baseline = JSON.parse(baselineSource);
-validateBaseline(baseline, cases, matrix);
+const baselines = await validateCommittedBaselines(cases, matrix);
 await scanPublicEvidence([
   "README.md",
   "evals/CONTRACT.md",
-  "evals/baselines/2026-08-07-smoke.json",
   "evals/cases/golden.yaml",
   "evals/cases/holdout.yaml",
   "evals/matrix.json",
   "evals/promptfooconfig.yaml",
+  ...baselines,
 ]);
 
 for (const warning of skills.warnings) console.warn(`Warning: ${warning}.`);
-console.log(`Validated ${skills.count} Skill and ${caseCount} executable cases.`);
+console.log(`Validated ${skills.count} Skill, ${caseCount} executable cases, and ${baselines.length} committed smoke baselines.`);
