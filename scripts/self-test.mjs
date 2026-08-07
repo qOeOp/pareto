@@ -5,12 +5,14 @@ import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { assertions } from "promptfoo";
 import { parse as parseYaml } from "yaml";
 import {
   CANONICAL_PROVIDER_ID,
   materializeSkillsFromGit,
   preparePromptfooConfig,
   readHoldoutIdentity,
+  validateResultArtifact,
 } from "./eval.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -84,6 +86,118 @@ try {
     effort: "low\n",
     workingDirectory: temporaryRoot,
   }), /reasoning effort must be one exact non-empty value/, "malformed invoked effort");
+
+  const goldenCases = parseYaml(await readFile(path.join(root, "evals", "cases", "golden.yaml"), "utf8"));
+  const holdoutCases = parseYaml(await readFile(path.join(root, "evals", "cases", "holdout.yaml"), "utf8"));
+  const allCases = [...goldenCases, ...holdoutCases];
+  const syntheticOutput = (testCase) => testCase.assert.flatMap((assertion) => {
+    if (assertion.type === "contains") return [assertion.value];
+    if (assertion.type === "contains-all") return assertion.value;
+    return [];
+  }).join("\n");
+  const skillCallsFor = (testCase, invert = false) => {
+    const positive = testCase.assert.some((assertion) => assertion.type === "skill-used");
+    return positive !== invert ? [{ name: "run-bounded-mission" }] : [];
+  };
+  for (const testCase of allCases) {
+    const passing = await assertions.runAssertions({
+      providerResponse: {
+        output: syntheticOutput(testCase),
+        metadata: { skillCalls: skillCallsFor(testCase) },
+      },
+      test: testCase,
+    });
+    assert.equal(passing.pass, true, `${testCase.description}: synthetic positive must pass production assertions`);
+    const refutation = await assertions.runAssertions({
+      providerResponse: {
+        output: "unsafe behavior\nfalse pass\nautomatic retry",
+        metadata: { skillCalls: skillCallsFor(testCase, true) },
+      },
+      test: testCase,
+    });
+    assert.equal(refutation.pass, false, `${testCase.description}: representative wrong behavior must fail`);
+  }
+
+  const smokeCases = goldenCases.filter((testCase) => /^\[smoke\]/.test(testCase.description));
+  const resultPath = path.join(temporaryRoot, "result.json");
+  const resultRows = smokeCases.map((testCase) => ({
+    success: true,
+    provider: { id: CANONICAL_PROVIDER_ID },
+    response: {
+      output: syntheticOutput(testCase),
+      metadata: { skillCalls: skillCallsFor(testCase) },
+    },
+    testCase: {
+      description: testCase.description,
+      vars: structuredClone(testCase.vars),
+      assert: structuredClone(testCase.assert),
+    },
+    gradingResult: {
+      pass: true,
+      componentResults: testCase.assert.map((assertion) => ({
+        pass: true,
+        assertion: structuredClone(assertion),
+      })),
+    },
+  }));
+  const validResultArtifact = {
+    results: {
+      results: { results: resultRows },
+      stats: { successes: resultRows.length, failures: 0, errors: 0 },
+    },
+    config: {
+      providers: [{
+        id: CANONICAL_PROVIDER_ID,
+        config: { model: "synthetic-model", model_reasoning_effort: "low" },
+      }],
+      metadata: {},
+    },
+    runtimeOptions: { repeat: 1 },
+  };
+  const validateSyntheticResult = () => validateResultArtifact({
+    resultPath,
+    suite: "smoke",
+    repeat: 1,
+    cases: goldenCases,
+    providerId: CANONICAL_PROVIDER_ID,
+    model: "synthetic-model",
+    effort: "low",
+  });
+  await writeFile(resultPath, JSON.stringify(validResultArtifact), "utf8");
+  await validateSyntheticResult();
+  await writeFile(resultPath, JSON.stringify(validResultArtifact).replace(
+    '"success":true',
+    '"success":false,"success":true',
+  ), "utf8");
+  await expectReject(validateSyntheticResult, /duplicate JSON object member success/,
+    "duplicate Promptfoo result member");
+  const resultFixtures = [
+    ["wrong provider", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.config.providers[0].id = "other-provider";
+      return fixture;
+    })(), /exact invoked provider\/model\/effort/],
+    ["altered selected prompt", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.results.results.results[0].testCase.vars.prompt = "different prompt";
+      return fixture;
+    })(), /exact selected case vars/],
+    ["missing assertion outcome", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.results.results.results[0].gradingResult.componentResults.pop();
+      return fixture;
+    })(), /missing explicit assertion outcomes/],
+    ["contradictory native activation", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.results.results.results[0].response.metadata.skillCalls = [];
+      return fixture;
+    })(), /contradictory native Skill-use evidence/],
+  ];
+  for (const [name, fixture, pattern] of resultFixtures) {
+    await writeFile(resultPath, JSON.stringify(fixture), "utf8");
+    await expectReject(validateSyntheticResult, pattern, name);
+  }
+
   const repository = path.join(temporaryRoot, "repository");
   await mkdir(path.join(repository, "skills", "example"), { recursive: true });
   await mkdir(path.join(repository, "evals"), { recursive: true });

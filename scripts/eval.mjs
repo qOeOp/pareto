@@ -16,6 +16,17 @@ const patterns = {
   holdout: "^\\[holdout\\]",
 };
 const repeats = { smoke: 1, full: 2, holdout: 3 };
+const caseFiles = {
+  smoke: "golden.yaml",
+  full: "golden.yaml",
+  holdout: "holdout.yaml",
+};
+const repositoryInstructions = `# Evaluation repository rules
+
+Use the installed run-bounded-mission Skill for every non-trivial implementation or delivery task.
+Do not invoke it for answer-only, explanation, audit-only, diagnosis-only, mechanical, routine status,
+or task-management requests unless the user explicitly invokes it.
+`;
 const execFileAsync = promisify(execFile);
 export const CANONICAL_PROVIDER_ID = "openai:codex-sdk";
 const providerFields = ["config", "id", "label"];
@@ -343,17 +354,19 @@ async function main() {
     const snapshotCommit = holdoutBefore?.commit ?? await gitText(root, ["rev-parse", "HEAD"]);
     await materializeSkillsFromGit(root, snapshotCommit, skillTarget);
     await writeFile(path.join(workspace, "README.md"), "Disposable read-only Skill evaluation workspace.\n", "utf8");
+    await writeFile(path.join(workspace, "AGENTS.md"), repositoryInstructions, "utf8");
     const gitCode = await run("git", ["init", "--quiet"], { cwd: workspace });
     if (gitCode !== 0) throw new Error(`git init failed with exit ${gitCode}`);
     await mkdir(resultsDir, { recursive: true });
-    const cases = parseYaml(await readFile(path.join(root, "evals", "cases", "cases.yaml"), "utf8"));
+    const casePath = path.join(root, "evals", "cases", caseFiles[suite]);
+    const cases = parseYaml(await readFile(casePath, "utf8"));
     const sourceConfig = parseYaml(await readFile(path.join(root, "evals", "promptfooconfig.yaml"), "utf8"));
     const { config, providerId } = preparePromptfooConfig(sourceConfig, {
       model,
       effort,
       workingDirectory: workspace,
     });
-    config.tests = pathToFileURL(path.join(root, "evals", "cases", "cases.yaml")).href;
+    config.tests = pathToFileURL(casePath).href;
     if (holdoutBefore) {
       config.metadata = { ...config.metadata, holdout_candidate: holdoutBefore };
     }

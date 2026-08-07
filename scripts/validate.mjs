@@ -46,7 +46,9 @@ async function validateLinks(body, skillDir, file) {
 async function validateSkills() {
   const names = await readdir(skillRoot);
   const warnings = [];
-  if (names.length === 0) fail("skills/: expected at least one Skill");
+  if (names.length !== 1 || names[0] !== "run-bounded-mission") {
+    fail("skills/: expected exactly the run-bounded-mission Skill");
+  }
   for (const folder of names.sort()) {
     const skillDir = path.join(skillRoot, folder);
     if (!(await stat(skillDir)).isDirectory()) fail(`skills/${folder}: expected a directory`);
@@ -73,48 +75,31 @@ async function validateSkills() {
   return { count: names.length, warnings };
 }
 
-function validatePromptfooCases(cases) {
-  if (!Array.isArray(cases) || cases.length === 0) fail("evals/cases/cases.yaml: expected cases");
-  const descriptions = new Set();
+function validatePromptfooCases(cases, { file, suites, count }) {
+  if (!Array.isArray(cases) || cases.length !== count) fail(`${file}: expected exactly ${count} cases`);
+  const descriptions = [];
   for (const testCase of cases) {
-    if (!/^\[(?:smoke|full|holdout)\] /.test(testCase.description ?? "")) {
+    const suite = /^\[(smoke|full|holdout)\] /.exec(testCase.description ?? "")?.[1];
+    if (!suite || !suites.has(suite)) {
       fail(`eval case has invalid suite prefix: ${testCase.description ?? "<missing>"}`);
     }
-    if (descriptions.has(testCase.description)) fail(`duplicate eval description: ${testCase.description}`);
-    descriptions.add(testCase.description);
+    if (descriptions.includes(testCase.description)) fail(`duplicate eval description: ${testCase.description}`);
+    descriptions.push(testCase.description);
     if (typeof testCase.vars?.prompt !== "string" || !Array.isArray(testCase.assert) || testCase.assert.length === 0) {
       fail(`${testCase.description}: prompt and assertions are required`);
     }
-  }
-  return cases.length;
-}
-
-function validateWorkflowFamilies(families) {
-  const expected = new Set([
-    "task-recovery",
-    "hub-child-authority",
-    "dependency-dag-supersession",
-    "evaluator-admission",
-    "provider-unavailability-fallback",
-    "stale-worktree-bootstrap",
-    "exact-head-delivery",
-    "coordination-churn",
-    "conditional-bdd-tdd-playbook-routing",
-    "repository-selection-cleanup",
-  ]);
-  const ids = new Set();
-  for (const item of families) {
-    for (const key of ["case_id", "family", "suite", "prompt", "required", "forbidden"]) {
-      if (!(key in item)) fail(`workflow family missing ${key}`);
+    const native = testCase.assert.filter((assertion) =>
+      assertion.type === "skill-used" || assertion.type === "not-skill-used");
+    if (native.length !== 1 || native[0].value !== "run-bounded-mission") {
+      fail(`${testCase.description}: expected one exact native run-bounded-mission activation oracle`);
     }
-    if (ids.has(item.case_id)) fail(`duplicate workflow case_id: ${item.case_id}`);
-    ids.add(item.case_id);
-    expected.delete(item.family);
-    if (!["smoke", "full", "holdout"].includes(item.suite)) fail(`${item.case_id}: invalid suite`);
-    if (!Array.isArray(item.required) || !Array.isArray(item.forbidden)) fail(`${item.case_id}: invalid oracle lists`);
+    const deterministic = testCase.assert.filter((assertion) => !native.includes(assertion));
+    if (deterministic.length === 0 || deterministic.some((assertion) =>
+      !["contains", "contains-all", "not-contains"].includes(assertion.type))) {
+      fail(`${testCase.description}: expected admitted deterministic output assertions`);
+    }
   }
-  if (expected.size > 0) fail(`missing workflow families: ${[...expected].join(", ")}`);
-  return families.length;
+  return descriptions;
 }
 
 function validateExactKeys(value, expected, label) {
@@ -180,6 +165,11 @@ function validateBaselineProvenance(candidate, attemptedAt) {
   const historicalTree = gitText(["show", "-s", "--format=%T", candidate.commit],
     "smoke baseline candidate tree");
   if (historicalTree !== candidate.tree) fail("smoke baseline candidate tree does not match its commit");
+  const historicalSkillsTree = gitText(["rev-parse", `${candidate.commit}:skills`],
+    "smoke baseline historical Skills tree");
+  if (historicalSkillsTree !== candidate.skills_tree_oid) {
+    fail("smoke baseline Skills tree does not match the historical candidate");
+  }
 
   const config = candidate.promptfoo_config;
   const historicalConfigOid = gitText(["rev-parse", `${candidate.commit}:${config.path}`],
@@ -245,9 +235,12 @@ function validateBaseline(baseline, cases, matrix) {
   }
 
   validateExactKeys(baseline.candidate,
-    new Set(["commit", "tree", "skill_sha256", "promptfoo_config"]), "smoke baseline candidate");
-  if (!/^[0-9a-f]{40}$/.test(baseline.candidate.commit) || !/^[0-9a-f]{40}$/.test(baseline.candidate.tree)) {
-    fail("smoke baseline must bind an exact commit and tree");
+    new Set(["commit", "tree", "skills_tree_oid", "skill_sha256", "promptfoo_config"]),
+    "smoke baseline candidate");
+  if (!/^[0-9a-f]{40}$/.test(baseline.candidate.commit) ||
+      !/^[0-9a-f]{40}$/.test(baseline.candidate.tree) ||
+      !/^[0-9a-f]{40}$/.test(baseline.candidate.skills_tree_oid)) {
+    fail("smoke baseline must bind an exact commit, tree, and Skills tree");
   }
   if (!baseline.candidate.skill_sha256 || typeof baseline.candidate.skill_sha256 !== "object" ||
       Array.isArray(baseline.candidate.skill_sha256)) {
@@ -430,25 +423,40 @@ if (packageJson.devDependencies?.promptfoo !== "0.122.0") fail("promptfoo must b
 if (packageJson.engines?.node !== ">=22.22.0") fail("Node engine must be >=22.22.0");
 
 const skills = await validateSkills();
-const cases = parseYaml(await readFile(path.join(root, "evals/cases/cases.yaml"), "utf8"));
-const caseCount = validatePromptfooCases(cases);
-const families = JSON.parse(await readFile(path.join(root, "evals/cases/workflow-families.json"), "utf8"));
-const familyCount = validateWorkflowFamilies(families);
+const goldenCases = parseYaml(await readFile(path.join(root, "evals/cases/golden.yaml"), "utf8"));
+const holdoutCases = parseYaml(await readFile(path.join(root, "evals/cases/holdout.yaml"), "utf8"));
+const goldenDescriptions = validatePromptfooCases(goldenCases, {
+  file: "evals/cases/golden.yaml",
+  suites: new Set(["smoke", "full"]),
+  count: 15,
+});
+const holdoutDescriptions = validatePromptfooCases(holdoutCases, {
+  file: "evals/cases/holdout.yaml",
+  suites: new Set(["holdout"]),
+  count: 4,
+});
+if (goldenCases.filter((testCase) => /^\[smoke\]/.test(testCase.description)).length !== 2) {
+  fail("evals/cases/golden.yaml: expected exactly two smoke cases");
+}
+const descriptions = [...goldenDescriptions, ...holdoutDescriptions];
+if (new Set(descriptions).size !== descriptions.length) fail("duplicate eval description across corpus files");
+const cases = [...goldenCases, ...holdoutCases];
+const caseCount = cases.length;
 const matrix = JSON.parse(await readFile(path.join(root, "evals/matrix.json"), "utf8"));
 validateMatrix(matrix);
-const baselineSource = await readFile(path.join(root, "evals/baselines/2026-08-06-smoke.json"), "utf8");
+const baselineSource = await readFile(path.join(root, "evals/baselines/2026-08-07-smoke.json"), "utf8");
 rejectDuplicateJsonObjectMembers(baselineSource, "smoke baseline");
 const baseline = JSON.parse(baselineSource);
 validateBaseline(baseline, cases, matrix);
 await scanPublicEvidence([
   "README.md",
   "evals/CONTRACT.md",
-  "evals/baselines/2026-08-06-smoke.json",
-  "evals/cases/cases.yaml",
-  "evals/cases/workflow-families.json",
+  "evals/baselines/2026-08-07-smoke.json",
+  "evals/cases/golden.yaml",
+  "evals/cases/holdout.yaml",
   "evals/matrix.json",
   "evals/promptfooconfig.yaml",
 ]);
 
 for (const warning of skills.warnings) console.warn(`Warning: ${warning}.`);
-console.log(`Validated ${skills.count} skills, ${caseCount} executable cases, and ${familyCount} workflow families.`);
+console.log(`Validated ${skills.count} Skill and ${caseCount} executable cases.`);

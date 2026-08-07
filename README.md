@@ -6,9 +6,16 @@ The repository keeps runtime skills under one authority, `skills/`, and evaluati
 
 ## Install
 
-Runtime installation is intentionally unavailable in this cleanup candidate. Distribution is
-admitted only when `skills/` contains at least one real maintained Skill with matching validation and
-evaluation evidence; an empty inventory fails closed.
+This repository distributes exactly one Skill: `run-bounded-mission`.
+
+```bash
+npx -y skills@1.5.22 add qOeOp/skills --list
+npx -y skills@1.5.22 add qOeOp/skills --skill run-bounded-mission --agent codex --global --copy --yes
+npx -y skills@1.5.22 add qOeOp/skills --skill run-bounded-mission --agent claude-code --global --copy --yes
+```
+
+Use a release tag or commit after the repository name when reproducibility matters. Update or remove
+the installed copy through the same pinned CLI.
 
 ## Validate and evaluate
 
@@ -18,12 +25,25 @@ development dependencies.
 ```bash
 npm ci --ignore-scripts
 npm run check
+npm run eval:smoke
+npm run eval:full
+npm run eval:holdout
+npm run eval:matrix
 ```
 
-The cleanup candidate intentionally cannot pass `npm run check`: the production validator requires a
-real Skill, executable cases, and a bound baseline. Evaluation commands and install instructions are
-re-admitted only with those real consumers. See [the evaluation contract](evals/CONTRACT.md) for the
-fail-closed requirements and generalized workflow scenario families.
+The dynamic commands use Promptfoo's Codex SDK provider in a disposable Git repository with the Skill
+materialized only from the frozen Git tree. Network and approvals are disabled, and the repository
+rule fixture requires `run-bounded-mission` only for non-trivial implementation or delivery. Raw
+results remain ignored; only reviewed summaries may become baselines.
+
+- `smoke` exercises explicit activation and a quoted-token answer-only near miss.
+- `full` adds the maintained public golden behavior corpus and repeats each case twice.
+- `holdout` uses a separate case file, is excluded from normal tuning, and runs only from a clean
+  committed candidate with exact commit/tree/Skill-tree/matrix binding.
+- `matrix` changes only the declared model/reasoning-effort cell.
+
+See [the evaluation contract](evals/CONTRACT.md) for the observation boundary, thresholds, evidence
+fields, and honest unavailable rules.
 
 ## Capability boundary
 

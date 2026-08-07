@@ -12,9 +12,10 @@ locators, business repositories, credentials, and provider receipts remain exter
 
 ## Suites
 
-- `smoke`: one positive Skill route and one near-miss negative control, one trial each.
-- `full`: smoke plus public maintained regressions, two trials each.
-- `holdout`: cases excluded from normal tuning, three trials each. The runner requires a clean Git
+- `smoke`: the two `[smoke]` cases in `cases/golden.yaml`, one trial each.
+- `full`: all 15 public golden cases in `cases/golden.yaml`, two trials each.
+- `holdout`: the four cases in the separate `cases/holdout.yaml`, three trials each. The runner
+  never loads this file for smoke/full and requires a clean Git
   commit, binds the exact commit, tree, `skills/` tree, and matrix digest into Promptfoo output, and
   rejects identity drift before accepting the result.
 
@@ -24,18 +25,19 @@ after its candidate or matrix changes.
 
 ## Case design
 
-Executable cases live in `cases/cases.yaml`. Descriptions carry the suite selector; prompts express
-consumer tasks rather than expected wording. Assertions prefer deterministic observable behavior.
-Model-graded rubrics are used only when semantic quality cannot be reduced to a stable deterministic
-check.
+`cases/golden.yaml` and `cases/holdout.yaml` are the only corpus authority. Descriptions carry the
+suite selector; prompts express generalized consumer tasks without private repositories, task
+locators, transcripts, or business content. Every case binds native Skill activation/nonactivation
+plus deterministic observable receipt fields. Model-graded rubrics may be added only when semantic
+quality cannot be reduced to a stable check and every provider-capable grading route is preflighted
+against the exact admitted provider/model/effort authority.
 
-`cases/workflow-families.json` holds generalized future workflow-skill families. They are corpus
-authority, not runtime workflow authority, and are not executable until a real target Skill and
-consumer contract are deliberately admitted. The required families are task recovery, hub/child
-authority, dependency DAG and supersession, evaluator admission, provider unavailability fallback,
-stale worktree bootstrap, exact-head delivery, coordination churn, and conditional BDD/TDD/playbook
-routing. Repository selection and cleanup also covers rejecting unrelated legacy Skills and
-invalidating every case, baseline, installation receipt, and result that consumed them.
+The disposable repository contains one synthetic repository instruction: use the installed Skill for
+non-trivial implementation or delivery, not for answer-only work. This makes repository-rule
+auto-trigger a real consumer path rather than prompt prose. Promptfoo's `response.metadata.skillCalls`
+is the activation observation. Current Codex SDK output does not expose a trustworthy reference-read
+trace, so lazy-owner loading remains behaviorally checked while the actual read trace is recorded as
+`unavailable`; model output cannot upgrade that observation.
 
 ## Trial evidence
 
@@ -70,7 +72,7 @@ separator, case, or resolved-target collisions also fail closed on every host.
 Any committed smoke baseline has one exact representation. Its top-level keys are
 `schema_version`, `suite`, `attempted_at`, `candidate`, `case_ids`, `environment`, `cells`, `result`,
 and `raw_result_committed`. `candidate` contains only `commit`, `tree`, `skill_sha256`, and
-`promptfoo_config`. `promptfoo_config` contains only the historical repo-relative `path`, Git
+`skills_tree_oid`, plus `promptfoo_config`. `promptfoo_config` contains only the historical repo-relative `path`, Git
 `blob_oid`, raw-byte `sha256`, and sole parsed `provider`; `environment` contains only `node`, `npm`,
 `promptfoo`, and `skills_cli`. `case_ids` must exactly match the smoke cases, and cells must exactly
 match the model/effort matrix. Every cell contains `provider`, `model`, `reasoning_effort`,
@@ -96,9 +98,9 @@ cell completed; otherwise it is `unavailable` and at least one cell must have st
 Duplicate raw JSON object members fail before normalization. Every cell provider must equal the sole
 provider parsed from the recorded historical Promptfoo blob, not the mutable working-tree config.
 The recorded historical candidate must exist in the current repository history, resolve to the
-recorded tree, predate or equal `attempted_at`, expose exactly the recorded Skill names, reproduce
-every recorded `SKILL.md` SHA-256 digest, and expose the recorded config path as the recorded blob and
-raw-byte digest.
+recorded tree and complete `skills/` tree, predate or equal `attempted_at`, expose exactly the recorded
+Skill names, reproduce every recorded `SKILL.md` SHA-256 digest, and expose the recorded config path
+as the recorded blob and raw-byte digest.
 
 Static repository validation proves referential and causal consistency among committed Git objects
 and the baseline representation. It does not prove that the provider actually ran, provide

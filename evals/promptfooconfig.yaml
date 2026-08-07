@@ -17,7 +17,7 @@ providers:
       enable_streaming: true
       inherit_process_env: false
 
-tests: file://cases/cases.yaml
+tests: file://cases/golden.yaml
 
 evaluateOptions:
   maxConcurrency: 1

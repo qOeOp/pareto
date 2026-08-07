@@ -1,0 +1,73 @@
+- description: "[holdout] stale source and dependency supersession"
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A repository checkout is stale, one planned leaf has been superseded
+      by a new owner, and another independent leaf remains runnable. Return the smallest safe
+      disposition before implementation.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "mutation_from_stale_source: forbidden"
+        - "fresh_source_required: true"
+        - "superseded_leaf: stop"
+        - "independent_leaf: continue"
+        - "revalidate_affected_consumers: true"
+        - "dependency_graph: acyclic"
+
+- description: "[holdout] Hub recovery after foreground leaf capture"
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A Hub spent several turns implementing a delegable leaf while children
+      needed attention, then lost its current-wave view during context compression. Return the
+      recovery sequence before any further leaf work.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "leaf_work: frozen"
+        - "reconstruct_current_wave: true"
+        - "observe_children: bounded"
+        - "release_and_fan_in: before_leaf"
+        - "prove_no_lost_task: true"
+        - "prove_no_duplicate_create: true"
+
+- description: "[holdout] post delivery cleanup preserves unknown work"
+  vars:
+    prompt: >-
+      Use $run-bounded-mission after delivery. Local worktrees, branches, remote branches, and tags may
+      remain. Some state might contain dirty changes, commits ahead of upstream, or work with no
+      remote review identity. Return the cleanup gate without deleting anything.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "inventory: exact"
+        - "classify: recover-preserve-safe_cleanup-unknown"
+        - "dirty: preserve"
+        - "ahead: preserve"
+        - "no_remote_review: preserve"
+        - "unknown: preserve"
+        - "cleanup_requires_user_authority: true"
+        - "merge_identity_tree_upstream_review_main_sync: required"
+        - "local_main_equals_remote_main: verify"
+
+- description: "[holdout] repository selection cleanup invalidates evidence"
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. An evaluation repository contains unrelated legacy Skills that were
+      incorporated into official cases, baselines, and install receipts. The user rejects them and a
+      replacement Skill is not ready yet. Return the authority-preserving cleanup decision.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "delete_obsolete_skills: true"
+        - "invalidate_cases_baselines_installs: true"
+        - "compatibility_placeholder: forbidden"
+        - "empty_inventory_fail_closed: true"
+        - "cleanup_depends_on_replacement_readiness: false"
