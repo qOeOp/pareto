@@ -8,6 +8,33 @@ import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const skillRoot = path.join(root, "skills");
+const gitAuthorityEnvironment = { ...process.env };
+for (const variable of [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_COMMON_DIR",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CEILING_DIRECTORIES",
+  "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+  "GIT_CONFIG_GLOBAL",
+  "GIT_CONFIG_SYSTEM",
+  "GIT_CONFIG_NOSYSTEM",
+  "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_EXTERNAL_DIFF",
+  "GIT_DIFF_OPTS",
+  "GIT_LITERAL_PATHSPECS",
+  "GIT_GLOB_PATHSPECS",
+  "GIT_NOGLOB_PATHSPECS",
+  "GIT_ICASE_PATHSPECS",
+]) {
+  delete gitAuthorityEnvironment[variable];
+}
+for (const variable of Object.keys(gitAuthorityEnvironment)) {
+  if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(variable)) delete gitAuthorityEnvironment[variable];
+}
 const allowedFrontmatter = new Set(["name", "description"]);
 const allowedUnavailableObservations = new Set([
   "conversation_compaction_state",
@@ -166,7 +193,12 @@ function validateNonEmptyString(value, label) {
 
 function gitBytes(args, label) {
   try {
-    return execFileSync("git", args, { cwd: root, encoding: "buffer", maxBuffer: 16 * 1024 * 1024 });
+    return execFileSync("git", args, {
+      cwd: root,
+      env: gitAuthorityEnvironment,
+      encoding: "buffer",
+      maxBuffer: 16 * 1024 * 1024,
+    });
   } catch {
     fail(`${label}: Git object is unavailable`);
   }
@@ -180,6 +212,7 @@ function gitIsAncestor(ancestor, descendant) {
   try {
     execFileSync("git", ["merge-base", "--is-ancestor", ancestor, descendant], {
       cwd: root,
+      env: gitAuthorityEnvironment,
       stdio: "ignore",
     });
     return true;
@@ -433,16 +466,18 @@ function validateMatrix(matrix) {
 
 function validateBaselineWorkspaceDrift() {
   try {
-    execFileSync("git", ["diff", "--cached", "--quiet", "HEAD", "--", "evals/baselines"], {
+    execFileSync("git", ["diff", "--no-ext-diff", "--cached", "--quiet", "HEAD", "--", "evals/baselines"], {
       cwd: root,
+      env: gitAuthorityEnvironment,
       stdio: "ignore",
     });
   } catch {
     fail("evals/baselines index must match the exact HEAD tree");
   }
   try {
-    execFileSync("git", ["diff", "--quiet", "--", "evals/baselines"], {
+    execFileSync("git", ["diff", "--no-ext-diff", "--quiet", "--", "evals/baselines"], {
       cwd: root,
+      env: gitAuthorityEnvironment,
       stdio: "ignore",
     });
   } catch {

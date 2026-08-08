@@ -134,7 +134,9 @@ The validator accepts no `evals/baselines/` directory or an empty one. It invent
 present `100644` `YYYY-MM-DD-smoke.json` only from the exact `HEAD` Git tree, in deterministic path
 order. Before consumption it independently rejects HEAD-to-index drift, index-to-working-tree drift,
 index flags or aliases (including assume-unchanged and skip-worktree), and untracked material under
-`evals/baselines/`. Ignored material is not read by that consumer. A future committed baseline
+`evals/baselines/`. Every Git consumer runs from the repository root derived from the validator script
+and clears inherited Git directory, worktree, index, common-directory, object-store, and config/pathspec
+selectors, so caller environment cannot redirect that authority. Ignored material is not read by that consumer. A future committed baseline
 therefore still needs its own reconstructable candidate and a committed replayable producer receipt;
 it cannot borrow an unreachable pull-request object or an ignored raw result from an earlier run.
 

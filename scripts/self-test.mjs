@@ -661,6 +661,31 @@ try {
       await rm(probe, { recursive: true, force: true });
     }
   }
+  async function expectGitAuthorityProbe() {
+    const probe = path.join(temporaryRoot, `baseline-probe-${probeRevision += 1}`);
+    const alternate = path.join(temporaryRoot, `baseline-authority-${probeRevision += 1}`);
+    await execFileAsync("git", ["clone", "--quiet", "--shared", validatorFixture, probe]);
+    await execFileAsync("git", ["clone", "--quiet", "--shared", validatorFixture, alternate]);
+    await symlink(path.join(root, "node_modules"), path.join(probe, "node_modules"),
+      process.platform === "win32" ? "junction" : "dir");
+    try {
+      await writeFile(path.join(probe, "evals", "baselines", "untracked.json"), "{}\n", "utf8");
+      const alternateGitDir = path.join(alternate, ".git");
+      await expectReject(() => execFileAsync(process.execPath, [path.join(probe, "scripts", "validate.mjs")], {
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GIT_DIR: alternateGitDir,
+          GIT_WORK_TREE: alternate,
+          GIT_INDEX_FILE: path.join(alternateGitDir, "index"),
+        },
+      }), /evals\/baselines must not contain untracked material/, "inherited Git authority cannot redirect validation");
+      rejectedBaselineProbeCount += 1;
+    } finally {
+      await rm(probe, { recursive: true, force: true });
+      await rm(alternate, { recursive: true, force: true });
+    }
+  }
   const probeBaselinePath = (probe) => path.join(probe, baselineRelativePath);
   await expectBaselineProbe("staged-only baseline", async (probe) => {
     const fixture = JSON.parse(await readFile(probeBaselinePath(probe), "utf8"));
@@ -685,6 +710,7 @@ try {
     await writeFile(path.join(probe, "evals", "baselines", `untracked-${baselineFilename}`),
       `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
   }, /must not contain untracked material/);
+  await expectGitAuthorityProbe();
   await expectBaselineProbe("modified baseline", async (probe) => {
     const fixture = JSON.parse(await readFile(probeBaselinePath(probe), "utf8"));
     fixture.cells[0].reason = "working-tree drift";
