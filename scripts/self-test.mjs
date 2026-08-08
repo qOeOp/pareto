@@ -527,12 +527,20 @@ try {
     "scripts/self-test.mjs",
     "scripts/validate.mjs",
   ]);
-  execFileSync("git", [
-    "-C", validatorFixture,
-    "-c", "user.name=Skill Eval Self Test",
-    "-c", "user.email=skill-eval@example.invalid",
-    "commit", "--quiet", "-m", "fixture baseline correction source",
-  ]);
+  let sourceCommitNeeded = false;
+  try {
+    execFileSync("git", ["-C", validatorFixture, "diff", "--cached", "--quiet"], { stdio: "ignore" });
+  } catch {
+    sourceCommitNeeded = true;
+  }
+  if (sourceCommitNeeded) {
+    execFileSync("git", [
+      "-C", validatorFixture,
+      "-c", "user.name=Skill Eval Self Test",
+      "-c", "user.email=skill-eval@example.invalid",
+      "commit", "--quiet", "-m", "fixture baseline correction source",
+    ]);
+  }
   await symlink(
     path.join(root, "node_modules"),
     path.join(validatorFixture, "node_modules"),
@@ -549,10 +557,13 @@ try {
   const crlfValidation = await runProductionValidator();
   assert.match(crlfValidation.stdout, /Validated 1 Skill, 19 executable cases, and 0 committed smoke baselines/);
 
-  const baselinePath = path.join(validatorFixture, "evals", "baselines", "2026-08-07-smoke.json");
   const gitText = (args) => execFileSync("git", ["-C", validatorFixture, ...args], { encoding: "utf8" }).trim();
   const candidateCommit = gitText(["rev-parse", "HEAD"]);
   const candidateTime = Number(gitText(["show", "-s", "--format=%ct", candidateCommit]));
+  const attemptedAt = new Date((candidateTime + 1) * 1000).toISOString();
+  const baselineFilename = `${attemptedAt.slice(0, 10)}-smoke.json`;
+  const baselineRelativePath = path.join("evals", "baselines", baselineFilename);
+  const baselinePath = path.join(validatorFixture, baselineRelativePath);
   const candidateConfig = await readFile(path.join(validatorFixture, "evals", "promptfooconfig.yaml"));
   const candidateSkill = execFileSync("git", ["-C", validatorFixture, "show",
     `${candidateCommit}:skills/run-bounded-mission/SKILL.md`]);
@@ -564,7 +575,7 @@ try {
   const baseline = {
     schema_version: 1,
     suite: "smoke",
-    attempted_at: new Date((candidateTime + 1) * 1000).toISOString(),
+    attempted_at: attemptedAt,
     candidate: {
       commit: candidateCommit,
       tree: gitText(["rev-parse", "HEAD^{tree}"]),
@@ -606,7 +617,7 @@ try {
   let fixtureRevision = 0;
   async function commitBaselineSource(source, label, additionalPaths = []) {
     await writeFile(baselinePath, source, "utf8");
-    execFileSync("git", ["-C", validatorFixture, "add", "--", "evals/baselines/2026-08-07-smoke.json", ...additionalPaths]);
+    execFileSync("git", ["-C", validatorFixture, "add", "--", baselineRelativePath, ...additionalPaths]);
     execFileSync("git", [
       "-C", validatorFixture,
       "-c", "user.name=Skill Eval Self Test",
@@ -669,13 +680,13 @@ try {
       await rm(probe, { recursive: true, force: true });
     }
   }
-  const probeBaselinePath = (probe) => path.join(probe, "evals", "baselines", "2026-08-07-smoke.json");
+  const probeBaselinePath = (probe) => path.join(probe, baselineRelativePath);
   await expectBaselineProbe("staged-only baseline", async (probe) => {
     await writeFile(probeBaselinePath(probe), `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
-    execFileSync("git", ["-C", probe, "add", "--", "evals/baselines/2026-08-07-smoke.json"]);
+    execFileSync("git", ["-C", probe, "add", "--", baselineRelativePath]);
   }, /must match the exact HEAD tree/);
   await expectBaselineProbe("new untracked baseline", async (probe) => {
-    await writeFile(path.join(probe, "evals", "baselines", "2026-08-08-smoke.json"),
+    await writeFile(path.join(probe, "evals", "baselines", `untracked-${baselineFilename}`),
       `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
   }, /must not contain untracked material/);
   await expectBaselineProbe("modified baseline", async (probe) => {
@@ -690,9 +701,10 @@ try {
   }, /must match the exact HEAD tree/);
   await expectBaselineProbe("baseline filename UTC date", async (probe) => {
     const source = await readFile(probeBaselinePath(probe), "utf8");
-    const mismatchedPath = path.join(probe, "evals", "baselines", "2026-08-08-smoke.json");
+    const mismatchFilename = `${new Date(Date.parse(attemptedAt) + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}-smoke.json`;
+    const mismatchedPath = path.join(probe, "evals", "baselines", mismatchFilename);
     await writeFile(mismatchedPath, source, "utf8");
-    execFileSync("git", ["-C", probe, "add", "--", "evals/baselines/2026-08-08-smoke.json"]);
+    execFileSync("git", ["-C", probe, "add", "--", path.join("evals", "baselines", mismatchFilename)]);
     execFileSync("git", ["-C", probe, "-c", "user.name=Skill Eval Self Test", "-c",
       "user.email=skill-eval@example.invalid", "commit", "--quiet", "-m", "fixture filename date mismatch"]);
   }, /filename date must match attempted_at UTC date/);
@@ -704,7 +716,7 @@ try {
     const fixture = JSON.parse(await readFile(probeBaselinePath(probe), "utf8"));
     fixture.case_ids[0] = driftedDescription;
     await writeFile(probeBaselinePath(probe), `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
-    execFileSync("git", ["-C", probe, "add", "--", "evals/cases/golden.yaml", "evals/baselines/2026-08-07-smoke.json"]);
+    execFileSync("git", ["-C", probe, "add", "--", "evals/cases/golden.yaml", baselineRelativePath]);
     execFileSync("git", ["-C", probe, "-c", "user.name=Skill Eval Self Test", "-c",
       "user.email=skill-eval@example.invalid", "commit", "--quiet", "-m", "fixture historical case drift"]);
   }, /case_ids must exactly match the smoke cases/);
@@ -716,7 +728,7 @@ try {
     const fixture = JSON.parse(await readFile(probeBaselinePath(probe), "utf8"));
     fixture.cells[1].reasoning_effort = "high";
     await writeFile(probeBaselinePath(probe), `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
-    execFileSync("git", ["-C", probe, "add", "--", "evals/matrix.json", "evals/baselines/2026-08-07-smoke.json"]);
+    execFileSync("git", ["-C", probe, "add", "--", "evals/matrix.json", baselineRelativePath]);
     execFileSync("git", ["-C", probe, "-c", "user.name=Skill Eval Self Test", "-c",
       "user.email=skill-eval@example.invalid", "commit", "--quiet", "-m", "fixture historical matrix drift"]);
   }, /model\/effort must match the matrix/);
