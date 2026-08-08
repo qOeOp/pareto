@@ -569,8 +569,6 @@ try {
     `${candidateCommit}:skills/run-bounded-mission/SKILL.md`]);
   const matrix = JSON.parse(await readFile(path.join(validatorFixture, "evals", "matrix.json"), "utf8"));
   const smokeCases = goldenCases.filter((testCase) => /^\[smoke\]/.test(testCase.description));
-  const expectedAssertions = smokeCases.reduce((total, testCase) => total + testCase.assert.length, 0) *
-    matrix.trials_per_cell;
   const plannedTrials = smokeCases.length * matrix.trials_per_cell;
   const baseline = {
     schema_version: 1,
@@ -628,44 +626,12 @@ try {
   async function commitBaseline(value, label, additionalPaths = []) {
     await commitBaselineSource(`${JSON.stringify(value, null, 2)}\n`, label, additionalPaths);
   }
-  const completedCell = (matrixCell) => ({
-    provider: "openai:codex-sdk",
-    model: matrixCell.model,
-    reasoning_effort: matrixCell.effort,
-    planned_trials: plannedTrials,
-    completed_trials: plannedTrials,
-    errored_trials: 0,
-    status: "completed",
-    quality: {
-      passed: true,
-      passed_trials: plannedTrials,
-      total_assertions: expectedAssertions,
-      passed_assertions: expectedAssertions,
-      assertion_score: 1,
-      rubric_score: "unavailable",
-      pass_rate: 1,
-      mean: 1,
-      median: 1,
-      p95: 1,
-      variance: 0,
-    },
-    elapsed_ms: 1,
-    input_tokens: 1,
-    output_tokens: 1,
-    cached_input_tokens: 0,
-    reasoning_tokens: 0,
-    cost: 0,
-  });
-  const validCompletedBaseline = {
-    ...baseline,
-    cells: matrix.cells.map(completedCell),
-    result: "completed",
-  };
-  await commitBaseline(validCompletedBaseline, "valid completed evidence");
-  const completedValidation = await runProductionValidator();
-  assert.match(completedValidation.stdout, /Validated 1 Skill, 19 executable cases, and 1 committed smoke baselines/);
+  await commitBaseline(baseline, "valid unavailable evidence");
+  const unavailableValidation = await runProductionValidator();
+  assert.match(unavailableValidation.stdout, /Validated 1 Skill, 19 executable cases, and 1 committed smoke baselines/);
 
   let probeRevision = 0;
+  let rejectedBaselineProbeCount = 0;
   async function expectBaselineProbe(name, mutate, pattern) {
     const probe = path.join(temporaryRoot, `baseline-probe-${probeRevision += 1}`);
     await execFileAsync("git", ["clone", "--quiet", "--shared", validatorFixture, probe]);
@@ -676,29 +642,67 @@ try {
       await expectReject(() => execFileAsync(process.execPath, [path.join(probe, "scripts", "validate.mjs")], {
         encoding: "utf8",
       }), pattern, name);
+      rejectedBaselineProbeCount += 1;
+    } finally {
+      await rm(probe, { recursive: true, force: true });
+    }
+  }
+  async function expectBaselineProbePass(name, mutate) {
+    const probe = path.join(temporaryRoot, `baseline-probe-${probeRevision += 1}`);
+    await execFileAsync("git", ["clone", "--quiet", "--shared", validatorFixture, probe]);
+    await symlink(path.join(root, "node_modules"), path.join(probe, "node_modules"),
+      process.platform === "win32" ? "junction" : "dir");
+    try {
+      await mutate(probe);
+      await execFileAsync(process.execPath, [path.join(probe, "scripts", "validate.mjs")], { encoding: "utf8" });
+    } catch (error) {
+      assert.fail(`${name}: expected validation to pass, got ${error?.stderr || error?.message || error}`);
     } finally {
       await rm(probe, { recursive: true, force: true });
     }
   }
   const probeBaselinePath = (probe) => path.join(probe, baselineRelativePath);
   await expectBaselineProbe("staged-only baseline", async (probe) => {
-    await writeFile(probeBaselinePath(probe), `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
+    const fixture = JSON.parse(await readFile(probeBaselinePath(probe), "utf8"));
+    fixture.cells[0].reason = "staged-only drift";
+    await writeFile(probeBaselinePath(probe), `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
     execFileSync("git", ["-C", probe, "add", "--", baselineRelativePath]);
-  }, /must match the exact HEAD tree/);
+  }, /index must match the exact HEAD tree/);
+  await expectBaselineProbe("staged baseline deleted from worktree", async (probe) => {
+    const stagedPath = path.join(probe, "evals", "baselines", "2099-01-01-smoke.json");
+    await writeFile(stagedPath, `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
+    execFileSync("git", ["-C", probe, "add", "--", path.relative(probe, stagedPath)]);
+    await rm(stagedPath);
+  }, /index must match the exact HEAD tree/);
+  await expectBaselineProbe("staged baseline with worktree restored to HEAD", async (probe) => {
+    const fixture = JSON.parse(await readFile(probeBaselinePath(probe), "utf8"));
+    fixture.cells[0].reason = "index-only drift";
+    await writeFile(probeBaselinePath(probe), `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    execFileSync("git", ["-C", probe, "add", "--", baselineRelativePath]);
+    execFileSync("git", ["-C", probe, "restore", "--source=HEAD", "--worktree", "--", baselineRelativePath]);
+  }, /index must match the exact HEAD tree/);
   await expectBaselineProbe("new untracked baseline", async (probe) => {
     await writeFile(path.join(probe, "evals", "baselines", `untracked-${baselineFilename}`),
       `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
   }, /must not contain untracked material/);
   await expectBaselineProbe("modified baseline", async (probe) => {
-    await writeFile(probeBaselinePath(probe), `${JSON.stringify(baseline, null, 2)}\n`, "utf8");
-  }, /must match the exact HEAD tree/);
+    const fixture = JSON.parse(await readFile(probeBaselinePath(probe), "utf8"));
+    fixture.cells[0].reason = "working-tree drift";
+    await writeFile(probeBaselinePath(probe), `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+  }, /worktree must match the index/);
   await expectBaselineProbe("deleted baseline", async (probe) => {
     await rm(probeBaselinePath(probe));
-  }, /must match the exact HEAD tree/);
+  }, /worktree must match the index/);
   await expectBaselineProbe("baseline directory symlink", async (probe) => {
     await rm(path.join(probe, "evals", "baselines"), { recursive: true, force: true });
     await symlink(path.join(temporaryRoot, "baseline-directory-target"), path.join(probe, "evals", "baselines"));
-  }, /must match the exact HEAD tree/);
+  }, /worktree must match the index/);
+  await expectBaselineProbe("assume-unchanged baseline alias", async (probe) => {
+    execFileSync("git", ["-C", probe, "update-index", "--assume-unchanged", "--", baselineRelativePath]);
+  }, /must not use index flags or aliases/);
+  await expectBaselineProbe("skip-worktree baseline alias", async (probe) => {
+    execFileSync("git", ["-C", probe, "update-index", "--skip-worktree", "--", baselineRelativePath]);
+  }, /must not use index flags or aliases/);
   await expectBaselineProbe("baseline filename UTC date", async (probe) => {
     const source = await readFile(probeBaselinePath(probe), "utf8");
     const mismatchFilename = `${new Date(Date.parse(attemptedAt) + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)}-smoke.json`;
@@ -732,13 +736,29 @@ try {
     execFileSync("git", ["-C", probe, "-c", "user.name=Skill Eval Self Test", "-c",
       "user.email=skill-eval@example.invalid", "commit", "--quiet", "-m", "fixture historical matrix drift"]);
   }, /model\/effort must match the matrix/);
+  await expectBaselineProbePass("legal offset timestamp", async (probe) => {
+    const fixture = JSON.parse(await readFile(probeBaselinePath(probe), "utf8"));
+    fixture.attempted_at = new Date(Date.parse(attemptedAt) + 8 * 60 * 60 * 1000).toISOString().replace("Z", "+08:00");
+    await writeFile(probeBaselinePath(probe), `${JSON.stringify(fixture, null, 2)}\n`, "utf8");
+    execFileSync("git", ["-C", probe, "add", "--", baselineRelativePath]);
+    execFileSync("git", ["-C", probe, "-c", "user.name=Skill Eval Self Test", "-c",
+      "user.email=skill-eval@example.invalid", "commit", "--quiet", "-m", "fixture legal offset timestamp"]);
+  });
 
   const malformedBaselines = [
-    ["completed required field", (() => {
-      const fixture = structuredClone(validCompletedBaseline);
-      delete fixture.cells[0].cost;
-      return fixture;
-    })(), /completed cell 0: expected exact fields/],
+    ["completed evidence without producer receipt", {
+      ...baseline,
+      cells: baseline.cells.map((cell, index) => index === 0 ? {
+        ...cell,
+        status: "completed",
+        completed_trials: plannedTrials,
+        errored_trials: 0,
+      } : cell),
+    }, /committed completed evidence is unavailable without a replayable producer receipt/],
+    ["invalid calendar attempted_at", {
+      ...baseline,
+      attempted_at: "2026-11-31T00:00:00Z",
+    }, /attempted_at must contain a valid calendar date and time/],
     ["unavailable forbidden field", {
       ...baseline,
       cells: baseline.cells.map((cell, index) => index === 0 ? { ...cell, unexpected: true } : cell),
@@ -793,41 +813,6 @@ try {
         promptfoo_config: { ...baseline.candidate.promptfoo_config, provider: "other-provider" },
       },
     }, /Promptfoo provider does not match the historical config blob/],
-    ["completed trial denominator", (() => {
-      const fixture = structuredClone(validCompletedBaseline);
-      fixture.cells[0].quality.passed = false;
-      fixture.cells[0].quality.passed_trials = 1;
-      fixture.cells[0].quality.pass_rate = 0.3;
-      return fixture;
-    })(), /pass_rate contradicts trial counts/],
-    ["completed assertion pass coherence", (() => {
-      const fixture = structuredClone(validCompletedBaseline);
-      fixture.cells[0].quality.passed = false;
-      fixture.cells[0].quality.passed_trials = 1;
-      fixture.cells[0].quality.pass_rate = 0.5;
-      return fixture;
-    })(), /assertion and pass evidence contradict trial counts/],
-    ["completed assertion denominator", (() => {
-      const fixture = structuredClone(validCompletedBaseline);
-      fixture.cells[0].quality.passed = false;
-      fixture.cells[0].quality.passed_trials = 1;
-      fixture.cells[0].quality.pass_rate = 0.5;
-      fixture.cells[0].quality.passed_assertions = 1;
-      fixture.cells[0].quality.assertion_score = 0.3;
-      return fixture;
-    })(), /assertion_score contradicts assertion counts/],
-    ["completed assertion inventory", (() => {
-      const fixture = structuredClone(validCompletedBaseline);
-      fixture.cells[0].quality.total_assertions = 2;
-      fixture.cells[0].quality.passed_assertions = 2;
-      return fixture;
-    })(), /total_assertions must match the smoke assertion inventory/],
-    ["completed percentile ordering", (() => {
-      const fixture = structuredClone(validCompletedBaseline);
-      fixture.cells[0].quality.median = 1;
-      fixture.cells[0].quality.p95 = 0;
-      return fixture;
-    })(), /median must not exceed p95/],
   ];
   for (const [name, malformedBaseline, pattern] of malformedBaselines) {
     await commitBaseline(malformedBaseline, name);
@@ -850,7 +835,7 @@ try {
     await expectReject(runProductionValidator, pattern, name);
   }
 
-  const malformedCount = malformedBaselines.length + duplicateMembers.length + 8;
+  const malformedCount = malformedBaselines.length + duplicateMembers.length + rejectedBaselineProbeCount;
   console.log(`Evaluation harness self-test passed; ${malformedCount} malformed baseline fixtures were rejected.`);
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });

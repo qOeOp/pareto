@@ -164,17 +164,6 @@ function validateNonEmptyString(value, label) {
   if (typeof value !== "string" || value.trim().length === 0) fail(`${label}: expected a non-empty string`);
 }
 
-function validateNonNegativeNumber(value, label) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    fail(`${label}: expected a finite non-negative number`);
-  }
-}
-
-function validateUnitNumber(value, label) {
-  validateNonNegativeNumber(value, label);
-  if (value > 1) fail(`${label}: expected a number no greater than 1`);
-}
-
 function gitBytes(args, label) {
   try {
     return execFileSync("git", args, { cwd: root, encoding: "buffer", maxBuffer: 16 * 1024 * 1024 });
@@ -199,7 +188,27 @@ function gitIsAncestor(ancestor, descendant) {
   }
 }
 
-function validateBaselineProvenance(candidate, attemptedAt) {
+function parseBaselineAttemptedAt(value) {
+  if (typeof value !== "string") fail("smoke baseline attempted_at must be an ISO timestamp");
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.exec(value);
+  if (!match) fail("smoke baseline attempted_at must be an ISO timestamp");
+  const [, date, time, , zone] = match;
+  const calendar = new Date(`${date}T${time}Z`);
+  if (Number.isNaN(calendar.getTime()) || calendar.toISOString().slice(0, 19) !== `${date}T${time}`) {
+    fail("smoke baseline attempted_at must contain a valid calendar date and time");
+  }
+  if (zone !== "Z") {
+    const [, zoneHour, zoneMinute] = /[+-](\d{2}):(\d{2})/.exec(zone) ?? [];
+    if (Number(zoneHour) > 23 || Number(zoneMinute) > 59) {
+      fail("smoke baseline attempted_at must contain a valid UTC offset");
+    }
+  }
+  const milliseconds = Date.parse(value);
+  if (Number.isNaN(milliseconds)) fail("smoke baseline attempted_at must be an ISO timestamp");
+  return { milliseconds, utcDate: new Date(milliseconds).toISOString().slice(0, 10) };
+}
+
+function validateBaselineProvenance(candidate, attemptedAtMilliseconds) {
   if (gitText(["cat-file", "-t", candidate.commit], "smoke baseline candidate commit") !== "commit") {
     fail("smoke baseline candidate must resolve to a commit");
   }
@@ -208,7 +217,7 @@ function validateBaselineProvenance(candidate, attemptedAt) {
   }
   const candidateTime = Number(gitText(["show", "-s", "--format=%ct", candidate.commit],
     "smoke baseline candidate time"));
-  if (!Number.isInteger(candidateTime) || candidateTime * 1000 > Date.parse(attemptedAt)) {
+  if (!Number.isInteger(candidateTime) || candidateTime * 1000 > attemptedAtMilliseconds) {
     fail("smoke baseline candidate commit time must not be later than attempted_at");
   }
   const historicalTree = gitText(["show", "-s", "--format=%T", candidate.commit],
@@ -306,12 +315,8 @@ function validateBaseline(baseline, filename) {
   ]);
   validateExactKeys(baseline, topFields, "smoke baseline");
   if (baseline.schema_version !== 1 || baseline.suite !== "smoke") fail("invalid smoke baseline identity");
-  if (typeof baseline.attempted_at !== "string" ||
-      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(baseline.attempted_at) ||
-      Number.isNaN(Date.parse(baseline.attempted_at))) {
-    fail("smoke baseline attempted_at must be an ISO timestamp");
-  }
-  if (filename.slice(0, 10) !== new Date(Date.parse(baseline.attempted_at)).toISOString().slice(0, 10)) {
+  const attemptedAt = parseBaselineAttemptedAt(baseline.attempted_at);
+  if (filename.slice(0, 10) !== attemptedAt.utcDate) {
     fail("smoke baseline filename date must match attempted_at UTC date");
   }
 
@@ -341,7 +346,7 @@ function validateBaseline(baseline, filename) {
   }
   validateNonEmptyString(baseline.candidate.promptfoo_config.provider,
     "smoke baseline Promptfoo config provider");
-  const historicalProvider = validateBaselineProvenance(baseline.candidate, baseline.attempted_at);
+  const historicalProvider = validateBaselineProvenance(baseline.candidate, attemptedAt.milliseconds);
   const { goldenCases, matrix } = readHistoricalBaselineInputs(baseline.candidate.commit);
 
   const smokeCases = goldenCases.filter((testCase) => /^\[smoke\]/.test(testCase.description));
@@ -367,11 +372,8 @@ function validateBaseline(baseline, filename) {
   const evidenceFields = [
     "quality", "elapsed_ms", "input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens", "cost",
   ];
-  const completedFields = new Set([...commonFields, ...evidenceFields]);
   const unavailableFields = new Set([...commonFields, "reason", ...evidenceFields]);
   const plannedTrials = expectedCaseIds.length * matrix.trials_per_cell;
-  const expectedAssertions = smokeCases.reduce((total, testCase) => total + testCase.assert.length, 0) *
-    matrix.trials_per_cell;
 
   for (const [index, cell] of baseline.cells.entries()) {
     const expectedMatrixCell = matrix.cells[index];
@@ -387,67 +389,7 @@ function validateBaseline(baseline, filename) {
     }
 
     if (cell.status === "completed") {
-      validateExactKeys(cell, completedFields, `smoke baseline completed cell ${index}`);
-      if (cell.completed_trials !== plannedTrials || cell.errored_trials !== 0) {
-        fail(`smoke baseline completed cell ${index}: every planned trial must complete without error`);
-      }
-      validateExactKeys(cell.quality,
-        new Set([
-          "passed", "passed_trials", "total_assertions", "passed_assertions", "assertion_score", "rubric_score",
-          "pass_rate", "mean", "median", "p95", "variance",
-        ]),
-        `smoke baseline completed cell ${index}.quality`);
-      if (typeof cell.quality.passed !== "boolean") {
-        fail(`smoke baseline completed cell ${index}.quality.passed: expected a boolean`);
-      }
-      for (const field of ["assertion_score", "pass_rate", "mean", "median", "p95"]) {
-        validateUnitNumber(cell.quality[field], `smoke baseline completed cell ${index}.quality.${field}`);
-      }
-      if (cell.quality.rubric_score !== "unavailable") {
-        validateUnitNumber(cell.quality.rubric_score,
-          `smoke baseline completed cell ${index}.quality.rubric_score`);
-      }
-      validateNonNegativeNumber(cell.quality.variance,
-        `smoke baseline completed cell ${index}.quality.variance`);
-      if (cell.quality.variance > 0.25) {
-        fail(`smoke baseline completed cell ${index}.quality.variance: expected a number no greater than 0.25`);
-      }
-      if (!Number.isInteger(cell.quality.passed_trials) || cell.quality.passed_trials < 0 ||
-          cell.quality.passed_trials > cell.completed_trials) {
-        fail(`smoke baseline completed cell ${index}.quality.passed_trials: invalid pass count`);
-      }
-      if (cell.quality.pass_rate !== cell.quality.passed_trials / cell.completed_trials) {
-        fail(`smoke baseline completed cell ${index}: pass_rate contradicts trial counts`);
-      }
-      if (!Number.isInteger(cell.quality.total_assertions) || cell.quality.total_assertions < 1 ||
-          !Number.isInteger(cell.quality.passed_assertions) || cell.quality.passed_assertions < 0 ||
-          cell.quality.passed_assertions > cell.quality.total_assertions) {
-        fail(`smoke baseline completed cell ${index}: invalid assertion counts`);
-      }
-      if (cell.quality.total_assertions !== expectedAssertions) {
-        fail(`smoke baseline completed cell ${index}: total_assertions must match the smoke assertion inventory`);
-      }
-      if (cell.quality.assertion_score !== cell.quality.passed_assertions / cell.quality.total_assertions) {
-        fail(`smoke baseline completed cell ${index}: assertion_score contradicts assertion counts`);
-      }
-      const allTrialsPassed = cell.quality.passed_trials === cell.completed_trials;
-      const allAssertionsPassed = cell.quality.passed_assertions === cell.quality.total_assertions;
-      if (cell.quality.passed !== allTrialsPassed || allTrialsPassed !== allAssertionsPassed) {
-        fail(`smoke baseline completed cell ${index}: assertion and pass evidence contradict trial counts`);
-      }
-      if (cell.quality.median > cell.quality.p95) {
-        fail(`smoke baseline completed cell ${index}: median must not exceed p95`);
-      }
-      validateNonNegativeNumber(cell.elapsed_ms, `smoke baseline completed cell ${index}.elapsed_ms`);
-      for (const field of ["input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens"]) {
-        if (!Number.isInteger(cell[field]) || cell[field] < 0) {
-          fail(`smoke baseline completed cell ${index}.${field}: expected a non-negative integer`);
-        }
-      }
-      if (cell.cost !== "unavailable") {
-        validateNonNegativeNumber(cell.cost, `smoke baseline completed cell ${index}.cost`);
-      }
-      continue;
+      fail(`smoke baseline completed cell ${index}: committed completed evidence is unavailable without a replayable producer receipt`);
     }
 
     if (cell.status === "unavailable" || cell.status === "not_run") {
@@ -467,10 +409,8 @@ function validateBaseline(baseline, filename) {
     fail(`smoke baseline cell ${index}: invalid status`);
   }
 
-  const allCompleted = baseline.cells.every((cell) => cell.status === "completed");
   const hasUnavailable = baseline.cells.some((cell) => cell.status === "unavailable");
-  if ((allCompleted && baseline.result !== "completed") ||
-      (!allCompleted && (!hasUnavailable || baseline.result !== "unavailable"))) {
+  if (!hasUnavailable || baseline.result !== "unavailable") {
     fail("smoke baseline result contradicts cell statuses");
   }
 }
@@ -493,12 +433,25 @@ function validateMatrix(matrix) {
 
 function validateBaselineWorkspaceDrift() {
   try {
-    execFileSync("git", ["diff", "--quiet", "HEAD", "--", "evals/baselines"], {
+    execFileSync("git", ["diff", "--cached", "--quiet", "HEAD", "--", "evals/baselines"], {
       cwd: root,
       stdio: "ignore",
     });
   } catch {
-    fail("evals/baselines must match the exact HEAD tree");
+    fail("evals/baselines index must match the exact HEAD tree");
+  }
+  try {
+    execFileSync("git", ["diff", "--quiet", "--", "evals/baselines"], {
+      cwd: root,
+      stdio: "ignore",
+    });
+  } catch {
+    fail("evals/baselines worktree must match the index");
+  }
+  const indexFlags = gitText(["ls-files", "-v", "--", "evals/baselines"],
+    "evals/baselines index flags");
+  if (indexFlags.split("\n").filter(Boolean).some((entry) => !entry.startsWith("H "))) {
+    fail("evals/baselines must not use index flags or aliases");
   }
   const untracked = gitText(["ls-files", "--others", "--exclude-standard", "--", "evals/baselines"],
     "evals/baselines untracked inventory");
