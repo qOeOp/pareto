@@ -549,6 +549,9 @@ try {
   const crlfSkillPath = path.join(validatorFixture, "skills", "run-bounded-mission", "SKILL.md");
   const crlfSkill = (await readFile(crlfSkillPath, "utf8")).replace(/\r?\n/g, "\r\n");
   await writeFile(crlfSkillPath, crlfSkill, "utf8");
+  const crlfConfigPath = path.join(validatorFixture, "evals", "promptfooconfig.yaml");
+  const crlfConfig = (await readFile(crlfConfigPath, "utf8")).replace(/\r?\n/g, "\r\n");
+  await writeFile(crlfConfigPath, crlfConfig, "utf8");
   const runProductionValidator = () => execFileAsync(
     process.execPath,
     [path.join(validatorFixture, "scripts", "validate.mjs")],
@@ -564,7 +567,8 @@ try {
   const baselineFilename = `${attemptedAt.slice(0, 10)}-smoke.json`;
   const baselineRelativePath = path.join("evals", "baselines", baselineFilename);
   const baselinePath = path.join(validatorFixture, baselineRelativePath);
-  const candidateConfig = await readFile(path.join(validatorFixture, "evals", "promptfooconfig.yaml"));
+  const candidateConfig = execFileSync("git", ["-C", validatorFixture, "show",
+    `${candidateCommit}:evals/promptfooconfig.yaml`]);
   const candidateSkill = execFileSync("git", ["-C", validatorFixture, "show",
     `${candidateCommit}:skills/run-bounded-mission/SKILL.md`]);
   const matrix = JSON.parse(await readFile(path.join(validatorFixture, "evals", "matrix.json"), "utf8"));
