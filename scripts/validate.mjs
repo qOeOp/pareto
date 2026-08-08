@@ -8,6 +8,33 @@ import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const skillRoot = path.join(root, "skills");
+const gitAuthorityEnvironment = { ...process.env };
+for (const variable of [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_INDEX_FILE",
+  "GIT_COMMON_DIR",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CEILING_DIRECTORIES",
+  "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+  "GIT_CONFIG_GLOBAL",
+  "GIT_CONFIG_SYSTEM",
+  "GIT_CONFIG_NOSYSTEM",
+  "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_EXTERNAL_DIFF",
+  "GIT_DIFF_OPTS",
+  "GIT_LITERAL_PATHSPECS",
+  "GIT_GLOB_PATHSPECS",
+  "GIT_NOGLOB_PATHSPECS",
+  "GIT_ICASE_PATHSPECS",
+]) {
+  delete gitAuthorityEnvironment[variable];
+}
+for (const variable of Object.keys(gitAuthorityEnvironment)) {
+  if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/.test(variable)) delete gitAuthorityEnvironment[variable];
+}
 const allowedFrontmatter = new Set(["name", "description"]);
 const allowedUnavailableObservations = new Set([
   "conversation_compaction_state",
@@ -164,20 +191,14 @@ function validateNonEmptyString(value, label) {
   if (typeof value !== "string" || value.trim().length === 0) fail(`${label}: expected a non-empty string`);
 }
 
-function validateNonNegativeNumber(value, label) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    fail(`${label}: expected a finite non-negative number`);
-  }
-}
-
-function validateUnitNumber(value, label) {
-  validateNonNegativeNumber(value, label);
-  if (value > 1) fail(`${label}: expected a number no greater than 1`);
-}
-
 function gitBytes(args, label) {
   try {
-    return execFileSync("git", args, { cwd: root, encoding: "buffer", maxBuffer: 16 * 1024 * 1024 });
+    return execFileSync("git", args, {
+      cwd: root,
+      env: gitAuthorityEnvironment,
+      encoding: "buffer",
+      maxBuffer: 16 * 1024 * 1024,
+    });
   } catch {
     fail(`${label}: Git object is unavailable`);
   }
@@ -191,6 +212,7 @@ function gitIsAncestor(ancestor, descendant) {
   try {
     execFileSync("git", ["merge-base", "--is-ancestor", ancestor, descendant], {
       cwd: root,
+      env: gitAuthorityEnvironment,
       stdio: "ignore",
     });
     return true;
@@ -199,7 +221,27 @@ function gitIsAncestor(ancestor, descendant) {
   }
 }
 
-function validateBaselineProvenance(candidate, attemptedAt) {
+function parseBaselineAttemptedAt(value) {
+  if (typeof value !== "string") fail("smoke baseline attempted_at must be an ISO timestamp");
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}:\d{2})(\.\d+)?(Z|[+-]\d{2}:\d{2})$/.exec(value);
+  if (!match) fail("smoke baseline attempted_at must be an ISO timestamp");
+  const [, date, time, , zone] = match;
+  const calendar = new Date(`${date}T${time}Z`);
+  if (Number.isNaN(calendar.getTime()) || calendar.toISOString().slice(0, 19) !== `${date}T${time}`) {
+    fail("smoke baseline attempted_at must contain a valid calendar date and time");
+  }
+  if (zone !== "Z") {
+    const [, zoneHour, zoneMinute] = /[+-](\d{2}):(\d{2})/.exec(zone) ?? [];
+    if (Number(zoneHour) > 23 || Number(zoneMinute) > 59) {
+      fail("smoke baseline attempted_at must contain a valid UTC offset");
+    }
+  }
+  const milliseconds = Date.parse(value);
+  if (Number.isNaN(milliseconds)) fail("smoke baseline attempted_at must be an ISO timestamp");
+  return { milliseconds, utcDate: new Date(milliseconds).toISOString().slice(0, 10) };
+}
+
+function validateBaselineProvenance(candidate, attemptedAtMilliseconds) {
   if (gitText(["cat-file", "-t", candidate.commit], "smoke baseline candidate commit") !== "commit") {
     fail("smoke baseline candidate must resolve to a commit");
   }
@@ -208,7 +250,7 @@ function validateBaselineProvenance(candidate, attemptedAt) {
   }
   const candidateTime = Number(gitText(["show", "-s", "--format=%ct", candidate.commit],
     "smoke baseline candidate time"));
-  if (!Number.isInteger(candidateTime) || candidateTime * 1000 > Date.parse(attemptedAt)) {
+  if (!Number.isInteger(candidateTime) || candidateTime * 1000 > attemptedAtMilliseconds) {
     fail("smoke baseline candidate commit time must not be later than attempted_at");
   }
   const historicalTree = gitText(["show", "-s", "--format=%T", candidate.commit],
@@ -270,17 +312,45 @@ function validateBaselineProvenance(candidate, attemptedAt) {
   return historicalProvider;
 }
 
-function validateBaseline(baseline, cases, matrix) {
+function readHistoricalBaselineInputs(candidateCommit) {
+  const goldenSource = gitBytes(["cat-file", "blob", `${candidateCommit}:evals/cases/golden.yaml`],
+    "smoke baseline historical golden cases");
+  const matrixSource = gitBytes(["cat-file", "blob", `${candidateCommit}:evals/matrix.json`],
+    "smoke baseline historical model/effort matrix");
+  let goldenCases;
+  let matrix;
+  try {
+    goldenCases = parseYaml(goldenSource.toString("utf8"));
+  } catch {
+    fail("smoke baseline historical golden cases must be valid YAML");
+  }
+  try {
+    matrix = JSON.parse(matrixSource.toString("utf8"));
+  } catch {
+    fail("smoke baseline historical model/effort matrix must be valid JSON");
+  }
+  validatePromptfooCases(goldenCases, {
+    file: "smoke baseline historical golden cases",
+    suites: new Set(["smoke", "full"]),
+    count: 15,
+  });
+  if (goldenCases.filter((testCase) => /^\[smoke\]/.test(testCase.description)).length !== 2) {
+    fail("smoke baseline historical golden cases: expected exactly two smoke cases");
+  }
+  validateMatrix(matrix);
+  return { goldenCases, matrix };
+}
+
+function validateBaseline(baseline, filename) {
   const topFields = new Set([
     "schema_version", "suite", "attempted_at", "candidate", "case_ids", "environment", "cells",
     "result", "raw_result_committed",
   ]);
   validateExactKeys(baseline, topFields, "smoke baseline");
   if (baseline.schema_version !== 1 || baseline.suite !== "smoke") fail("invalid smoke baseline identity");
-  if (typeof baseline.attempted_at !== "string" ||
-      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(baseline.attempted_at) ||
-      Number.isNaN(Date.parse(baseline.attempted_at))) {
-    fail("smoke baseline attempted_at must be an ISO timestamp");
+  const attemptedAt = parseBaselineAttemptedAt(baseline.attempted_at);
+  if (filename.slice(0, 10) !== attemptedAt.utcDate) {
+    fail("smoke baseline filename date must match attempted_at UTC date");
   }
 
   validateExactKeys(baseline.candidate,
@@ -309,9 +379,10 @@ function validateBaseline(baseline, cases, matrix) {
   }
   validateNonEmptyString(baseline.candidate.promptfoo_config.provider,
     "smoke baseline Promptfoo config provider");
-  const historicalProvider = validateBaselineProvenance(baseline.candidate, baseline.attempted_at);
+  const historicalProvider = validateBaselineProvenance(baseline.candidate, attemptedAt.milliseconds);
+  const { goldenCases, matrix } = readHistoricalBaselineInputs(baseline.candidate.commit);
 
-  const smokeCases = cases.filter((testCase) => /^\[smoke\]/.test(testCase.description));
+  const smokeCases = goldenCases.filter((testCase) => /^\[smoke\]/.test(testCase.description));
   const expectedCaseIds = smokeCases.map((testCase) => testCase.description);
   if (!Array.isArray(baseline.case_ids) || baseline.case_ids.length !== expectedCaseIds.length ||
       baseline.case_ids.some((caseId, index) => caseId !== expectedCaseIds[index])) {
@@ -334,11 +405,8 @@ function validateBaseline(baseline, cases, matrix) {
   const evidenceFields = [
     "quality", "elapsed_ms", "input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens", "cost",
   ];
-  const completedFields = new Set([...commonFields, ...evidenceFields]);
   const unavailableFields = new Set([...commonFields, "reason", ...evidenceFields]);
   const plannedTrials = expectedCaseIds.length * matrix.trials_per_cell;
-  const expectedAssertions = smokeCases.reduce((total, testCase) => total + testCase.assert.length, 0) *
-    matrix.trials_per_cell;
 
   for (const [index, cell] of baseline.cells.entries()) {
     const expectedMatrixCell = matrix.cells[index];
@@ -354,67 +422,7 @@ function validateBaseline(baseline, cases, matrix) {
     }
 
     if (cell.status === "completed") {
-      validateExactKeys(cell, completedFields, `smoke baseline completed cell ${index}`);
-      if (cell.completed_trials !== plannedTrials || cell.errored_trials !== 0) {
-        fail(`smoke baseline completed cell ${index}: every planned trial must complete without error`);
-      }
-      validateExactKeys(cell.quality,
-        new Set([
-          "passed", "passed_trials", "total_assertions", "passed_assertions", "assertion_score", "rubric_score",
-          "pass_rate", "mean", "median", "p95", "variance",
-        ]),
-        `smoke baseline completed cell ${index}.quality`);
-      if (typeof cell.quality.passed !== "boolean") {
-        fail(`smoke baseline completed cell ${index}.quality.passed: expected a boolean`);
-      }
-      for (const field of ["assertion_score", "pass_rate", "mean", "median", "p95"]) {
-        validateUnitNumber(cell.quality[field], `smoke baseline completed cell ${index}.quality.${field}`);
-      }
-      if (cell.quality.rubric_score !== "unavailable") {
-        validateUnitNumber(cell.quality.rubric_score,
-          `smoke baseline completed cell ${index}.quality.rubric_score`);
-      }
-      validateNonNegativeNumber(cell.quality.variance,
-        `smoke baseline completed cell ${index}.quality.variance`);
-      if (cell.quality.variance > 0.25) {
-        fail(`smoke baseline completed cell ${index}.quality.variance: expected a number no greater than 0.25`);
-      }
-      if (!Number.isInteger(cell.quality.passed_trials) || cell.quality.passed_trials < 0 ||
-          cell.quality.passed_trials > cell.completed_trials) {
-        fail(`smoke baseline completed cell ${index}.quality.passed_trials: invalid pass count`);
-      }
-      if (cell.quality.pass_rate !== cell.quality.passed_trials / cell.completed_trials) {
-        fail(`smoke baseline completed cell ${index}: pass_rate contradicts trial counts`);
-      }
-      if (!Number.isInteger(cell.quality.total_assertions) || cell.quality.total_assertions < 1 ||
-          !Number.isInteger(cell.quality.passed_assertions) || cell.quality.passed_assertions < 0 ||
-          cell.quality.passed_assertions > cell.quality.total_assertions) {
-        fail(`smoke baseline completed cell ${index}: invalid assertion counts`);
-      }
-      if (cell.quality.total_assertions !== expectedAssertions) {
-        fail(`smoke baseline completed cell ${index}: total_assertions must match the smoke assertion inventory`);
-      }
-      if (cell.quality.assertion_score !== cell.quality.passed_assertions / cell.quality.total_assertions) {
-        fail(`smoke baseline completed cell ${index}: assertion_score contradicts assertion counts`);
-      }
-      const allTrialsPassed = cell.quality.passed_trials === cell.completed_trials;
-      const allAssertionsPassed = cell.quality.passed_assertions === cell.quality.total_assertions;
-      if (cell.quality.passed !== allTrialsPassed || allTrialsPassed !== allAssertionsPassed) {
-        fail(`smoke baseline completed cell ${index}: assertion and pass evidence contradict trial counts`);
-      }
-      if (cell.quality.median > cell.quality.p95) {
-        fail(`smoke baseline completed cell ${index}: median must not exceed p95`);
-      }
-      validateNonNegativeNumber(cell.elapsed_ms, `smoke baseline completed cell ${index}.elapsed_ms`);
-      for (const field of ["input_tokens", "output_tokens", "cached_input_tokens", "reasoning_tokens"]) {
-        if (!Number.isInteger(cell[field]) || cell[field] < 0) {
-          fail(`smoke baseline completed cell ${index}.${field}: expected a non-negative integer`);
-        }
-      }
-      if (cell.cost !== "unavailable") {
-        validateNonNegativeNumber(cell.cost, `smoke baseline completed cell ${index}.cost`);
-      }
-      continue;
+      fail(`smoke baseline completed cell ${index}: committed completed evidence is unavailable without a replayable producer receipt`);
     }
 
     if (cell.status === "unavailable" || cell.status === "not_run") {
@@ -434,10 +442,8 @@ function validateBaseline(baseline, cases, matrix) {
     fail(`smoke baseline cell ${index}: invalid status`);
   }
 
-  const allCompleted = baseline.cells.every((cell) => cell.status === "completed");
   const hasUnavailable = baseline.cells.some((cell) => cell.status === "unavailable");
-  if ((allCompleted && baseline.result !== "completed") ||
-      (!allCompleted && (!hasUnavailable || baseline.result !== "unavailable"))) {
+  if (!hasUnavailable || baseline.result !== "unavailable") {
     fail("smoke baseline result contradicts cell statuses");
   }
 }
@@ -458,12 +464,90 @@ function validateMatrix(matrix) {
   }
 }
 
+function validateBaselineWorkspaceDrift() {
+  try {
+    execFileSync("git", ["diff", "--no-ext-diff", "--cached", "--quiet", "HEAD", "--", "evals/baselines"], {
+      cwd: root,
+      env: gitAuthorityEnvironment,
+      stdio: "ignore",
+    });
+  } catch {
+    fail("evals/baselines index must match the exact HEAD tree");
+  }
+  try {
+    execFileSync("git", ["diff", "--no-ext-diff", "--quiet", "--", "evals/baselines"], {
+      cwd: root,
+      env: gitAuthorityEnvironment,
+      stdio: "ignore",
+    });
+  } catch {
+    fail("evals/baselines worktree must match the index");
+  }
+  const indexFlags = gitText(["ls-files", "-v", "--", "evals/baselines"],
+    "evals/baselines index flags");
+  if (indexFlags.split("\n").filter(Boolean).some((entry) => !entry.startsWith("H "))) {
+    fail("evals/baselines must not use index flags or aliases");
+  }
+  const untracked = gitText(["ls-files", "--others", "--exclude-standard", "--", "evals/baselines"],
+    "evals/baselines untracked inventory");
+  if (untracked !== "") {
+    fail("evals/baselines must not contain untracked material");
+  }
+}
+
+function readHeadBaselineEntries() {
+  const listing = gitBytes(["ls-tree", "-rz", "HEAD", "--", "evals/baselines"],
+    "committed smoke baseline inventory");
+  const entries = [];
+  for (const record of listing.toString("binary").split("\0").filter(Boolean)) {
+    const tab = record.indexOf("\t");
+    const header = record.slice(0, tab);
+    const relative = Buffer.from(record.slice(tab + 1), "binary").toString("utf8");
+    const match = /^(\d+) (blob) ([0-9a-f]{40})$/.exec(header);
+    if (tab === -1 || !match || match[1] !== "100644" ||
+        !/^evals\/baselines\/\d{4}-\d{2}-\d{2}-smoke\.json$/.test(relative)) {
+      fail(`committed smoke baseline inventory contains an unsupported entry: ${relative}`);
+    }
+    entries.push({ relative, filename: path.basename(relative), oid: match[3] });
+  }
+  entries.sort((left, right) => left.relative.localeCompare(right.relative));
+  for (const [index, entry] of entries.entries()) {
+    if (entries[index - 1]?.relative === entry.relative) {
+      fail(`committed smoke baseline inventory repeats ${entry.relative}`);
+    }
+  }
+  return entries;
+}
+
+function validateCommittedBaselines() {
+  validateBaselineWorkspaceDrift();
+  const baselines = [];
+  for (const entry of readHeadBaselineEntries()) {
+    const source = gitBytes(["cat-file", "blob", entry.oid], `${entry.relative} committed baseline blob`).toString("utf8");
+    rejectDuplicateJsonObjectMembers(source, "smoke baseline");
+    validateBaseline(JSON.parse(source), entry.filename);
+    baselines.push(entry.relative);
+  }
+  return baselines;
+}
+
+function scanPublicEvidenceSource(relative, source) {
+  for (const pattern of forbiddenPublicEvidence) {
+    if (pattern.test(source)) fail(`${relative}: forbidden private evidence matched ${pattern}`);
+  }
+}
+
 async function scanPublicEvidence(files) {
   for (const relative of files) {
     const source = await readFile(path.join(root, relative), "utf8");
-    for (const pattern of forbiddenPublicEvidence) {
-      if (pattern.test(source)) fail(`${relative}: forbidden private evidence matched ${pattern}`);
-    }
+    scanPublicEvidenceSource(relative, source);
+  }
+}
+
+function scanCommittedBaselineEvidence(baselines) {
+  for (const relative of baselines) {
+    const source = gitBytes(["show", `HEAD:${relative}`], `${relative} committed baseline blob`).toString("utf8");
+    scanPublicEvidenceSource(relative, source);
   }
 }
 
@@ -493,19 +577,16 @@ const cases = [...goldenCases, ...holdoutCases];
 const caseCount = cases.length;
 const matrix = JSON.parse(await readFile(path.join(root, "evals/matrix.json"), "utf8"));
 validateMatrix(matrix);
-const baselineSource = await readFile(path.join(root, "evals/baselines/2026-08-07-smoke.json"), "utf8");
-rejectDuplicateJsonObjectMembers(baselineSource, "smoke baseline");
-const baseline = JSON.parse(baselineSource);
-validateBaseline(baseline, cases, matrix);
+const baselines = validateCommittedBaselines();
 await scanPublicEvidence([
   "README.md",
   "evals/CONTRACT.md",
-  "evals/baselines/2026-08-07-smoke.json",
   "evals/cases/golden.yaml",
   "evals/cases/holdout.yaml",
   "evals/matrix.json",
   "evals/promptfooconfig.yaml",
 ]);
+scanCommittedBaselineEvidence(baselines);
 
 for (const warning of skills.warnings) console.warn(`Warning: ${warning}.`);
-console.log(`Validated ${skills.count} Skill and ${caseCount} executable cases.`);
+console.log(`Validated ${skills.count} Skill, ${caseCount} executable cases, and ${baselines.length} committed smoke baselines.`);
