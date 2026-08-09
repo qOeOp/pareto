@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -66,6 +66,39 @@ try {
   assert.equal(result.status, 0, result.stderr);
   result = spawnSync(process.execPath, [...lockedArgv, "--check"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
+
+  const sourceSkill = join(repositoryRoot, "skills", "run-bounded-mission", "SKILL.md");
+  const sourceAgent = join(repositoryRoot, "codex", "agents", "mission-evaluator.toml");
+  const originalSkill = await readFile(sourceSkill);
+  const originalAgent = await readFile(sourceAgent);
+  await writeFile(sourceSkill, Buffer.concat([originalSkill, Buffer.from("dirty\n")]));
+  result = spawnSync(process.execPath, [...lockedArgv, "--check"], { encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /install source differs from the locked Git tree/);
+  await writeFile(sourceSkill, originalSkill);
+
+  await writeFile(sourceAgent, Buffer.concat([originalAgent, Buffer.from("dirty\n")]));
+  result = spawnSync(process.execPath, [...lockedArgv, "--check"], { encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /install source differs from the locked Git tree/);
+  await writeFile(sourceAgent, originalAgent);
+
+  const originalMode = (await lstat(sourceSkill)).mode & 0o777;
+  const fileMode = git(repositoryRoot, "config", "--bool", "core.filemode");
+  if (fileMode.status === 0 && fileMode.stdout.trim() === "true") {
+    await chmod(sourceSkill, originalMode ^ 0o111);
+    result = spawnSync(process.execPath, [...lockedArgv, "--check"], { encoding: "utf8" });
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /install source differs from the locked Git tree/);
+    await chmod(sourceSkill, originalMode);
+  }
+
+  await writeFile(join(repositoryRoot, ".git", "info", "exclude"), "skills/run-bounded-mission/ignored-probe\n");
+  await writeFile(join(repositoryRoot, "skills", "run-bounded-mission", "ignored-probe"), "dirty\n");
+  result = spawnSync(process.execPath, [...lockedArgv, "--check"], { encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /install source differs from the locked Git tree/);
+  await rm(join(repositoryRoot, "skills", "run-bounded-mission", "ignored-probe"));
 
   await writeFile(lock, `${JSON.stringify({ ...exactLock, skill_tree: "0".repeat(40) })}\n`);
   result = spawnSync(process.execPath, [...lockedArgv, "--check"], { encoding: "utf8" });

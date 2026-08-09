@@ -65,6 +65,18 @@ async function verifyLock(path) {
   } catch {
     throw new Error("Codex skills lock commit is not present on origin/main");
   }
+  const sourceDrift = git(
+    "status",
+    "--porcelain=v1",
+    "-z",
+    "--untracked-files=all",
+    "--ignored=matching",
+    "--",
+    "skills/run-bounded-mission",
+    "codex/agents",
+    "scripts/install-codex.mjs",
+  );
+  if (sourceDrift) throw new Error("Codex install source differs from the locked Git tree");
 }
 
 async function manifest(root) {
