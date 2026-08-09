@@ -108,7 +108,6 @@ try {
   root = git(input.cwd, "rev-parse", "--show-toplevel");
   if (normalizedRepository(git(root, "config", "--get", "remote.origin.url")) !== "https://github.com/qOeOp/trade") process.exit(0);
   localSources = await localMissionSources(root, input.cwd);
-  if (!localSources.skill && localSources.profiles.length === 0) process.exit(0);
 } catch {
   process.exit(0);
 }
@@ -118,6 +117,15 @@ if (localSources.profiles.length > 0) {
     continue: false,
     stopReason: `This checkout contains project-scoped RBM agent profiles that override the pinned user profiles: ${localSources.profiles.join(", ")}. Remove or migrate these repository files, then start a new Codex session.`,
     systemMessage: "qOeOp/trade project agent profiles override the user installation",
+  });
+  process.exit(0);
+}
+
+if (localSources.skill) {
+  output({
+    continue: false,
+    stopReason: "This checkout contains a project-scoped run-bounded-mission Skill that overrides the pinned user installation. Remove or migrate the repository-local Skill, then start a new Codex session.",
+    systemMessage: "qOeOp/trade project Skill overrides the user installation",
   });
   process.exit(0);
 }
@@ -148,16 +156,10 @@ try {
   if (receipt.schema_version !== 2 || !exact
     || await manifest(installedSkill) !== receipt.skill_manifest_sha256
     || await ownedAgentManifest(installedAgents) !== receipt.agent_manifest_sha256) throw new Error("pin mismatch");
-  output({
-    hookSpecificOutput: {
-      hookEventName: "SessionStart",
-      additionalContext: `qOeOp/trade: ignore the repository-local run-bounded-mission Skill. Use only ${installedSkill} pinned by origin/main at ${lock.commit}.`,
-    },
-  });
 } catch {
   output({
     continue: false,
-    stopReason: `Pinned run-bounded-mission ${lock.commit} is not installed exactly. Run the origin/main bootstrap before continuing.`,
+    stopReason: `Pinned run-bounded-mission ${lock.commit} is not installed exactly. Run the origin/main bootstrap, then start a new Codex session.`,
     systemMessage: "qOeOp/trade Skill pin mismatch",
   });
 }
