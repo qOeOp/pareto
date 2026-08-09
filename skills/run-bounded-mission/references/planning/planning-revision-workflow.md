@@ -89,8 +89,8 @@ Promote exactly one candidate only when it:
 
 - preserves required behavior and satisfies every material acceptance signal;
 - removes the shared cause rather than encoding the observed cases as new exceptions;
-- is strictly simpler on at least one relevant surface—owners, paths, branches, state, adapters,
-  exceptions, or indirection—without an unjustified regression elsewhere;
+- is strictly simpler on at least one relevant surface - owners, paths, branches, state, adapters,
+  exceptions, or indirection - without an unjustified regression elsewhere;
 - leaves one production owner and deletes its superseded path.
 
 Apply the main skill's minimality and anti-metric-substitution rule. If a completed comparison under

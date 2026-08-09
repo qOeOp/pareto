@@ -1,6 +1,9 @@
 interface:
   display_name: "Run Bounded Mission"
   short_description: "Start an explicitly requested or repository-required mission"
-  default_prompt: "Use $run-bounded-mission now to frame, plan, execute, verify, and finalize this implementation or delivery outcome. Dispatch mission researcher, planner, or evaluator roles only through the skill's observable predicates; keep Plan admission, acceptance judgment, effects, and Finalize in the main agent."
+  default_prompt: >-
+    Use $run-bounded-mission now to frame, plan, execute, verify, and finalize this implementation or delivery outcome.
+    Dispatch mission researcher, planner, or evaluator roles only through the skill's observable predicates; keep Plan
+    admission, acceptance judgment, effects, and Finalize in the main agent.
 policy:
   allow_implicit_invocation: true

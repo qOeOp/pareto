@@ -38,28 +38,29 @@
         - "prove_no_lost_task: true"
         - "prove_no_duplicate_create: true"
 
-- description: "[holdout] post delivery cleanup preserves unknown work"
+- description: "[holdout] terminal artifact custody preserves unique and prunable work"
   metadata:
     observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
   vars:
     prompt: >-
-      Use $run-bounded-mission after delivery. Local worktrees, branches, remote branches, and tags may
-      remain. Some state might contain dirty changes, commits ahead of upstream, or work with no
-      remote review identity. Return the cleanup gate without deleting anything.
+      Use $run-bounded-mission at a terminal no-PR endpoint. The Mission created a clean worktree whose
+      detached HEAD has a unique commit, a prunable worktree registration, a dirty user-owned worktree,
+      and a continuing Skill checkout whose canonical freshness is unknown. No deletion authority was
+      granted. Return only a compact artifact-custody receipt without deleting anything.
   assert:
     - type: skill-used
       value: run-bounded-mission
     - type: contains-all
       value:
-        - "inventory: exact"
-        - "classify: recover-preserve-safe_cleanup-unknown"
-        - "dirty: preserve"
-        - "ahead: preserve"
-        - "no_remote_review: preserve"
-        - "unknown: preserve"
-        - "cleanup_requires_user_authority: true"
-        - "merge_identity_tree_upstream_review_main_sync: required"
-        - "local_main_equals_remote_main: verify"
+        - "custody_load: required"
+        - "terminal_without_pr: covered"
+        - "unique_worktree: preserve"
+        - "prunable_registration: preserve_by_default"
+        - "dirty_user_worktree: preserve"
+        - "broad_prune: forbidden"
+        - "cleanup_authority: exact-target-only"
+        - "continuing_skill_checkout: exact-current-or-non-authoritative"
+        - "mission_terminal: false"
 
 - description: "[holdout] repository selection cleanup invalidates evidence"
   metadata:

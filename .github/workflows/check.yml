@@ -26,5 +26,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 1.25.x
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - run: go test skills/run-bounded-mission/scripts/delivery-receipt.go skills/run-bounded-mission/scripts/delivery-receipt_test.go
