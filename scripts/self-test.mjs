@@ -25,6 +25,25 @@ async function expectReject(action, pattern, message) {
 }
 
 try {
+  const installedSkillRoot = path.join(temporaryRoot, "global", ".codex", "skills", "run-bounded-mission");
+  const unrelatedProject = path.join(temporaryRoot, "unrelated-project");
+  const receiptBinary = path.join(temporaryRoot, process.platform === "win32" ? "delivery-receipt.exe" : "delivery-receipt");
+  await cp(path.join(root, "skills", "run-bounded-mission"), installedSkillRoot, { recursive: true });
+  await mkdir(unrelatedProject, { recursive: true });
+  await execFileAsync("go", [
+    "build",
+    "-o",
+    receiptBinary,
+    path.join(installedSkillRoot, "scripts", "delivery-receipt.go"),
+  ], { cwd: unrelatedProject, encoding: "utf8" });
+  assert.throws(() => execFileSync(receiptBinary, ["create"], {
+    cwd: unrelatedProject,
+    input: "{}\n",
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "pipe"],
+  }), (error) => error?.status === 2 && /invalid schema or fields/.test(error?.stderr || ""),
+  "a globally installed Skill must resolve its receipt helper outside the target project");
+
   const sourceConfig = parseYaml(await readFile(path.join(root, "evals", "promptfooconfig.yaml"), "utf8"));
   const preparedConfig = preparePromptfooConfig(sourceConfig, {
     model: "synthetic-model",

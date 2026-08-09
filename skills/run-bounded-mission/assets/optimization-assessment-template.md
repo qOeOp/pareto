@@ -14,9 +14,9 @@ Comparison control: <baseline/final candidate locators; frozen scenarios, consum
 
 ## Frozen baseline
 
-| Dimension | Consumer/property | Weight + rationale | Critical floor | Baseline score | Evidence maturity | Direct evidence | Root gap | Observable target |
-| --- | --- | --- | ---: | ---: | --- | --- | --- | --- |
-| <decision-relevant dimension> | <consumer or property> | <non-zero; total 100; decision-backed reason> | <numeric or none> | <0-10> | <contradicted/declared/reachable/dynamic/stable> | <exact locator and observation> | <one causal gap> | <falsifiable target> |
+| Dimension                     | Consumer/property      | Weight + rationale                            | Critical floor    | Baseline score | Evidence maturity                                | Direct evidence                 | Root gap         | Observable target    |
+| ----------------------------- | ---------------------- | --------------------------------------------- | ----------------: | -------------: | ------------------------------------------------ | ------------------------------- | ---------------- | -------------------- |
+| <decision-relevant dimension> | <consumer or property> | <non-zero; total 100; decision-backed reason> | <numeric or none> | <0-10>         | <contradicted/declared/reachable/dynamic/stable> | <exact locator and observation> | <one causal gap> | <falsifiable target> |
 
 Weighted baseline: `<sum(weight × score) / 100, one decimal>`
 
@@ -25,21 +25,21 @@ Critical floor breaches: `<dimensions whose frozen floor is breached, independen
 Scenario coverage: `<for trigger/routing dimensions: intended activation, near-miss non-activation,
 negative/failure, and recovery cases>`
 
-| Cost surface | Baseline value | Evidence status | Locator or method |
-| --- | ---: | --- | --- |
-| Always-loaded context | <characters or tokens> | <observed/estimated/unavailable> | <source or method> |
-| Conditional context | <characters or tokens> | <observed/estimated/unavailable> | <source or method> |
-| Lane packet copies and coordination events | <value> | <observed/estimated/unavailable> | <trace or method> |
-| Elapsed time | <duration> | <observed/estimated/unavailable> | <trace or method> |
+| Cost surface                               | Baseline value         | Evidence status                  | Locator or method  |
+| ------------------------------------------ | ---------------------: | -------------------------------- | ------------------ |
+| Always-loaded context                      | <characters or tokens> | <observed/estimated/unavailable> | <source or method> |
+| Conditional context                        | <characters or tokens> | <observed/estimated/unavailable> | <source or method> |
+| Lane packet copies and coordination events | <value>                | <observed/estimated/unavailable> | <trace or method>  |
+| Elapsed time                               | <duration>             | <observed/estimated/unavailable> | <trace or method>  |
 
 ## Same-rubric reassessment
 
 Final candidate: `<exact single candidate, complete terminal candidate set, canonical integrated head,
 or not applicable for a baseline-only request>`
 
-| Dimension | Weight + rationale | Critical floor | Baseline | Final | Delta | Comparable | Maturity change | New direct evidence | Remaining gap |
-| --- | --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- |
-| <same frozen dimension> | <same frozen weight + reason> | <same floor or none> | <score> | <score> | <signed delta or not comparable> | <yes/no + changed or unavailable control> | <before → after> | <exact locator and observation> | <one remaining gap or none> |
+| Dimension               | Weight + rationale            | Critical floor       | Baseline | Final   | Delta                            | Comparable                                | Maturity change  | New direct evidence             | Remaining gap               |
+| ----------------------- | ----------------------------- | -------------------: | -------: | ------: | -------------------------------: | ----------------------------------------- | ---------------- | ------------------------------- | --------------------------- |
+| <same frozen dimension> | <same frozen weight + reason> | <same floor or none> | <score>  | <score> | <signed delta or not comparable> | <yes/no + changed or unavailable control> | <before → after> | <exact locator and observation> | <one remaining gap or none> |
 
 Weighted final: `<one decimal>`
 
