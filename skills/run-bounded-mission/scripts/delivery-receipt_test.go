@@ -38,8 +38,12 @@ func validInput(t *testing.T) []byte {
 		}
 		evidence = append(evidence, entry)
 	}
+	repository := localRepository()
+	if repository == "" {
+		t.Fatal("local repository identity is unavailable")
+	}
 	input := map[string]any{
-		"schema": inputSchema, "repository": "QOeOp/Trade", "pull_request": 1,
+		"schema": inputSchema, "repository": repository, "pull_request": 1,
 		"head_oid": head, "head_tree_oid": headTree, "base_ref": "main", "base_oid": base,
 		"potential_merge_commit": map[string]any{"oid": head, "tree": map[string]any{"oid": mergeTree}},
 		"queue_state":            "none", "evidence": evidence,
