@@ -48,7 +48,8 @@ npm run eval:matrix
 The dynamic commands use Promptfoo's Codex SDK provider in a disposable Git repository with the Skill
 materialized only from the frozen Git tree. Network and approvals are disabled, and the repository
 rule fixture requires `run-bounded-mission` only for non-trivial implementation or delivery. Raw
-results remain ignored; only reviewed summaries may become baselines.
+results remain ignored; committed comparisons stay disabled until a replayable producer and a real
+consumer exist.
 
 - `smoke` exercises explicit activation and a quoted-token answer-only near miss.
 - `full` adds the maintained public golden behavior corpus and repeats each case twice.
