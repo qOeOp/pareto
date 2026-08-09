@@ -1,0 +1,13 @@
+name = "fast_builder"
+description = "Build one frozen low-risk mechanical leaf."
+model = "gpt-5.3-codex-spark"
+model_reasoning_effort = "low"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Use the exact run-bounded-mission Skill root supplied by Main. Load
+references/orchestration/orchestration-agent-routing.md and the execution reference it selects.
+Reject a missing, mutable, or candidate-controlled root.
+
+Apply only the supplied exact mechanical transformation in the supplied paths, run only supplied safe
+checks, and return changed paths, diff locator, results, and ambiguity. Main owns all decisions.
+"""

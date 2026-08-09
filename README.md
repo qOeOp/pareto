@@ -14,6 +14,18 @@ npx -y skills@1.5.22 add qOeOp/skills --skill run-bounded-mission --agent codex 
 npx -y skills@1.5.22 add qOeOp/skills --skill run-bounded-mission --agent claude-code --global --copy --yes
 ```
 
+Codex projects that use the bundled custom agent roles should clone a pinned commit and run:
+
+```bash
+npm run install:codex
+npm run check:codex-install
+```
+
+This installs the Skill under `~/.agents/skills/` and only the four owned profiles under
+`$CODEX_HOME/agents/` (or `~/.codex/agents/`). The installer never changes unrelated skills or agent
+profiles. A project can pin this repository in its root `AGENTS.md`; all of its clones and worktrees
+then share the same user-level installation without tracking `.agents/` or `.codex/` copies.
+
 Use a release tag or commit after the repository name when reproducibility matters. Update or remove
 the installed copy through the same pinned CLI.
 
@@ -51,7 +63,7 @@ fields, and honest unavailable rules.
 | Surface | Runtime capability | Repository convention |
 | --- | --- | --- |
 | Agent Skills | `SKILL.md` with progressive `references/`, `scripts/`, and `assets/` | `skills/<name>/` is the only distributable source |
-| Codex | Local Skill discovery and direct installation | No repository-local hook, MCP server, state, or permission grant |
+| Codex | User-level Skill discovery and four optional custom agent profiles | Explicit pinned install; no repository-local hook, MCP server, state, or permission grant |
 | Other agents | Consumer-specific install paths and activation behavior | `skills@1.5.22` performs explicit copy/symlink installation |
 | Evaluation | Provider-specific model execution and telemetry | Promptfoo `0.122.0`, versioned cases, frozen matrix, heuristic Skill-path replay, raw unavailable fields |
 
