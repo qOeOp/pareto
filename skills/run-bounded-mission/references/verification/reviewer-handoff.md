@@ -25,13 +25,28 @@ persistent record sits between this owner and that consumer.
 
 ## Smallest audit set
 
-Use no reviewer when there is no material semantic, authority, external-effect, or new-contract risk.
-Use one reviewer for one material risk. Use two only for two independent, falsifiable questions:
+Before choosing reviewers, Main derives a bounded risk inventory from the Frame, Plan, changed surface,
+real consumers, affected project contracts, external effects, and unavailable evidence. Map every
+material risk to Main verification or one falsifiable lens; uncovered risk freezes acceptance.
+When that coverage is materially ambiguous or high-consequence, use one read-only `mission_planner`
+before reviewer launch to challenge missing, duplicate, or non-falsifiable risks. It receives the
+Frame, Plan, changed paths, contract/consumer map, and proposed coverage only; it neither reviews the
+candidate nor selects the final set. Main admits or rejects its proposal and freezes the coverage map.
+
+Use no reviewer when the inventory has no material semantic, authority, external-effect, or
+new-contract risk. Use one reviewer for one material question and normally at most two for independent
+questions. The common lenses are:
 
 - `authority_representation`: provenance, authority-bearing representations, unknown values, and
   candidate/control self-authorization;
 - `consumer_fail_close_closure`: real consumers, missing/wrong/stale inputs, terminal failures, and
   whether a refuting representation reaches the decision.
+
+They are templates, not a complete domain taxonomy. A project-specific lens must bind one affected
+contract or consumer and a refuting observation. If more than two independent material questions
+remain, split or narrow the candidate. Only an indivisible high-consequence candidate may add another
+lens, with a distinct contract, oracle, and Stop; generic role labels or broad review categories do
+not justify it.
 
 All reviewers consume the same candidate and control, one lens each, without sibling results. Delay,
 timeout, unsupported transport, invalid output, or a finding never creates a retry or repacket.

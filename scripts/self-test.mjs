@@ -577,7 +577,7 @@ try {
     { encoding: "utf8" },
   );
   const crlfValidation = await runProductionValidator();
-  assert.match(crlfValidation.stdout, /Validated 1 Skill, 19 executable cases, and 0 committed smoke baselines/);
+  assert.match(crlfValidation.stdout, /Validated 1 Skill, 20 executable cases, and 0 committed smoke baselines/);
 
   const gitText = (args) => execFileSync("git", ["-C", validatorFixture, ...args], { encoding: "utf8" }).trim();
   const candidateCommit = gitText(["rev-parse", "HEAD"]);
@@ -651,7 +651,7 @@ try {
   }
   await commitBaseline(baseline, "valid unavailable evidence");
   const unavailableValidation = await runProductionValidator();
-  assert.match(unavailableValidation.stdout, /Validated 1 Skill, 19 executable cases, and 1 committed smoke baselines/);
+  assert.match(unavailableValidation.stdout, /Validated 1 Skill, 20 executable cases, and 1 committed smoke baselines/);
 
   let probeRevision = 0;
   let rejectedBaselineProbeCount = 0;

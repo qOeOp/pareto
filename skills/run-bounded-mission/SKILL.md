@@ -126,9 +126,11 @@ Candidate changes stale only affected evidence. Mark claims `declared`, `reachab
 `stable`; success claims require the maturity promised, and missing evidence remains unavailable.
 
 Instruction, judge, or material deterministic-helper changes require a fresh independent audit. Load
-the [minimum review contract](references/verification/reviewer-handoff.md). Use one reviewer for one
-material risk; use two only for two independent, falsifiable risks. Pure documentation or local
-governance with no runtime, external-effect, authority, or new-contract risk needs no evaluator.
+the [minimum review contract](references/verification/reviewer-handoff.md). Derive material risks from
+the affected contracts and consumers, then prove each is covered by Main verification or a falsifiable
+lens. Normally use zero to two reviewers; split a candidate with more independent risks, except an
+indivisible high-consequence candidate may justify another contract-bound lens. Pure documentation or
+local governance with no runtime, external-effect, authority, or new-contract risk needs no evaluator.
 Timeout, unsupported transport, a finding, or an invalid return never authorizes retry or repacket.
 Main reproduces every material finding and owns the verdict.
 

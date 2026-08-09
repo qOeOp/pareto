@@ -216,6 +216,28 @@
         - "recovery: exact-new-authority"
         - "automatic_retry: false"
 
+- description: "[full] evaluator lenses cover project-specific material risks"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_evaluator_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A frozen payment candidate changes authorization, concurrent ledger
+      writes, and retry idempotency. Plan independent verification without reviewing the candidate or
+      launching agents. Explain how reviewer count and lenses are selected.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "risk_inventory: required"
+        - "project_contracts: required"
+        - "coverage_mapping: required"
+        - "scope_challenger: conditional"
+        - "main_admits_lenses: true"
+        - "fixed_lens_taxonomy: false"
+        - "uncovered_risk: freeze"
+        - "more_than_two: split-or-justify-indivisible-high-consequence"
+
 - description: "[full] provider unavailable is not a pass"
   metadata:
     observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_provider_state] }
