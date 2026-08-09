@@ -13,7 +13,7 @@ locators, business repositories, credentials, and provider receipts remain exter
 ## Suites
 
 - `smoke`: the two `[smoke]` cases in `cases/golden.yaml`, one trial each.
-- `full`: all 15 public golden cases in `cases/golden.yaml`, two trials each.
+- `full`: all 16 public golden cases in `cases/golden.yaml`, two trials each.
 - `holdout`: the four public withheld-regression cases in the separate `cases/holdout.yaml`, three
   trials each. The runner never loads this file for smoke/full and requires a clean Git
   commit, binds the exact commit, tree, `skills/` tree, and matrix digest into Promptfoo output, and

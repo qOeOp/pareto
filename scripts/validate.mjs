@@ -122,7 +122,8 @@ async function validateSkills() {
 }
 
 function validatePromptfooCases(cases, { file, suites, count }) {
-  if (!Array.isArray(cases) || cases.length !== count) fail(`${file}: expected exactly ${count} cases`);
+  if (!Array.isArray(cases)) fail(`${file}: cases must be an array`);
+  if (count !== undefined && cases.length !== count) fail(`${file}: expected exactly ${count} cases`);
   const descriptions = [];
   for (const testCase of cases) {
     const suite = /^\[(smoke|full|holdout)\] /.exec(testCase.description ?? "")?.[1];
@@ -332,7 +333,6 @@ function readHistoricalBaselineInputs(candidateCommit) {
   validatePromptfooCases(goldenCases, {
     file: "smoke baseline historical golden cases",
     suites: new Set(["smoke", "full"]),
-    count: 15,
   });
   if (goldenCases.filter((testCase) => /^\[smoke\]/.test(testCase.description)).length !== 2) {
     fail("smoke baseline historical golden cases: expected exactly two smoke cases");
@@ -561,7 +561,7 @@ const holdoutCases = parseYaml(await readFile(path.join(root, "evals/cases/holdo
 const goldenDescriptions = validatePromptfooCases(goldenCases, {
   file: "evals/cases/golden.yaml",
   suites: new Set(["smoke", "full"]),
-  count: 15,
+  count: 16,
 });
 const holdoutDescriptions = validatePromptfooCases(holdoutCases, {
   file: "evals/cases/holdout.yaml",
