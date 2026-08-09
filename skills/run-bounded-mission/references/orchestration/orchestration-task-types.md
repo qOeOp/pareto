@@ -1,7 +1,7 @@
 # Canonical Task Types
 
 Load only when task dispatch must classify a new Outcome. This file owns codes; task workflow owns
-identity, title, numbering, consent, and dispatch. Classify by the primary consumer/owner/acceptance,
+identity, title, consent, and dispatch. Classify by the primary consumer/owner/acceptance,
 not verb, filename, lane, model, or lifecycle stage. Multiple independent Outcomes split before
 classification; ambiguity is `unknown` and stops type-dependent creation.
 

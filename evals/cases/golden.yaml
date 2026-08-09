@@ -70,27 +70,30 @@
         - "routine-status: no"
         - "task-management: no"
 
-- description: "[full] fresh packet completeness and lazy owner loading"
+- description: "[full] decision evidence routing and lazy owner loading"
   metadata:
     observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission for a planning-only decision whose only unresolved question is whether
       current external evidence can change one architecture choice. No delivery or evaluator action
-      is requested. Return a compact packet receipt; if reference-read tracing is not exposed, mark
+      is requested. Return a compact decision receipt; if reference-read tracing is not exposed, mark
       that observation unavailable rather than guessing.
   assert:
     - type: skill-used
       value: run-bounded-mission
     - type: contains-all
       value:
-        - "packet_bytes:"
-        - "packet_length:"
-        - "packet_sha256:"
         - "activated_owner: planning-decision-evidence"
+        - "evidence_route_owner: planning-decision-evidence"
+        - "architecture_choice_owner: main"
+        - "plan_admission_owner: main"
         - "load_all_owners: false"
         - "owner_trace: unavailable"
-        - "next_edge:"
+    - type: not-contains
+      value: "architecture_choice_owner: planning-decision-evidence"
+    - type: not-contains
+      value: "plan_admission_owner: planning-decision-evidence"
 
 - description: "[full] compaction recovery preserves owner and edge"
   metadata:
@@ -137,10 +140,9 @@
   vars:
     prompt: >-
       Use $run-bounded-mission. A recovered Hub has several approved task attempts, including one
-      unresolved create receipt and one completed child. A proposed type-number was checked only
-      against its packet, created, and then found to collide with two identities in the live task
-      inventory. Return the identity reconciliation and collision recovery rules before any new
-      create or release.
+      unresolved create receipt and one completed child. A bounded live listing shows an exact
+      collision with the recorded task identity plus a same-title resemblance. Return the identity
+      reconciliation rules before any new create or release.
   assert:
     - type: skill-used
       value: run-bounded-mission
@@ -151,12 +153,18 @@
         - "fuzzy_title_adoption: forbidden"
         - "duplicate_create: forbidden"
         - "release_before_identity: forbidden"
-        - "pre_create_live_type_number_inventory: required"
-        - "collision_recovery: rename-existing-identity"
-        - "superseding_identity: required"
+        - "exact_collision_action: reuse_recorded_task"
+        - "ambiguous_create_disposition: host-defect/no-change"
+        - "replacement_task: forbidden"
         - "substitute_task: forbidden"
+    - type: not-contains
+      value: "pre_create_live_type_number_inventory: required"
+    - type: not-contains
+      value: "collision_recovery: rename-existing-identity"
+    - type: not-contains
+      value: "superseding_identity: required"
 
-- description: "[full] task creation failure needs fresh authority"
+- description: "[full] task creation failure preserves no-change"
   metadata:
     observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
   vars:
@@ -170,10 +178,13 @@
     - type: contains-all
       value:
         - "record_attempt: true"
+        - "effect_disposition: host-defect/no-change"
         - "automatic_retry: forbidden"
+        - "replacement_task: forbidden"
         - "adopt_similar_task: forbidden"
         - "continue_runnable_nodes: true"
-        - "retry_requires_fresh_authority: true"
+    - type: not-contains
+      value: "retry_requires_fresh_authority: true"
 
 - description: "[full] Hub commander duty inversion"
   metadata:
