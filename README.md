@@ -17,14 +17,16 @@ npx -y skills@1.5.22 add qOeOp/skills --skill run-bounded-mission --agent claude
 Codex projects that use the bundled custom agent roles should clone a pinned commit and run:
 
 ```bash
-npm run install:codex
-npm run check:codex-install
+node scripts/install-codex.mjs --lock /path/to/codex-skills.lock.json
+node scripts/install-codex.mjs --check --lock /path/to/codex-skills.lock.json
 ```
 
 This installs the Skill under `~/.agents/skills/` and only the four owned profiles under
 `$CODEX_HOME/agents/` (or `~/.codex/agents/`). The installer never changes unrelated skills or agent
 profiles. A project can pin this repository in its root `AGENTS.md`; all of its clones and worktrees
 then share the same user-level installation without tracking `.agents/` or `.codex/` copies.
+The lock binds the repository, commit, root tree, installed subtrees, installer blob, and presence on
+the fetched `origin/main`; a wrong or stale checkout fails before installation.
 
 Use a release tag or commit after the repository name when reproducibility matters. Update or remove
 the installed copy through the same pinned CLI.

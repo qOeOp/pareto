@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -12,17 +13,58 @@ const ownedAgents = ["fast-builder.toml", "mission-evaluator.toml", "mission-pla
 function parseArguments(argv) {
   const options = {
     check: false,
+    lock: undefined,
     agentsRoot: join(homedir(), ".agents"),
     codexRoot: process.env.CODEX_HOME ? resolve(process.env.CODEX_HOME) : join(homedir(), ".codex"),
   };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--check") options.check = true;
+    else if (value === "--lock") options.lock = resolve(argv[++index] ?? "");
     else if (value === "--agents-root") options.agentsRoot = resolve(argv[++index] ?? "");
     else if (value === "--codex-root") options.codexRoot = resolve(argv[++index] ?? "");
     else throw new Error(`unknown argument: ${value}`);
   }
   return options;
+}
+
+function git(...args) {
+  return execFileSync("git", ["-C", repositoryRoot, ...args], { encoding: "utf8" }).trim();
+}
+
+function normalizedRepository(value) {
+  return value
+    .replace(/^git@github\.com:/, "https://github.com/")
+    .replace(/^ssh:\/\/git@github\.com\//, "https://github.com/")
+    .replace(/\.git$/, "");
+}
+
+async function verifyLock(path) {
+  if (!path) return;
+  const lock = JSON.parse(await readFile(path, "utf8"));
+  const required = ["repository", "commit", "tree", "skill_tree", "codex_agents_tree", "installer_blob"];
+  if (lock.schema_version !== 1 || required.some((key) => typeof lock[key] !== "string" || !lock[key])) {
+    throw new Error("invalid Codex skills lock");
+  }
+  const actual = {
+    repository: git("remote", "get-url", "origin"),
+    commit: git("rev-parse", "HEAD"),
+    tree: git("rev-parse", "HEAD^{tree}"),
+    skill_tree: git("rev-parse", "HEAD:skills/run-bounded-mission"),
+    codex_agents_tree: git("rev-parse", "HEAD:codex/agents"),
+    installer_blob: git("rev-parse", "HEAD:scripts/install-codex.mjs"),
+  };
+  const mismatches = required.filter((key) =>
+    key === "repository"
+      ? normalizedRepository(lock[key]) !== normalizedRepository(actual[key])
+      : lock[key] !== actual[key],
+  );
+  if (mismatches.length > 0) throw new Error(`Codex skills lock mismatch: ${mismatches.join(", ")}`);
+  try {
+    git("merge-base", "--is-ancestor", lock.commit, "refs/remotes/origin/main");
+  } catch {
+    throw new Error("Codex skills lock commit is not present on origin/main");
+  }
 }
 
 async function manifest(root) {
@@ -107,6 +149,7 @@ async function verify(sourceSkill, destinationSkill, sourceAgents, destinationAg
 }
 
 const options = parseArguments(process.argv.slice(2));
+await verifyLock(options.lock);
 const sourceSkill = join(repositoryRoot, "skills", "run-bounded-mission");
 const sourceAgents = join(repositoryRoot, "codex", "agents");
 const destinationSkill = join(options.agentsRoot, "skills", "run-bounded-mission");
