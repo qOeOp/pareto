@@ -1,105 +1,43 @@
 # Revision-pressure Replan
 
-Use this method when evidence shows the same causal root again, a candidate is not shrinking or its
-boundary grows, or a finding invalidates the admitted owner, path, responsibility shape, boundary,
-or oracle. Revision count may locate the history to inspect, but it never activates a route or decides
-failure.
+Load this reference when evidence shows the same causal root again, a candidate stops shrinking or
+its boundary grows, or a finding invalidates its admitted owner, path, responsibility, boundary, or
+oracle. Revision count may locate evidence but never activates this route.
 
-Activation freezes the cumulative incumbent. Do not modify it again until Plan admits a replacement,
-rollback, deletion, or narrower route. A successor slice, task, branch, or checkout for the same
-outcome inherits the observed pressure; it cannot make the rejected incumbent appear fresh.
-
-Activation is predicate-driven. Do not repeat an unchanged failing check or evidence request. A new
-turn, recovery, branch, or checkout cannot erase the causal evidence. Repeated failure class alone is
-not enough: demonstrate that the same causal root remains, or that candidate convergence or the Plan
-boundary failed.
-
-Build an admitted replacement as a new candidate inside the same Mission, never as a successor
-Mission. Keep one writable winner at a time so the incumbent and replacement cannot diverge in
-parallel; this is an integrity rule, not an attempt allowance. Return `blocked` only when required
-authority, evidence, or capability is unavailable, acceptance is unsatisfiable, or replan finds no
-viable route. Otherwise remain in the route selected by the observed predicate.
+Freeze the cumulative incumbent. Do not patch it again or create a successor Mission, branch, or task
+that makes the same route appear fresh. Keep one writable winner. Do not repeat an unchanged failing
+check or evidence request.
 
 ## Reconstruct the pressure
 
-Read the implementation and cumulative diff rather than revision summaries. Recover:
+Read the cumulative implementation and diff, not revision summaries. Recover the pre-chain code,
+observed failures and corrections, current owner and consumer, required invariants, affected direct
+producers/consumers/enforcers, and the smallest boundary explaining the pressure. Use bounded path
+history from [decision evidence](planning-decision-evidence.md#recover-bounded-source-history) only
+when named paths can change that explanation.
 
-- the code before the relevant revision chain and the current cumulative candidate;
-- for every observed candidate change, its failure, intended correction, diff, and acceptance result;
-- the production owner and consumer, invariants, and affected direct producers, consumers,
-  restatements, and enforcers;
-- the evidence-backed compatible boundary where each path stops, and the exercises every affected
-  surface must survive.
+Treat the cause as structural only when responsibility spreads, acceptance stops improving, or
+exceptions, branches, adapters, fallbacks, or indirection accumulate beyond the Plan. An omitted or
+faulty execution of an otherwise valid owner/boundary remains candidate-local.
 
-Reuse conversation artifacts, bounded repository history, and tests; create no ledger. Keep scope to
-the smallest owner chain that explains the pressure. Do not infer closure from the current diff,
-filename similarity, or the caller's file list. If a material semantic edge remains unresolved, the
-replacement scope is not ready.
+## Compare one replacement
 
-When named paths anchor the revision chain, load and apply the
-[bounded Git path-history rule](planning-decision-evidence.md#recover-bounded-source-history). Use its exact
-hashes and per-path stats to select commits for inspection, then recover observed failures, intended
-corrections, diffs, and acceptance results from the commits and Mission evidence themselves. The
-helper output is not a lifecycle ledger.
+Keep the Frame and Origin unless the evidence changes a Frame field. Return to Plan with the shared
+cause and affected owner chain. Compare rollback, deletion, a narrower outcome, repository-native
+reuse, and at most one materially different replacement when the evidence supports it. A fresh
+read-only planner may challenge the architecture only when that comparison can change the decision.
 
-Redesign only when evidence identifies a shared structural cause: a finding returns, acceptance stops
-improving, responsibility spreads, or protective exceptions, branches, adapters, fallbacks, or
-indirection accumulate beyond the admitted Plan. A recurring finding is structural only when it
-challenges the admitted owner, path, boundary, responsibility shape, or oracle; an additive
-protective path is structural only when the Plan did not already require it. Faulty or omitted
-execution of admitted structure remains candidate-local while those design fields stay intact. A
-stable or shrinking surface with independent local defects may keep the same design; this follows the
-design evidence, not a remaining correction allowance. If required authority, evidence, or capability
-is unavailable, route to `blocked`.
-
-## Replan and compare
-
-Keep the mission origin unchanged. Freeze the cumulative candidate, Frame, and admitted Plan as the
-incumbent. Preserve required corrected behavior; treat past failures as regression cases expecting
-that correction. Keep pre-chain code only as evidence of growth.
-
-Return to Plan with the demonstrated structural cause and affected owner chain when the frozen Frame
-still holds. Reapply reuse-before-execution research and boundary closure before admitting a
-replacement; this method does not authorize Execute by itself. Return to Frame instead when a frozen
-Frame field must materially change.
-
-1. When the structural cause, incumbent, owner chain, and acceptance signals are stable, a fresh
-   read-only planner acts as the architecture challenger and may propose a materially different
-   alternative or simplification when that comparison can change the decision. It must consider
-   rollback, deletion, and a narrower outcome before new structure. The main agent selects one
-   writable design only after no evidence-backed design objection remains.
-2. After admission, build that replacement in isolation as the smallest coherent answer to the
-   structural cause. Do not add another patch to the incumbent or create multiple writable winners.
-3. Do not invent a challenger when no credible alternative remains. An existing repository-native
-   implementation or deterministic transformation may be a candidate when it actually covers the
-   change; do not install infrastructure merely to run this comparison.
-
-If a replacement invalidates its owner, boundary, responsibility shape, or oracle, return to Plan.
-Candidate-local execution errors return to Execute while those design fields stay intact. Neither
-route is limited by correction count; convergence comes from causal-root, boundary-growth, and
-acceptance predicates.
-
-Run the same consumer and regression exercises against the incumbent and every proposal. When
-robustness is material, add one probe that varies incidental details while preserving the governing
-invariant.
+Admit and build one isolated replacement that preserves required behavior and removes the shared
+cause. Run the same consumer and regression exercises against incumbent and replacement; vary an
+incidental detail when robustness is material. If the replacement invalidates owner, boundary,
+responsibility, or oracle, return to Plan. Candidate-local errors return to Execute.
 
 ## Promote or stop
 
-Promote exactly one candidate only when it:
+Promote only a candidate that satisfies material acceptance, removes the shared cause, is simpler on
+at least one relevant surface without unjustified regression, leaves one production owner, and
+deletes its superseded path. Past corrections become regression invariants only when they demonstrate
+the frozen Frame or real-consumer requirement.
 
-- preserves required behavior and satisfies every material acceptance signal;
-- removes the shared cause rather than encoding the observed cases as new exceptions;
-- is strictly simpler on at least one relevant surface - owners, paths, branches, state, adapters,
-  exceptions, or indirection - without an unjustified regression elsewhere;
-- leaves one production owner and deletes its superseded path.
-
-Apply the main skill's minimality and anti-metric-substitution rule. If a completed comparison under
-an unchanged Frame finds no viable proposal, leave
-the structurally failed incumbent unaccepted and route `blocked`; do not repeat the unchanged replan,
-force a refactor, or manufacture another Mission. Route `reframe` only when evidence changes a Frame
-field; a new credible path or unresolved owner question may return to Plan before comparison is
-complete.
-
-Preserve only behavior required by the frozen Frame and real consumer. A past patch or reviewer case
-becomes a regression invariant only when it demonstrates that requirement; accumulated corrective
-behavior is not automatically part of the replacement contract.
+If no viable replacement remains under the same Frame, leave the incumbent unaccepted and return
+`blocked`; do not manufacture another route. Use `reframe` only when a Frame field changes.
