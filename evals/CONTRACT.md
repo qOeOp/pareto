@@ -49,16 +49,10 @@ case records that mechanism axis as `unavailable`; deterministic answer text rem
 
 ## Trial evidence
 
-Keep Promptfoo's raw per-trial evidence locally. A committed baseline summary may contain only:
-
-- exact repository commit or tree and Skill digest;
-- case and suite IDs;
-- provider, exact model, and reasoning effort, or `unavailable`;
-- pass/fail plus assertion and rubric scores;
-- elapsed time and provider-reported input, output, cached-input, and reasoning tokens;
-- provider-reported cost, a versioned price-source calculation, or `unavailable`;
-- trial count, pass rate, mean, median, p95, and variance when repeated observations exist;
-- environment and tool versions needed to reproduce the comparison.
+Keep Promptfoo's raw per-trial evidence locally. The repository has no producer or consumer for a
+committed evaluation summary, so it does not commit one. Dynamic result admission still binds exact
+candidate, case, provider, model, reasoning effort, assertions, elapsed time, token counts, and
+provider-reported cost when those fields are available.
 
 Repository acceptance reads Promptfoo result artifacts as raw JSON and rejects duplicate object
 members before normalization; exit zero never authorizes a last-wins representation.
@@ -90,58 +84,27 @@ evaluation workspace; unsupported Git entry modes, invalid UTF-8 paths, normaliz
 unsafe paths fail closed. The complete tree is validated before any destination write; Windows
 separator, case, or resolved-target collisions also fail closed on every host.
 
-The repository may contain zero committed smoke baselines. That is an explicit no-dynamic-evidence
-state: it makes no quality, provider-execution, or regression claim. A baseline whose candidate can
-no longer be reconstructed from the committed repository is removed rather than translated onto a
-different commit or treated as a current-main run.
+## Committed comparisons
 
-Any committed smoke baseline has one exact representation. Its top-level keys are
-`schema_version`, `suite`, `attempted_at`, `candidate`, `case_ids`, `environment`, `cells`, `result`,
-and `raw_result_committed`. `candidate` contains only `commit`, `tree`, `skill_sha256`, and
-`skills_tree_oid`, plus `promptfoo_config`. `promptfoo_config` contains only the historical repo-relative `path`, Git
-`blob_oid`, raw-byte `sha256`, and sole parsed `provider`; `environment` contains only `node`, `npm`,
-`promptfoo`, and `skills_cli`. `case_ids` must exactly match the smoke cases, and cells must exactly
-match the model/effort matrix. A `YYYY-MM-DD-smoke.json` filename must match `attempted_at`'s UTC
-date, so there is intentionally at most one committed smoke baseline per UTC day. Every cell contains `provider`, `model`, `reasoning_effort`,
-`planned_trials`, `completed_trials`, `errored_trials`, and `status`, plus the following
-status-dependent fields:
+`evals/baselines/` may be absent or an empty real directory. The validator rejects any indexed file,
+workspace entry, ignored entry, subdirectory, non-directory, or symlink there. Its index query starts
+from the repository root derived from the validator and clears inherited `GIT_*` selectors.
 
-- `completed`: rejected. The repository has no committed producer that binds a baseline to
-  replayable per-row provider assertion evidence. A handwritten summary, digest, or raw ignored
-  artifact is not such evidence. The existing runner can create ignored raw artifacts but cannot
-  produce an admissible committed completed baseline; that producer capability remains unavailable.
-- `unavailable`: `reason` plus `quality`, `elapsed_ms`, `input_tokens`, `output_tokens`,
-  `cached_input_tokens`, `reasoning_tokens`, and `cost`,
-  with every evidence field exactly `unavailable`. All planned trials errored and none completed.
-- `not_run`: the same fields as `unavailable`; no trial completed or errored and every evidence field
-  is exactly `unavailable`.
+Zero committed comparisons means zero durable dynamic evidence; it makes no quality, provider,
+regression, model, effort, token, latency, or cost claim. `unavailable` and `not_run` remain honest
+terminal outcomes, not repository evidence.
 
-Unknown, missing, or status-forbidden fields fail validation. `result` must be `unavailable` and at
-least one cell must have status `unavailable`.
-Duplicate raw JSON object members fail before normalization. Every cell provider must equal the sole
-provider parsed from the recorded historical Promptfoo blob, not the mutable working-tree config.
-The recorded historical candidate must exist in the current repository history, resolve to the
-recorded tree and complete `skills/` tree, predate or equal `attempted_at`, expose exactly the recorded
-Skill names, reproduce every recorded `SKILL.md` SHA-256 digest, and expose the recorded config path
-as the recorded blob and raw-byte digest. Its smoke cases and model/effort matrix are loaded from that
-same candidate commit, never from the mutable current checkout.
+A committed comparison may return only when all of these exist together:
 
-Static repository validation proves referential and causal consistency among committed Git objects
-and the baseline representation. It does not prove that the provider actually ran, provide
-tamper-proof external attestation, or make the repository history an immutable service.
+- a deterministic producer derived from admitted per-row raw artifacts;
+- exact candidate, cases, matrix, provider, model, effort, and environment binding;
+- replayable evidence for every published quality, latency, token, and cost field;
+- a real downstream consumer that changes a decision from that summary;
+- squash-portable provenance plus cross-platform adversarial tests.
 
-The validator accepts no `evals/baselines/` directory or an empty one. It inventories and reads every
-present `100644` `YYYY-MM-DD-smoke.json` only from the exact `HEAD` Git tree, in deterministic path
-order. Before consumption it independently rejects HEAD-to-index drift, index-to-working-tree drift,
-index flags or aliases (including assume-unchanged and skip-worktree), and untracked material under
-`evals/baselines/`. Every Git consumer runs from the repository root derived from the validator script
-and clears inherited Git directory, worktree, index, common-directory, object-store, and config/pathspec
-selectors, so caller environment cannot redirect that authority. Ignored material is not read by that consumer. A future committed baseline
-therefore still needs its own reconstructable candidate and a committed replayable producer receipt;
-it cannot borrow an unreachable pull-request object or an ignored raw result from an earlier run.
-
-Never estimate a missing provider field or expose a local absolute path, credential, thread/session
-identifier, private source locator, prompt cache, or raw transcript in a committed baseline.
+The producer must also exclude local paths, credentials, task/session identifiers, private locators,
+prompt caches, and raw transcripts. Until those consumers exist, schema and provenance machinery stay
+deleted rather than preserving an unusable second evidence ledger.
 
 ## Regression rule
 
