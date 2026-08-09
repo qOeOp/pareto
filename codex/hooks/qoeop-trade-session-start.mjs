@@ -3,7 +3,7 @@
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { lstat, readFile, readdir, realpath } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const codexRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -40,21 +40,55 @@ async function manifest(root) {
   return createHash("sha256").update(`${entries.join("\n")}\n`).digest("hex");
 }
 
+async function ownedAgentManifest(root) {
+  const entries = [];
+  for (const name of projectAgentProfiles) {
+    const path = join(root, name);
+    const stat = await lstat(path);
+    if (!stat.isFile()) throw new Error("unsupported installed agent profile");
+    const bytes = await readFile(path);
+    entries.push(`${name}\t${stat.mode & 0o777}\t${bytes.length}\t${createHash("sha256").update(bytes).digest("hex")}`);
+  }
+  return createHash("sha256").update(`${entries.join("\n")}\n`).digest("hex");
+}
+
 function output(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`);
 }
 
-async function hasLocalSkill(root, cwd) {
+const projectAgentProfiles = [
+  "fast-builder.toml",
+  "mission-evaluator.toml",
+  "mission-planner.toml",
+  "mission-researcher.toml",
+];
+
+async function localMissionSources(root, cwd) {
   let directory = await realpath(resolve(cwd));
-  if (relative(root, directory).startsWith("..")) return false;
+  const fromRoot = relative(root, directory);
+  if (fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)) {
+    return { skill: false, profiles: [] };
+  }
+  let skill = false;
+  const profiles = new Set();
   while (true) {
+    const skillPath = join(directory, ".agents", "skills", "run-bounded-mission", "SKILL.md");
     try {
-      await lstat(join(directory, ".agents", "skills", "run-bounded-mission", "SKILL.md"));
-      return true;
+      await lstat(skillPath);
+      skill = true;
     } catch (error) {
-      if (error.code !== "ENOENT") return true;
+      if (error.code !== "ENOENT") skill = true;
     }
-    if (directory === root) return false;
+    for (const name of projectAgentProfiles) {
+      const path = join(directory, ".codex", "agents", name);
+      try {
+        await lstat(path);
+        profiles.add(name);
+      } catch (error) {
+        if (error.code !== "ENOENT") profiles.add(name);
+      }
+    }
+    if (directory === root) return { skill, profiles: [...profiles].sort() };
     directory = dirname(directory);
   }
 }
@@ -62,6 +96,7 @@ async function hasLocalSkill(root, cwd) {
 let input;
 let root;
 let lock;
+let localSources;
 try {
   input = JSON.parse(await new Promise((resolve) => {
     let value = "";
@@ -72,8 +107,18 @@ try {
   if (input.hook_event_name !== "SessionStart") process.exit(0);
   root = git(input.cwd, "rev-parse", "--show-toplevel");
   if (normalizedRepository(git(root, "config", "--get", "remote.origin.url")) !== "https://github.com/qOeOp/trade") process.exit(0);
-  if (!await hasLocalSkill(root, input.cwd)) process.exit(0);
+  localSources = await localMissionSources(root, input.cwd);
+  if (!localSources.skill && localSources.profiles.length === 0) process.exit(0);
 } catch {
+  process.exit(0);
+}
+
+if (localSources.profiles.length > 0) {
+  output({
+    continue: false,
+    stopReason: `This checkout contains project-scoped RBM agent profiles that override the pinned user profiles: ${localSources.profiles.join(", ")}. Remove or migrate these repository files, then start a new Codex session.`,
+    systemMessage: "qOeOp/trade project agent profiles override the user installation",
+  });
   process.exit(0);
 }
 
@@ -99,11 +144,14 @@ try {
   const fields = ["repository", "commit", "tree", "skill_tree", "codex_agents_tree", "codex_session_hook_blob", "installer_blob"];
   const exact = fields.every((field) => normalizedRepository(receipt[field]) === normalizedRepository(lock[field]));
   const installedSkill = join(receipt.agents_root, "skills", "run-bounded-mission");
-  if (!exact || await manifest(installedSkill) !== receipt.skill_manifest_sha256) throw new Error("pin mismatch");
+  const installedAgents = join(receipt.codex_root, "agents");
+  if (receipt.schema_version !== 2 || !exact
+    || await manifest(installedSkill) !== receipt.skill_manifest_sha256
+    || await ownedAgentManifest(installedAgents) !== receipt.agent_manifest_sha256) throw new Error("pin mismatch");
   output({
     hookSpecificOutput: {
       hookEventName: "SessionStart",
-      additionalContext: `qOeOp/trade: ignore the repository-local run-bounded-mission copy. Use only ${installedSkill} pinned by origin/main at ${lock.commit}.`,
+      additionalContext: `qOeOp/trade: ignore the repository-local run-bounded-mission Skill. Use only ${installedSkill} pinned by origin/main at ${lock.commit}.`,
     },
   });
 } catch {

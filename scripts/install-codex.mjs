@@ -117,6 +117,18 @@ async function manifest(root) {
   return `${entries.join("\n")}\n`;
 }
 
+async function ownedAgentManifest(root) {
+  const entries = [];
+  for (const name of ownedAgents) {
+    const path = join(root, name);
+    const stat = await lstat(path);
+    if (!stat.isFile()) throw new Error(`unsupported agent profile: ${path}`);
+    const bytes = await readFile(path);
+    entries.push(`${name}\t${stat.mode & 0o777}\t${bytes.length}\t${createHash("sha256").update(bytes).digest("hex")}`);
+  }
+  return `${entries.join("\n")}\n`;
+}
+
 async function replaceDirectory(source, destination) {
   await mkdir(dirname(destination), { recursive: true });
   const suffix = `${process.pid}-${Date.now()}`;
@@ -323,9 +335,10 @@ const destinationHook = join(options.codexRoot, "hooks", ownedHook);
 const hooksConfig = join(options.codexRoot, "hooks.json");
 const installReceipt = join(options.codexRoot, "run-bounded-mission-install.json");
 const receipt = {
-  schema_version: 1,
+  schema_version: 2,
   ...identity,
   skill_manifest_sha256: createHash("sha256").update(await manifest(sourceSkill)).digest("hex"),
+  agent_manifest_sha256: createHash("sha256").update(await ownedAgentManifest(sourceAgents)).digest("hex"),
   agents_root: options.agentsRoot,
   codex_root: options.codexRoot,
 };
