@@ -8,9 +8,12 @@ const root = await mkdtemp(join(tmpdir(), "qoeop-skills-install-"));
 const agentsRoot = join(root, "agents-home");
 const codexRoot = join(root, "codex-home");
 const argv = ["scripts/install-codex.mjs", "--agents-root", agentsRoot, "--codex-root", codexRoot];
+const gitEnvironment = Object.fromEntries(
+  Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name)),
+);
 
 function git(cwd, ...args) {
-  return spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
+  return spawnSync("git", ["-C", cwd, ...args], { encoding: "utf8", env: gitEnvironment });
 }
 
 function canonicalLine(value) {
@@ -68,6 +71,20 @@ const origin = join(root, "qOeOp", "skills.git");
     installer_blob: field("HEAD:scripts/install-codex.mjs"),
   };
   await writeFile(lock, `${JSON.stringify(exactLock)}\n`);
+  const redirectedRepository = join(root, "redirected-source");
+  assert.equal(git(root, "clone", repositoryRoot, redirectedRepository).status, 0);
+  assert.equal(git(redirectedRepository, "config", "user.name", "Installer Test").status, 0);
+  assert.equal(git(redirectedRepository, "config", "user.email", "installer@example.invalid").status, 0);
+  await writeFile(join(redirectedRepository, "skills", "run-bounded-mission", "SKILL.md"), "redirected\n");
+  assert.equal(git(redirectedRepository, "add", "skills/run-bounded-mission/SKILL.md").status, 0);
+  assert.equal(git(redirectedRepository, "commit", "-m", "redirected authority").status, 0);
+  const poisonedGitEnvironment = {
+    ...process.env,
+    [process.platform === "win32" ? "git_dir" : "GIT_DIR"]: join(redirectedRepository, ".git"),
+    [process.platform === "win32" ? "Git_Work_Tree" : "GIT_WORK_TREE"]: redirectedRepository,
+    [process.platform === "win32" ? "git_index_file" : "GIT_INDEX_FILE"]:
+      join(redirectedRepository, ".git", "index"),
+  };
   const lockedArgv = [
     join(repositoryRoot, "scripts", "install-codex.mjs"),
     "--agents-root",
@@ -77,7 +94,7 @@ const origin = join(root, "qOeOp", "skills.git");
     "--lock",
     lock,
   ];
-  result = spawnSync(process.execPath, lockedArgv, { encoding: "utf8" });
+  result = spawnSync(process.execPath, lockedArgv, { encoding: "utf8", env: poisonedGitEnvironment });
   assert.equal(result.status, 0, result.stderr);
   result = spawnSync(process.execPath, [...lockedArgv, "--check"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
@@ -120,6 +137,7 @@ const origin = join(root, "qOeOp", "skills.git");
   const runReceipt = (arguments_, input) => spawnSync(receiptBinary, arguments_, {
     cwd: repositoryRoot,
     encoding: "utf8",
+    env: poisonedGitEnvironment,
     input,
   });
   const created = runReceipt(["create"], canonicalLine(deliveryInput));

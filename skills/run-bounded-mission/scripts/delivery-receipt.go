@@ -435,8 +435,20 @@ func parseCanonicalLine(source []byte, label string) (any, error) {
 	return value, nil
 }
 
+func gitEnvironment() []string {
+	environment := make([]string, 0, len(os.Environ()))
+	for _, entry := range os.Environ() {
+		name, _, _ := strings.Cut(entry, "=")
+		if !strings.HasPrefix(strings.ToUpper(name), "GIT_") {
+			environment = append(environment, entry)
+		}
+	}
+	return environment
+}
+
 func gitOutput(arguments ...string) string {
 	command := exec.Command("git", arguments...)
+	command.Env = gitEnvironment()
 	output, err := command.Output()
 	if err != nil {
 		return ""
