@@ -82,13 +82,17 @@ The runner materializes its Skill workspace only from regular tracked blobs in t
 `HEAD:skills` tree. It never copies working-tree, untracked, or ignored Skill material into an
 evaluation workspace; unsupported Git entry modes, invalid UTF-8 paths, normalization collisions, and
 unsafe paths fail closed. The complete tree is validated before any destination write; Windows
-separator, case, or resolved-target collisions also fail closed on every host.
+separator, case, or resolved-target collisions also fail closed on every host. Repository-owned Git
+calls derive their root explicitly and clear inherited `GIT_*` selectors case-insensitively, including the disposable
+workspace initialization, installer lock verification, and delivery receipt identity checks, so caller environment
+cannot redirect repository authority.
 
 ## Committed comparisons
 
 `evals/baselines/` may be absent or an empty real directory. The validator rejects any indexed file,
 workspace entry, ignored entry, subdirectory, non-directory, or symlink there. Its index query starts
-from the repository root derived from the validator and clears inherited `GIT_*` selectors.
+from the repository root derived from the validator and clears inherited `GIT_*` selectors
+case-insensitively.
 
 Zero committed comparisons means zero durable dynamic evidence; it makes no quality, provider,
 regression, model, effort, token, latency, or cost claim. `unavailable` and `not_run` remain honest

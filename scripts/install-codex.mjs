@@ -9,6 +9,9 @@ import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ownedAgents = ["fast-builder.toml", "mission-evaluator.toml", "mission-planner.toml", "mission-researcher.toml"];
+const gitAuthorityEnvironment = Object.fromEntries(
+  Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name)),
+);
 
 function parseArguments(argv) {
   const options = {
@@ -29,7 +32,10 @@ function parseArguments(argv) {
 }
 
 function git(...args) {
-  return execFileSync("git", ["-C", repositoryRoot, ...args], { encoding: "utf8" }).trim();
+  return execFileSync("git", ["-C", repositoryRoot, ...args], {
+    encoding: "utf8",
+    env: gitAuthorityEnvironment,
+  }).trim();
 }
 
 function normalizedRepository(value) {

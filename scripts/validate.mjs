@@ -7,7 +7,7 @@ import { parse as parseYaml } from "yaml";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const skillRoot = path.join(root, "skills");
 const gitAuthorityEnvironment = Object.fromEntries(
-  Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")),
+  Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name)),
 );
 const allowedFrontmatter = new Set(["name", "description"]);
 const allowedUnavailableObservations = new Set([

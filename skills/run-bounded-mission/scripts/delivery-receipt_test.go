@@ -12,7 +12,9 @@ import (
 
 func gitTestOutput(t *testing.T, arguments ...string) string {
 	t.Helper()
-	output, err := exec.Command("git", arguments...).Output()
+	command := exec.Command("git", arguments...)
+	command.Env = gitEnvironment()
+	output, err := command.Output()
 	if err != nil {
 		t.Fatalf("git %v: %v", arguments, err)
 	}

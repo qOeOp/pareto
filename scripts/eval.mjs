@@ -10,6 +10,9 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const gitAuthorityEnvironment = Object.fromEntries(
+  Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name)),
+);
 const patterns = {
   smoke: "^\\[smoke\\]",
   full: "^\\[(?:smoke|full)\\]",
@@ -67,6 +70,7 @@ function sha256(bytes) {
 async function gitText(repositoryRoot, args) {
   const { stdout } = await execFileAsync("git", ["-C", repositoryRoot, ...args], {
     encoding: "utf8",
+    env: gitAuthorityEnvironment,
     maxBuffer: 1024 * 1024,
   });
   return stdout.trim();
@@ -75,6 +79,7 @@ async function gitText(repositoryRoot, args) {
 async function gitBytes(repositoryRoot, args) {
   const { stdout } = await execFileAsync("git", ["-C", repositoryRoot, ...args], {
     encoding: null,
+    env: gitAuthorityEnvironment,
     maxBuffer: 16 * 1024 * 1024,
   });
   return stdout;
@@ -543,7 +548,7 @@ async function main() {
     await materializeSkillsFromGit(root, snapshotCommit, skillTarget);
     await writeFile(path.join(workspace, "README.md"), "Disposable read-only Skill evaluation workspace.\n", "utf8");
     await writeFile(path.join(workspace, "AGENTS.md"), repositoryInstructions, "utf8");
-    const gitCode = await run("git", ["init", "--quiet"], { cwd: workspace });
+    const gitCode = await run("git", ["init", "--quiet"], { cwd: workspace, env: gitAuthorityEnvironment });
     if (gitCode !== 0) throw new Error(`git init failed with exit ${gitCode}`);
     await mkdir(resultsDir, { recursive: true });
     const casePath = path.join(root, "evals", "cases", caseFiles[suite]);

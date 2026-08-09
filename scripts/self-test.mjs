@@ -4,7 +4,7 @@ import { cp, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "nod
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertions } from "promptfoo";
 import { parse as parseYaml } from "yaml";
 import {
@@ -18,6 +18,17 @@ import {
 const execFileAsync = promisify(execFile);
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "skill-eval-self-test-"));
+const gitFixtureEnvironment = Object.fromEntries(
+  Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name)),
+);
+const gitAsync = (args, options = {}) => execFileAsync("git", args, {
+  ...options,
+  env: gitFixtureEnvironment,
+});
+const gitSync = (args, options = {}) => execFileSync("git", args, {
+  ...options,
+  env: gitFixtureEnvironment,
+});
 
 async function expectReject(action, pattern, message) {
   await assert.rejects(action, pattern, message);
@@ -442,11 +453,11 @@ try {
   await writeFile(path.join(repository, "skills", "example", "SKILL.md"), "example\n", "utf8");
   await writeFile(path.join(repository, "evals", "matrix.json"), "{}\n", "utf8");
   await writeFile(path.join(repository, ".gitignore"), "node_modules/\n", "utf8");
-  await execFileAsync("git", ["-C", repository, "init", "--quiet"]);
-  await execFileAsync("git", ["-C", repository, "config", "user.name", "Skill Eval Self Test"]);
-  await execFileAsync("git", ["-C", repository, "config", "user.email", "skill-eval@example.invalid"]);
-  await execFileAsync("git", ["-C", repository, "add", "."]);
-  await execFileAsync("git", ["-C", repository, "commit", "--quiet", "-m", "fixture"]);
+  await gitAsync(["-C", repository, "init", "--quiet"]);
+  await gitAsync(["-C", repository, "config", "user.name", "Skill Eval Self Test"]);
+  await gitAsync(["-C", repository, "config", "user.email", "skill-eval@example.invalid"]);
+  await gitAsync(["-C", repository, "add", "."]);
+  await gitAsync(["-C", repository, "commit", "--quiet", "-m", "fixture"]);
   const identity = await readHoldoutIdentity(repository);
   assert.match(identity.commit, /^[0-9a-f]{40}$/);
   assert.match(identity.tree, /^[0-9a-f]{40}$/);
@@ -463,10 +474,39 @@ try {
     /ENOENT/,
     "ignored Skill material must not enter a Git-tree snapshot",
   );
+  const gitAuthorityRepository = path.join(temporaryRoot, "git-authority-repository");
+  await gitAsync(["clone", "--quiet", "--shared", repository, gitAuthorityRepository]);
+  await gitAsync(["-C", gitAuthorityRepository, "config", "user.name", "Skill Eval Self Test"]);
+  await gitAsync(["-C", gitAuthorityRepository, "config", "user.email", "skill-eval@example.invalid"]);
+  await writeFile(path.join(gitAuthorityRepository, "skills", "example", "SKILL.md"), "redirected\n", "utf8");
+  await gitAsync(["-C", gitAuthorityRepository, "add", "skills/example/SKILL.md"]);
+  await gitAsync(["-C", gitAuthorityRepository, "commit", "--quiet", "-m", "divergent authority"]);
+  const redirectedIdentity = await readHoldoutIdentity(gitAuthorityRepository);
+  assert.notEqual(redirectedIdentity.skills_tree_oid, identity.skills_tree_oid);
+  const poisonedSnapshot = path.join(temporaryRoot, "poisoned-skill-snapshot");
+  const gitAuthorityProbe = `
+    import { materializeSkillsFromGit, readHoldoutIdentity } from ${JSON.stringify(pathToFileURL(path.join(root, "scripts", "eval.mjs")).href)};
+    const identity = await readHoldoutIdentity(process.argv[1]);
+    const snapshot = await materializeSkillsFromGit(process.argv[1], identity.commit, process.argv[2]);
+    process.stdout.write(JSON.stringify(snapshot));
+  `;
+  const authorityProbe = await execFileAsync(process.execPath,
+    ["--input-type=module", "--eval", gitAuthorityProbe, repository, poisonedSnapshot], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        [process.platform === "win32" ? "git_dir" : "GIT_DIR"]: path.join(gitAuthorityRepository, ".git"),
+        [process.platform === "win32" ? "Git_Work_Tree" : "GIT_WORK_TREE"]: gitAuthorityRepository,
+        [process.platform === "win32" ? "git_index_file" : "GIT_INDEX_FILE"]:
+          path.join(gitAuthorityRepository, ".git", "index"),
+      },
+    });
+  assert.equal(JSON.parse(authorityProbe.stdout).skills_tree_oid, identity.skills_tree_oid);
+  assert.equal(await readFile(path.join(poisonedSnapshot, "example", "SKILL.md"), "utf8"), "example\n");
   const pathRepository = path.join(temporaryRoot, "path-repository");
   await mkdir(pathRepository, { recursive: true });
-  execFileSync("git", ["-C", pathRepository, "init", "--quiet"]);
-  const gitObject = (args, input) => execFileSync("git", ["-C", pathRepository, ...args], { input })
+  gitSync(["-C", pathRepository, "init", "--quiet"]);
+  const gitObject = (args, input) => gitSync(["-C", pathRepository, ...args], { input })
     .toString("utf8").trim();
   const blob = gitObject(["hash-object", "-w", "--stdin"], Buffer.from("path fixture\n"));
   const commitTree = (skillEntries, message) => {
@@ -525,7 +565,7 @@ try {
   await expectReject(() => readHoldoutIdentity(repository), /clean tracked and untracked worktree/);
 
   const validatorFixture = path.join(temporaryRoot, "validator-fixture");
-  await execFileAsync("git", ["clone", "--quiet", "--shared", root, validatorFixture]);
+  await gitAsync(["clone", "--quiet", "--shared", root, validatorFixture]);
   await cp(root, validatorFixture, {
     recursive: true,
     filter: (source) => {
@@ -583,19 +623,19 @@ try {
   const stagedBaseline = path.join(baselineRoot, "staged.json");
   await mkdir(baselineRoot);
   await writeFile(stagedBaseline, "{}\n", "utf8");
-  execFileSync("git", ["-C", validatorFixture, "add", "--", "evals/baselines/staged.json"]);
+  gitSync(["-C", validatorFixture, "add", "--", "evals/baselines/staged.json"]);
   await rm(stagedBaseline);
   await expectReject(runProductionValidator, /evals\/baselines must be absent from the index/,
     "index-only baseline material must fail closed");
 
   const alternate = path.join(temporaryRoot, "baseline-authority");
-  await execFileAsync("git", ["clone", "--quiet", "--shared", root, alternate]);
+  await gitAsync(["clone", "--quiet", "--shared", root, alternate]);
   await expectReject(() => runProductionValidator({
-    env: {
-      ...process.env,
-      GIT_DIR: path.join(alternate, ".git"),
-      GIT_WORK_TREE: alternate,
-      GIT_INDEX_FILE: path.join(alternate, ".git", "index"),
+      env: {
+        ...process.env,
+        [process.platform === "win32" ? "git_dir" : "GIT_DIR"]: path.join(alternate, ".git"),
+        [process.platform === "win32" ? "Git_Work_Tree" : "GIT_WORK_TREE"]: alternate,
+        [process.platform === "win32" ? "git_index_file" : "GIT_INDEX_FILE"]: path.join(alternate, ".git", "index"),
     },
   }), /evals\/baselines must be absent from the index/,
   "inherited Git selectors must not redirect baseline validation");
