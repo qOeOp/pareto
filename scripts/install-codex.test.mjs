@@ -3,11 +3,13 @@ import { chmod, cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 const root = await mkdtemp(join(tmpdir(), "qoeop-skills-install-"));
 const agentsRoot = join(root, "agents-home");
 const codexRoot = join(root, "codex-home");
 const argv = ["scripts/install-codex.mjs", "--agents-root", agentsRoot, "--codex-root", codexRoot];
+const hookedArgv = [...argv, "--install-trade-session-hook"];
 const gitEnvironment = Object.fromEntries(
   Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name)),
 );
@@ -28,10 +30,47 @@ function canonicalLine(value) {
 }
 
 try {
-  let result = spawnSync(process.execPath, argv, { encoding: "utf8" });
+  await mkdir(codexRoot, { recursive: true });
+  await writeFile(join(codexRoot, "hooks.json"), `${JSON.stringify({
+    hooks: {
+      SessionStart: [{
+        matcher: "startup",
+        hooks: [
+          { type: "command", command: "node temporary-owned-placeholder.mjs" },
+          { type: "command", command: "node preserved-shared-hook.mjs" },
+        ],
+      }],
+      UserPromptSubmit: [{ hooks: [{ type: "command", command: "node preserved-hook.mjs" }] }],
+    },
+  })}\n`);
+  let result = spawnSync(process.execPath, hookedArgv, { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
-  result = spawnSync(process.execPath, [...argv, "--check"], { encoding: "utf8" });
+  result = spawnSync(process.execPath, [...hookedArgv, "--check"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
+  const installedHooks = JSON.parse(await readFile(join(codexRoot, "hooks.json"), "utf8"));
+  assert.equal(installedHooks.hooks.UserPromptSubmit[0].hooks[0].command, "node preserved-hook.mjs");
+  assert.equal(installedHooks.hooks.SessionStart.length, 2);
+  assert.equal(installedHooks.hooks.SessionStart[0].hooks[1].command, "node preserved-shared-hook.mjs");
+  installedHooks.hooks.SessionStart.at(-1).hooks.push({ type: "command", command: "node preserved-owned-group-hook.mjs" });
+  await writeFile(join(codexRoot, "hooks.json"), `${JSON.stringify(installedHooks)}\n`);
+  result = spawnSync(process.execPath, hookedArgv, { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const reinstalledCommands = JSON.stringify(JSON.parse(await readFile(join(codexRoot, "hooks.json"), "utf8")));
+  assert.match(reinstalledCommands, /preserved-owned-group-hook\.mjs/);
+
+  const duplicateRoot = join(root, "duplicate-codex-home");
+  const duplicateHooks = '{"hooks":{"UserPromptSubmit":[]},"hooks":{"SessionStart":[]}}\n';
+  await mkdir(duplicateRoot, { recursive: true });
+  await writeFile(join(duplicateRoot, "hooks.json"), duplicateHooks);
+  result = spawnSync(process.execPath, [
+    "scripts/install-codex.mjs",
+    "--agents-root", join(root, "duplicate-agents-home"),
+    "--codex-root", duplicateRoot,
+    "--install-trade-session-hook",
+  ], { encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /duplicate JSON member: hooks/);
+  assert.equal(await readFile(join(duplicateRoot, "hooks.json"), "utf8"), duplicateHooks);
 
   const lock = join(root, "codex-skills.lock.json");
   const repositoryRoot = join(root, "source");
@@ -43,6 +82,7 @@ const origin = join(root, "qOeOp", "skills.git");
   await cp("scripts/install-codex.mjs", join(repositoryRoot, "scripts", "install-codex.mjs"));
   await cp("skills/run-bounded-mission", join(repositoryRoot, "skills", "run-bounded-mission"), { recursive: true });
   await cp("codex/agents", join(repositoryRoot, "codex", "agents"), { recursive: true });
+  await cp("codex/hooks", join(repositoryRoot, "codex", "hooks"), { recursive: true });
   assert.equal(git(root, "init", "--bare", origin).status, 0);
   assert.equal(git(repositoryRoot, "init", "-b", "main").status, 0);
   assert.equal(git(repositoryRoot, "config", "user.name", "Installer Test").status, 0);
@@ -59,15 +99,15 @@ const origin = join(root, "qOeOp", "skills.git");
     assert.equal(value.status, 0, value.stderr);
     return value.stdout.trim();
   };
-  const remote = git(repositoryRoot, "remote", "get-url", "origin");
-  assert.equal(remote.status, 0, remote.stderr);
+  assert.equal(git(repositoryRoot, "remote", "set-url", "origin", "https://github.com/qOeOp/skills.git").status, 0);
   const exactLock = {
-    schema_version: 1,
-    repository: remote.stdout.trim(),
+    schema_version: 2,
+    repository: "https://github.com/qOeOp/skills.git",
     commit: field("HEAD"),
     tree: field("HEAD^{tree}"),
     skill_tree: field("HEAD:skills/run-bounded-mission"),
     codex_agents_tree: field("HEAD:codex/agents"),
+    codex_session_hook_blob: field("HEAD:codex/hooks/qoeop-trade-session-start.mjs"),
     installer_blob: field("HEAD:scripts/install-codex.mjs"),
   };
   await writeFile(lock, `${JSON.stringify(exactLock)}\n`);
@@ -93,11 +133,77 @@ const origin = join(root, "qOeOp", "skills.git");
     codexRoot,
     "--lock",
     lock,
+    "--install-trade-session-hook",
   ];
   result = spawnSync(process.execPath, lockedArgv, { encoding: "utf8", env: poisonedGitEnvironment });
   assert.equal(result.status, 0, result.stderr);
   result = spawnSync(process.execPath, [...lockedArgv, "--check"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
+
+  if (process.platform !== "win32") {
+  const consumerOrigin = join(root, "consumer.git");
+  const consumer = join(root, "consumer");
+  assert.equal(git(root, "init", "--bare", consumerOrigin).status, 0);
+  await mkdir(consumer, { recursive: true });
+  assert.equal(git(consumer, "init", "-b", "main").status, 0);
+  assert.equal(git(consumer, "config", "user.name", "Consumer Test").status, 0);
+  assert.equal(git(consumer, "config", "user.email", "consumer@example.invalid").status, 0);
+  await writeFile(join(consumer, "codex-skills.lock.json"), `${JSON.stringify(exactLock)}\n`);
+  assert.equal(git(consumer, "add", "codex-skills.lock.json").status, 0);
+  assert.equal(git(consumer, "commit", "-m", "current pin").status, 0);
+  assert.equal(git(consumer, "remote", "add", "origin", consumerOrigin).status, 0);
+  assert.equal(git(consumer, "push", "-u", "origin", "main").status, 0);
+  assert.equal(git(consumer, "remote", "set-url", "origin", "git@github.com:qOeOp/trade.git").status, 0);
+  assert.equal(git(consumer, "config", `url.${pathToFileURL(consumerOrigin).href}.insteadOf`, "git@github.com:qOeOp/trade.git").status, 0);
+  assert.equal(git(consumer, "switch", "-c", "historical").status, 0);
+  await mkdir(join(consumer, ".agents", "skills", "run-bounded-mission"), { recursive: true });
+  await writeFile(join(consumer, ".agents", "skills", "run-bounded-mission", "SKILL.md"), "historical\n");
+  assert.equal(git(consumer, "add", ".agents/skills/run-bounded-mission/SKILL.md").status, 0);
+  assert.equal(git(consumer, "commit", "-m", "historical local skill").status, 0);
+  assert.equal(git(consumer, "config", "--get", "remote.origin.url").stdout.trim(), "git@github.com:qOeOp/trade.git");
+  assert.equal((await lstat(join(consumer, ".agents", "skills", "run-bounded-mission", "SKILL.md"))).isFile(), true);
+  const installedHook = join(codexRoot, "hooks", "qoeop-trade-session-start.mjs");
+  result = spawnSync(process.execPath, [installedHook], {
+    encoding: "utf8",
+    env: poisonedGitEnvironment,
+    input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "startup" }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const hookOutput = JSON.parse(result.stdout);
+  assert.match(hookOutput.hookSpecificOutput.additionalContext, /ignore the repository-local/);
+  assert.match(hookOutput.hookSpecificOutput.additionalContext, new RegExp(exactLock.commit));
+
+  assert.equal(git(consumer, "rm", "--cached", ".agents/skills/run-bounded-mission/SKILL.md").status, 0);
+  assert.equal(git(consumer, "commit", "-m", "leave ignored local skill").status, 0);
+  result = spawnSync(process.execPath, [installedHook], {
+    encoding: "utf8",
+    input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "resume" }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(JSON.parse(result.stdout).hookSpecificOutput.additionalContext, /ignore the repository-local/);
+
+  await rm(join(consumer, ".agents", "skills", "run-bounded-mission", "SKILL.md"));
+  assert.equal(git(consumer, "switch", "main").status, 0);
+  result = spawnSync(process.execPath, [installedHook], {
+    encoding: "utf8",
+    input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "startup" }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "");
+  assert.equal(git(consumer, "switch", "historical").status, 0);
+  await writeFile(join(consumer, ".agents", "skills", "run-bounded-mission", "SKILL.md"), "historical\n");
+
+  const installedSkillFile = join(agentsRoot, "skills", "run-bounded-mission", "SKILL.md");
+  const installedSkillBytes = await readFile(installedSkillFile);
+  await writeFile(installedSkillFile, "drift\n");
+  result = spawnSync(process.execPath, [installedHook], {
+    encoding: "utf8",
+    input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "resume" }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).continue, false);
+  await writeFile(installedSkillFile, installedSkillBytes);
+  }
 
   const installedReceiptSource = join(
     agentsRoot,
@@ -219,9 +325,9 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /Codex install mismatch: skill/);
 
-  result = spawnSync(process.execPath, argv, { encoding: "utf8" });
+  result = spawnSync(process.execPath, hookedArgv, { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
-  result = spawnSync(process.execPath, [...argv, "--check"], { encoding: "utf8" });
+  result = spawnSync(process.execPath, [...hookedArgv, "--check"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
 } finally {
   await rm(root, { recursive: true, force: true });
