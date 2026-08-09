@@ -444,6 +444,30 @@ func gitOutput(arguments ...string) string {
 	return strings.TrimSpace(string(output))
 }
 
+func localRepository() string {
+	remote := strings.ReplaceAll(gitOutput("remote", "get-url", "origin"), "\\", "/")
+	if separator := strings.Index(remote, "://"); separator >= 0 {
+		remote = remote[separator+3:]
+		if slash := strings.IndexByte(remote, '/'); slash >= 0 {
+			remote = remote[slash+1:]
+		}
+	} else if strings.Contains(remote, "@") {
+		if colon := strings.IndexByte(remote, ':'); colon >= 0 {
+			remote = remote[colon+1:]
+		}
+	}
+	remote = strings.TrimSuffix(strings.TrimRight(remote, "/"), ".git")
+	parts := strings.Split(remote, "/")
+	if len(parts) < 2 {
+		return ""
+	}
+	repository, err := normalizeRepository(parts[len(parts)-2] + "/" + parts[len(parts)-1])
+	if err != nil {
+		return ""
+	}
+	return repository
+}
+
 func commitTree(oid string) string {
 	if gitOutput("cat-file", "-t", oid) != "commit" {
 		return ""
@@ -567,6 +591,9 @@ func normalizeInput(value any) (map[string]any, error) {
 	repository, err := normalizeRepository(input["repository"])
 	if err != nil {
 		return nil, err
+	}
+	if repository != localRepository() {
+		return nil, fail("repository does not match local origin")
 	}
 	evidence, err := normalizeEvidence(input["evidence"], headOID)
 	if err != nil {
