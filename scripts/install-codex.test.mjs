@@ -169,9 +169,8 @@ const origin = join(root, "qOeOp", "skills.git");
     input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "startup" }),
   });
   assert.equal(result.status, 0, result.stderr);
-  const hookOutput = JSON.parse(result.stdout);
-  assert.match(hookOutput.hookSpecificOutput.additionalContext, /ignore the repository-local/);
-  assert.match(hookOutput.hookSpecificOutput.additionalContext, new RegExp(exactLock.commit));
+  assert.equal(JSON.parse(result.stdout).continue, false);
+  assert.match(JSON.parse(result.stdout).stopReason, /project-scoped run-bounded-mission Skill/);
 
   assert.equal(git(consumer, "rm", "--cached", ".agents/skills/run-bounded-mission/SKILL.md").status, 0);
   assert.equal(git(consumer, "commit", "-m", "leave ignored local skill").status, 0);
@@ -180,7 +179,7 @@ const origin = join(root, "qOeOp", "skills.git");
     input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "resume" }),
   });
   assert.equal(result.status, 0, result.stderr);
-  assert.match(JSON.parse(result.stdout).hookSpecificOutput.additionalContext, /ignore the repository-local/);
+  assert.equal(JSON.parse(result.stdout).continue, false);
 
   await rm(join(consumer, ".agents", "skills", "run-bounded-mission", "SKILL.md"));
   await mkdir(join(consumer, ".codex", "agents"), { recursive: true });
@@ -207,8 +206,19 @@ const origin = join(root, "qOeOp", "skills.git");
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "");
-  assert.equal(git(consumer, "switch", "historical").status, 0);
-  await writeFile(join(consumer, ".agents", "skills", "run-bounded-mission", "SKILL.md"), "historical\n");
+  const installedPinReceipt = join(codexRoot, "run-bounded-mission-install.json");
+  const installedPinBytes = await readFile(installedPinReceipt);
+  const stalePin = JSON.parse(installedPinBytes);
+  stalePin.commit = "0000000000000000000000000000000000000000";
+  await writeFile(installedPinReceipt, `${JSON.stringify(stalePin, null, 2)}\n`);
+  result = spawnSync(process.execPath, [installedHook], {
+    encoding: "utf8",
+    input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "startup" }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).continue, false);
+  assert.match(JSON.parse(result.stdout).stopReason, /origin\/main bootstrap/);
+  await writeFile(installedPinReceipt, installedPinBytes);
 
   const installedSkillFile = join(agentsRoot, "skills", "run-bounded-mission", "SKILL.md");
   const installedSkillBytes = await readFile(installedSkillFile);
