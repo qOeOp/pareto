@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, cp, lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -183,6 +183,23 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(JSON.parse(result.stdout).hookSpecificOutput.additionalContext, /ignore the repository-local/);
 
   await rm(join(consumer, ".agents", "skills", "run-bounded-mission", "SKILL.md"));
+  await mkdir(join(consumer, ".codex", "agents"), { recursive: true });
+  await writeFile(join(consumer, ".codex", "agents", "mission-evaluator.toml"), "historical\n");
+  result = spawnSync(process.execPath, [installedHook], {
+    encoding: "utf8",
+    input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "resume" }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).continue, false);
+  assert.match(JSON.parse(result.stdout).stopReason, /mission-evaluator\.toml/);
+  await mkdir(join(consumer, "..scope"));
+  result = spawnSync(process.execPath, [installedHook], {
+    encoding: "utf8",
+    input: JSON.stringify({ cwd: join(consumer, "..scope"), hook_event_name: "SessionStart", source: "resume" }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).continue, false);
+  await rm(join(consumer, ".codex"), { recursive: true });
   assert.equal(git(consumer, "switch", "main").status, 0);
   result = spawnSync(process.execPath, [installedHook], {
     encoding: "utf8",
@@ -203,6 +220,28 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).continue, false);
   await writeFile(installedSkillFile, installedSkillBytes);
+
+  const installedAgentFile = join(codexRoot, "agents", "mission-evaluator.toml");
+  const installedAgentBytes = await readFile(installedAgentFile);
+  const assertPinBlocked = () => {
+    const probe = spawnSync(process.execPath, [installedHook], {
+      encoding: "utf8",
+      input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "resume" }),
+    });
+    assert.equal(probe.status, 0, probe.stderr);
+    assert.equal(JSON.parse(probe.stdout).continue, false);
+  };
+  await writeFile(installedAgentFile, "drift\n");
+  assertPinBlocked();
+  await rm(installedAgentFile);
+  assertPinBlocked();
+  await symlink(join(repositoryRoot, "codex", "agents", "mission-evaluator.toml"), installedAgentFile);
+  assertPinBlocked();
+  await rm(installedAgentFile);
+  await mkdir(installedAgentFile);
+  assertPinBlocked();
+  await rm(installedAgentFile, { recursive: true });
+  await writeFile(installedAgentFile, installedAgentBytes);
   }
 
   const installedReceiptSource = join(
