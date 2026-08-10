@@ -48,6 +48,15 @@ function exactKeys(value, expected, label) {
   }
 }
 
+function exactOptionalKeys(value, required, optional, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) fail(`${label} must be an object`);
+  const actual = Object.keys(value);
+  const allowed = new Set([...required, ...optional]);
+  if (required.some((key) => !actual.includes(key)) || actual.some((key) => !allowed.has(key))) {
+    fail(`${label} has unknown or missing fields`);
+  }
+}
+
 function normalizedRepository(value) {
   return value
     .replace(/^git@github\.com:/, "https://github.com/")
@@ -258,6 +267,7 @@ async function listInstalledSkill({ codexEntry, cwd, roots, expectedDescription 
   if (!child.stdin || !child.stdout || !child.stderr) fail("app-server transport is unavailable");
   const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
   const responses = new Map();
+  const notificationShapes = [];
   let fault = null;
   let outputBytes = 0;
   let errorBytes = 0;
@@ -300,14 +310,59 @@ async function listInstalledSkill({ codexEntry, cwd, roots, expectedDescription 
         }
       } else {
         exactKeys(message, ["method", "params"], "app-server notification");
-        if (message.method !== "remoteControl/status/changed" || !message.params ||
-            typeof message.params !== "object" || Array.isArray(message.params)) {
-          fail("app-server notification is malformed");
-        }
-        exactKeys(message.params, ["environmentId", "installationId", "serverName", "status"], "app-server notification params");
-        if (message.params.status !== "disabled" || message.params.serverName !== "ai" ||
-            typeof message.params.installationId !== "string" || message.params.environmentId !== null) {
-          fail("app-server notification is unexpected");
+        if (notificationShapes.length >= 8) fail("app-server returned too many notifications");
+        if (message.method === "remoteControl/status/changed") {
+          exactOptionalKeys(
+            message.params,
+            ["installationId", "serverName", "status"],
+            ["environmentId"],
+            "remote-control notification params",
+          );
+          const environmentId = message.params.environmentId;
+          if (!new Set(["disabled", "connecting", "connected", "errored"]).has(message.params.status) ||
+              typeof message.params.serverName !== "string" || message.params.serverName.length === 0 ||
+              typeof message.params.installationId !== "string" || message.params.installationId.length === 0 ||
+              (environmentId !== undefined && environmentId !== null && typeof environmentId !== "string") ||
+              (message.params.status === "disabled" && environmentId !== undefined && environmentId !== null)) {
+            fail("app-server remote-control notification is unexpected");
+          }
+          notificationShapes.push({
+            environment_id_type: environmentId === null ? "null" : typeof environmentId,
+            method: message.method,
+            params: Object.keys(message.params).sort(),
+            status: message.params.status,
+          });
+        } else if (message.method === "configWarning") {
+          exactOptionalKeys(message.params, ["summary"], ["details", "path", "range"], "config warning params");
+          if (typeof message.params.summary !== "string" ||
+              (message.params.details !== undefined && message.params.details !== null &&
+                typeof message.params.details !== "string") ||
+              (message.params.path !== undefined && message.params.path !== null &&
+                typeof message.params.path !== "string")) {
+            fail("app-server config warning is malformed");
+          }
+          if (message.params.range !== undefined && message.params.range !== null) {
+            exactKeys(message.params.range, ["end", "start"], "config warning range");
+            for (const position of [message.params.range.start, message.params.range.end]) {
+              exactKeys(position, ["column", "line"], "config warning position");
+              if (!Number.isInteger(position.column) || position.column < 0 ||
+                  !Number.isInteger(position.line) || position.line < 0) {
+                fail("app-server config warning position is malformed");
+              }
+            }
+          }
+          notificationShapes.push({
+            method: message.method,
+            params: Object.keys(message.params).sort(),
+            value_types: {
+              details: message.params.details === null ? "null" : typeof message.params.details,
+              path: message.params.path === null ? "null" : typeof message.params.path,
+              range: message.params.range === null ? "null" : typeof message.params.range,
+              summary: typeof message.params.summary,
+            },
+          });
+        } else {
+          fail("app-server returned an unknown notification");
         }
       }
     } catch (error) {
@@ -350,6 +405,9 @@ async function listInstalledSkill({ codexEntry, cwd, roots, expectedDescription 
       platform_os: initialized.platformOs,
       user_agent: initialized.userAgent,
     },
+    protocol_notifications_sha256: digest(Buffer.from(JSON.stringify(canonical(
+      notificationShapes.map((shape) => JSON.stringify(canonical(shape))).sort(),
+    )))),
     skill: {
       description_sha256: digest(Buffer.from(skill.description)),
       enabled: true,
@@ -464,6 +522,7 @@ async function observe({ subjectRoot, codexEntry, output }) {
         case_id: cases.positive,
         installed_manifest_sha256: installedManifest,
         loader_sha256: digest(Buffer.from(JSON.stringify(canonical(positiveLoader.skill)))),
+        protocol_notifications_sha256: positiveLoader.protocol_notifications_sha256,
         result: "pass",
       },
       negative: {
@@ -478,6 +537,7 @@ async function observe({ subjectRoot, codexEntry, output }) {
         drift_diagnostic_sha256: diagnosticDigest(driftCheck),
         installed_manifest_sha256: await treeDigest(destinationSkill),
         loader_sha256: digest(Buffer.from(JSON.stringify(canonical(recoveryLoader.skill)))),
+        protocol_notifications_sha256: recoveryLoader.protocol_notifications_sha256,
         result: "pass",
       },
     },
