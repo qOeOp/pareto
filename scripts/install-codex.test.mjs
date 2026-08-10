@@ -99,10 +99,10 @@ const origin = join(root, "qOeOp", "skills.git");
     assert.equal(value.status, 0, value.stderr);
     return value.stdout.trim();
   };
-  assert.equal(git(repositoryRoot, "remote", "set-url", "origin", "https://github.com/qOeOp/skills.git").status, 0);
+  assert.equal(git(repositoryRoot, "remote", "set-url", "origin", "https://github.com/qOeOp/pareto.git").status, 0);
   const exactLock = {
     schema_version: 2,
-    repository: "https://github.com/qOeOp/skills.git",
+    repository: "https://github.com/qOeOp/pareto.git",
     commit: field("HEAD"),
     tree: field("HEAD^{tree}"),
     skill_tree: field("HEAD:skills/run-bounded-mission"),
@@ -287,7 +287,7 @@ const origin = join(root, "qOeOp", "skills.git");
     potential_merge_tree: { oid: mergeTree.stdout.trim() },
     pull_request: 1,
     queue_state: "none",
-    repository: "qOeOp/skills",
+    repository: "qOeOp/pareto",
     schema: "delivery-barrier-input/v4",
   };
   const runReceipt = (arguments_, input) => spawnSync(receiptBinary, arguments_, {
