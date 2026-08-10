@@ -523,6 +523,298 @@
         native_role_routing: unavailable
         capability_evidence: unavailable
 
+- description: "[full] explicit invocation recovers from a quoted-token near miss"
+  metadata:
+    observations: { capability: { id: KRN-01, scenario: recovery, case_id: krn-01-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      The preceding answer-only request merely quoted the token and correctly did not activate a workflow.
+      For this new request, explicitly use $run-bounded-mission to classify the transition. Return exactly
+      the activation receipt below without claiming host-native provenance.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        prior_request_activation: none
+        current_request_invocation: affirmative
+        current_request_activation: used
+        inherited_activation_from_prior_turn: false
+        host_native_provenance: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] planning evidence remains dormant without a decision-changing premise"
+  metadata:
+    observations: { capability: { id: PLN-01, scenario: negative, case_id: pln-01-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. The current repository and its real consumer already settle the only Plan
+      decision; external facts and history cannot change the candidate. Return exactly the routing receipt
+      below. Do not invent research or load the decision-evidence owner.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        decision_changing_unknown: none
+        decision_evidence_owner: not_triggered
+        external_research: not_triggered
+        history_read: none
+        plan_route: current_repository_and_consumer
+        capability_evidence: unavailable
+
+- description: "[full] unavailable external premise freezes only its dependent decision"
+  metadata:
+    observations: { capability: { id: PLN-01, scenario: recovery, case_id: pln-01-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_provider_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. One architecture branch depends on a current external compatibility fact,
+      but the authoritative source is unavailable after the finite research envelope is exhausted. A second
+      local decision is independent and fully supported. Return exactly the recovery disposition below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        external_premise: evidence_unavailable
+        finite_stop: reached
+        dependent_decision: frozen
+        independent_decision: continue
+        preference_inferred_from_silence: false
+        whole_mission_blocked: false
+        capability_evidence: unavailable
+
+- description: "[full] credible alternatives prefer verified reuse over a new owner"
+  metadata:
+    observations: { capability: { id: PLN-02, scenario: positive, case_id: pln-02-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A current dependency already exposes the required contract and its source,
+      license, failure mode, and real consumer compatibility are verified. No-change fails acceptance and a
+      new local implementation would duplicate authority. Return exactly the Plan decision below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        no_change: rejected_by_acceptance
+        reuse: supported
+        adapt: unnecessary
+        build: rejected_duplicate_authority
+        selected_route: adopt
+        selected_owner: existing_dependency
+        capability_evidence: unavailable
+
+- description: "[full] requested mechanism is not admitted as the only credible path"
+  metadata:
+    observations: { capability: { id: PLN-02, scenario: negative, case_id: pln-02-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. The user asks for a new registry, but no consumer requires persistent state
+      and an existing owner can express the behavior directly. Return exactly the disposition below; do not
+      treat the requested mechanism or its popularity as authority.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        requested_mechanism: candidate_only
+        real_registry_consumer: none
+        existing_owner_reuse: supported
+        new_registry: not_admitted
+        selected_route: direct_wiring
+        popularity_as_authority: false
+        capability_evidence: unavailable
+
+- description: "[full] reuse rejection recovers to a bounded build decision"
+  metadata:
+    observations: { capability: { id: PLN-02, scenario: recovery, case_id: pln-02-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. The strongest local and upstream reuse candidates were checked against the
+      required public contract: one is license-incompatible and the other cannot preserve fail-close behavior.
+      No current owner can express the contract. Return exactly the recovered Plan choice below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        reuse_shortlist: exhausted_with_evidence
+        strongest_reuse_route: rejected
+        rejection_basis: contract_or_license
+        create_new_owner: admitted
+        candidate_scope: smallest_vertical_contract
+        rejected_reuse_path_retained: false
+        capability_evidence: unavailable
+
+- description: "[full] vertical candidate reaches one real consumer"
+  metadata:
+    observations: { capability: { id: PLN-03, scenario: positive, case_id: pln-03-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Plan the smallest slice that changes one existing owner, reaches the named
+      CLI consumer, and exposes the highest-risk serialization assumption. Setup, contract text, regression,
+      and cleanup have no independent consumer. Return exactly the admission receipt below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        candidate_shape: vertical
+        production_owner_count: one
+        real_consumer: named_cli
+        highest_risk_assumption: exposed
+        setup_and_verification: folded_into_slice
+        execute_admission: admitted
+        capability_evidence: unavailable
+
+- description: "[full] horizontal scaffolding without a consumer is rejected"
+  metadata:
+    observations: { capability: { id: PLN-03, scenario: negative, case_id: pln-03-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A proposed first slice adds a registry, schema, template, and adapter but no
+      runtime or CLI consumer can exercise it. Return exactly the Plan decision below; do not admit setup as
+      progress merely because later work might consume it.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        candidate_shape: horizontal_scaffolding
+        real_consumer: none
+        observable_acceptance: absent
+        execute_admission: rejected
+        new_authority: forbidden
+        next_step: redesign_vertical_slice
+        capability_evidence: unavailable
+
+- description: "[full] oversized candidate recovers by converging on one consumed slice"
+  metadata:
+    observations: { capability: { id: PLN-03, scenario: recovery, case_id: pln-03-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. An oversized candidate spans three owners and retains an unused compatibility
+      path. Consumer inspection shows only one owner and one boundary are necessary for the requested behavior.
+      Return exactly the corrected admission below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        original_candidate: frozen
+        corrected_candidate: one_owner_vertical_slice
+        retained_real_consumer: true
+        unused_compatibility_path: deleted
+        unrelated_owners: unchanged
+        execute_admission: admitted
+        capability_evidence: unavailable
+
+- description: "[full] changed Plan fact routes to replan before another patch"
+  metadata:
+    observations: { capability: { id: PLN-04, scenario: positive, case_id: pln-04-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A failing consumer proves that the admitted owner cannot express the required
+      boundary, while Outcome, scope, authority, and acceptance remain unchanged. Return exactly the earliest
+      lifecycle route below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        changed_fact: admitted_owner
+        frame_changed: false
+        candidate_local_fix: false
+        route: replan
+        current_plan: replace
+        another_patch_before_replan: forbidden
+        capability_evidence: unavailable
+
+- description: "[full] revision count and diff size do not select a lifecycle route"
+  metadata:
+    observations: { capability: { id: PLN-04, scenario: negative, case_id: pln-04-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A candidate has many lines and several revisions, but the same owner, boundary,
+      responsibility, oracle, Frame, and Plan still hold; the only defect is one localized execution omission.
+      Return exactly the route below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        revision_count_as_signal: ignored
+        diff_size_as_signal: ignored
+        owner_boundary_oracle: unchanged
+        defect_scope: candidate_local
+        route: execute
+        replan: false
+        reframe: false
+
+- description: "[full] Frame change clears the Plan before recovery"
+  metadata:
+    observations: { capability: { id: PLN-04, scenario: recovery, case_id: pln-04-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. New user evidence changes the accepted consumer and observable acceptance after
+      a Plan was admitted. Return exactly the recovery sequence below; do not append a correction to the stale
+      Plan or keep mutation active.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        changed_frame_fields: consumer_and_acceptance
+        mutation: frozen
+        stale_plan: cleared
+        route: reframe
+        request_alignment: required
+        next_plan_requires_new_frame: true
+        append_to_stale_plan: false
+
+- description: "[full] repeated causal pressure freezes the incumbent and compares one replacement"
+  metadata:
+    observations: { capability: { id: PLN-05, scenario: positive, case_id: pln-05-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. The same causal root has produced another exception, the cumulative candidate
+      is no longer shrinking, and responsibility has spread across owners while the Frame remains valid.
+      Return exactly the revision-pressure disposition below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        revision_pressure: structural
+        incumbent: frozen
+        another_incumbent_patch: forbidden
+        successor_task_or_branch: forbidden
+        replacement_count: one
+        compare_against_incumbent: same_consumer_and_regressions
+        route: replan
+
+- description: "[full] one execution omission does not activate structural revision pressure"
+  metadata:
+    observations: { capability: { id: PLN-05, scenario: negative, case_id: pln-05-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. The first candidate fails one narrow regression because an admitted branch was
+      omitted; owner, consumer, responsibility, boundary, oracle, and candidate size remain coherent. Return
+      exactly the disposition below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        repeated_causal_root: false
+        nonshrinking_candidate: false
+        structural_pressure: false
+        route: execute
+        correction: smallest_execution_omission
+        new_replan_task: forbidden
+        unchanged_failure_retry: forbidden
+
 - description: "[full] planner profile drift is rejected without mutation"
   metadata:
     observations: { capability: { id: INS-03, scenario: negative, case_id: ins-03-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }

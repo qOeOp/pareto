@@ -213,6 +213,10 @@ function rollout({ sourceCase, trial, sourceKind, result = "pass", unverified = 
 const goldenCases = parseYaml(await readFile(path.resolve("evals/cases/golden.yaml"), "utf8"));
 const holdoutCases = parseYaml(await readFile(path.resolve("evals/cases/holdout.yaml"), "utf8"));
 const committedCases = [...goldenCases, ...holdoutCases];
+const committedCapabilityIds = new Set(committedCases.map((testCase) =>
+  testCase.metadata.observations.capability.id));
+const uncommittedCapability = catalog.capabilities.find((row) => !committedCapabilityIds.has(row.id));
+assert.ok(uncommittedCapability, "the sparse corpus fixture requires one capability without a committed case");
 assert.deepEqual(
   committedCases
     .filter((testCase) => testCase.metadata.observations.capability.id === "EVAL-01")
@@ -680,8 +684,8 @@ try {
   assert.equal(nativeTrajectoryRow.score, 2);
   assert.equal(nativeTrajectoryRow.maturity, "declared");
   assert.ok(nativeTrajectoryRow.observation_count >= 3);
-  assert.deepEqual(completeScore.capabilities.find((row) => row.id === "PLN-02"), {
-    ...catalog.capabilities.find((row) => row.id === "PLN-02"),
+  assert.deepEqual(completeScore.capabilities.find((row) => row.id === uncommittedCapability.id), {
+    ...uncommittedCapability,
     score: 0,
     maturity: "absent",
     reason: "no_passing_evidence",
