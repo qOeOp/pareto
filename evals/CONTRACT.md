@@ -175,6 +175,11 @@ bound to the exact signer workflow and digest; a CI status, uploaded JSON, custo
 candidate-controlled workflow is not sufficient. The first observer candidate is bootstrap evidence
 only and cannot raise a score. A later scorer candidate may consume a real bundle only after the
 observer is canonical, independently reviewed, and invoked from that immutable revision.
+Repeated observation requires one separately scheduled observer job and a separate signing job with
+one Sigstore bundle for every environment-and-trial slot. Subject code must not share the signing job
+or its OIDC authority. The campaign may index those bundles but cannot turn labels, filenames,
+or an unsigned aggregate into freshness evidence. A later scorer must verify every nested observation
+bundle as well as the campaign bundle before repetition can change maturity.
 An attested campaign additionally requires a `main` dispatch whose subject commit equals the fixed
 observer commit; ancestor status or a caller-selected revision is insufficient.
 Evidence schema v2 may reference the campaign JSON and Sigstore bundle as external, content-addressed
@@ -190,6 +195,14 @@ identities. A changed bundle, self-hosted runner, stale consumer surface, non-`m
 invented scenario fails closed. One such Linux+Windows positive/negative/recovery campaign establishes
 one dynamic observation and scores 6, not representative coverage or 9.5. Repetition, variation, and
 independent observer requirements remain unavailable rather than being inferred from the signature.
+The next observer schema runs three fresh positive/negative/recovery trials in each of Linux and Windows
+as six separately scheduled and attested jobs. Its bootstrap aggregator rejects missing, duplicate, and
+cross-subject slots and records each observation and bundle digest; substitution resistance remains
+unavailable until the later scorer verifies every recorded bundle against its observation bytes.
+Its first canonical campaign is bootstrap evidence only: until a later scorer revision independently
+verifies that exact signed schema, the repeated campaign changes no score. Repetition by one fixed observer
+still does not satisfy the independent-observer requirement, prove process isolation between the
+same-repository observer and subject, or authorize 9.5.
 An attested campaign cannot share one scorer process with locally loaded Promptfoo, YAML, rollout, or
 native-trace observations; those evidence classes require separate manifests so writable runtime
 dependencies cannot precede the content-bound verifier.

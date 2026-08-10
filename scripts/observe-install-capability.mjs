@@ -468,7 +468,59 @@ async function readEnvelope(file) {
   return { bytes, envelope };
 }
 
-async function observe({ subjectRoot, codexEntry, output }) {
+function requireSha(value, label) {
+  if (!sha256Pattern.test(value)) fail(`${label} must be one SHA-256 digest`);
+}
+
+function requireAtom(value, label) {
+  if (typeof value !== "string" || value.length === 0 || value.length > 256 || /[\u0000-\u001f]/.test(value)) {
+    fail(`${label} must be one bounded string`);
+  }
+}
+
+function validateAggregatedObservation(payload, observer) {
+  exactKeys(payload, [
+    "schema", "authority", "capability_id", "environment", "observer", "result", "scenarios", "subject", "trial_id",
+  ], "INS-01 observation payload");
+  if (payload.schema !== "pareto-capability-observation/v2" ||
+      payload.authority !== "fixed_observer_real_consumer" || payload.capability_id !== capabilityId ||
+      payload.result !== "pass" || !canonicalEqual(payload.observer, observer) ||
+      !Number.isInteger(payload.trial_id) || payload.trial_id < 1 || payload.trial_id > 3) {
+    fail("INS-01 campaign contains an invalid observation");
+  }
+  exactKeys(payload.environment, ["arch", "codex_entry_sha256", "codex_user_agent", "node", "platform"],
+    "INS-01 observation environment");
+  if (!new Set(["linux", "win32"]).has(payload.environment.platform)) {
+    fail("INS-01 observation environment is unsupported");
+  }
+  requireSha(payload.environment.codex_entry_sha256, "INS-01 Codex entry");
+  for (const key of ["arch", "codex_user_agent", "node"]) requireAtom(payload.environment[key], `INS-01 environment ${key}`);
+  exactKeys(payload.observer, ["commit", "script_blob", "tree"], "INS-01 observer identity");
+  exactKeys(payload.subject, [
+    "repository", "commit", "tree", "skill_tree", "codex_agents_tree", "codex_session_hook_blob", "installer_blob",
+  ], "INS-01 subject identity");
+  if (payload.subject.repository !== expectedRepository ||
+      [payload.subject.commit, payload.subject.tree, payload.subject.skill_tree, payload.subject.codex_agents_tree,
+        payload.subject.codex_session_hook_blob, payload.subject.installer_blob].some((value) => !oidPattern.test(value))) {
+    fail("INS-01 subject identity is invalid");
+  }
+  exactKeys(payload.scenarios, ["negative", "positive", "recovery"], "INS-01 scenarios");
+  const scenarioKeys = {
+    positive: ["case_id", "installed_manifest_sha256", "loader_sha256", "protocol_notifications_sha256", "result"],
+    negative: ["case_id", "diagnostic_sha256", "installation_after_sha256", "installation_before_sha256", "result"],
+    recovery: ["case_id", "drift_diagnostic_sha256", "installed_manifest_sha256", "loader_sha256", "protocol_notifications_sha256", "result"],
+  };
+  for (const [scenario, caseId] of Object.entries(cases)) {
+    const value = payload.scenarios[scenario];
+    exactKeys(value, scenarioKeys[scenario], `INS-01 ${scenario} observation`);
+    if (value.case_id !== caseId || value.result !== "pass") fail(`INS-01 ${scenario} observation is invalid`);
+    for (const [key, digestValue] of Object.entries(value)) {
+      if (key.endsWith("_sha256")) requireSha(digestValue, `INS-01 ${scenario} ${key}`);
+    }
+  }
+}
+
+async function observe({ subjectRoot, codexEntry, output, trial }) {
   const subject = subjectIdentity(subjectRoot);
   const observer = observerIdentity();
   const temporary = await mkdtemp(path.join(tmpdir(), "pareto-ins01-observer-"));
@@ -542,7 +594,7 @@ async function observe({ subjectRoot, codexEntry, output }) {
     fail("observer or subject identity drifted during the capability observation");
   }
   const payload = canonical({
-    schema: "pareto-capability-observation/v1",
+    schema: "pareto-capability-observation/v2",
     authority: "fixed_observer_real_consumer",
     capability_id: capabilityId,
     environment: {
@@ -579,6 +631,7 @@ async function observe({ subjectRoot, codexEntry, output }) {
       },
     },
     subject,
+    trial_id: trial,
   });
   const envelope = canonical({
     schema: "pareto-capability-observation-envelope/v1",
@@ -598,37 +651,63 @@ async function observe({ subjectRoot, codexEntry, output }) {
 
 async function aggregate({ inputDir, output }) {
   const observer = observerIdentity();
-  const files = (await readdir(inputDir)).filter((name) => name.endsWith(".json")).sort();
-  if (files.length !== 2) fail("INS-01 campaign requires exactly two environment observations");
+  const directories = (await readdir(inputDir, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+    .sort((left, right) => left.name.localeCompare(right.name));
+  if (directories.length !== 6) fail("INS-01 campaign requires exactly six attested environment-trial observations");
   const rows = [];
-  for (const name of files) {
-    const row = await readEnvelope(path.join(inputDir, name));
-    const payload = row.envelope.payload;
-    if (payload?.schema !== "pareto-capability-observation/v1" || payload.capability_id !== capabilityId ||
-        payload.result !== "pass" || !canonicalEqual(payload.observer, observer) ||
-        Object.entries(cases).some(([scenario, caseId]) =>
-          payload.scenarios?.[scenario]?.case_id !== caseId || payload.scenarios[scenario].result !== "pass")) {
-      fail("INS-01 campaign contains an invalid observation");
+  for (const directory of directories) {
+    const directoryPath = path.join(inputDir, directory.name);
+    const files = (await readdir(directoryPath)).sort();
+    const observationFiles = files.filter((name) => /^observation-(?:Linux|Windows)-[123]\.json$/.test(name));
+    if (files.length !== 2 || observationFiles.length !== 1 || !files.includes("attestation.json")) {
+      fail("INS-01 campaign input does not contain one observation and one attestation");
     }
+    const observationName = observationFiles[0];
+    const row = await readEnvelope(path.join(directoryPath, observationName));
+    const bundlePath = path.join(directoryPath, "attestation.json");
+    const bundleInfo = await lstat(bundlePath).catch(() => null);
+    if (!bundleInfo?.isFile() || bundleInfo.isSymbolicLink() || bundleInfo.size === 0 || bundleInfo.size > 4 * 1024 * 1024) {
+      fail("INS-01 observation attestation is missing or unsafe");
+    }
+    const bundle = await readFile(bundlePath);
+    rejectDuplicateJsonObjectMembers(bundle.toString("utf8"), "INS-01 observation attestation");
+    const parsedBundle = JSON.parse(bundle);
+    exactKeys(parsedBundle, ["dsseEnvelope", "mediaType", "verificationMaterial"], "INS-01 observation attestation");
+    if (parsedBundle.mediaType !== "application/vnd.dev.sigstore.bundle.v0.3+json") {
+      fail("INS-01 observation attestation media type is invalid");
+    }
+    const payload = row.envelope.payload;
+    validateAggregatedObservation(payload, observer);
     rows.push({
+      bundle_path: path.posix.join(path.basename(inputDir), directory.name, "attestation.json"),
+      bundle_sha256: digest(bundle),
       content_sha256: row.envelope.content_sha256,
       environment: payload.environment.platform,
       subject: payload.subject,
+      trial_id: payload.trial_id,
     });
   }
-  if (new Set(rows.map((row) => row.environment)).size !== 2 ||
-      !rows.some((row) => row.environment === "linux") || !rows.some((row) => row.environment === "win32") ||
-      !canonicalEqual(rows[0].subject, rows[1].subject) ||
+  const expectedSlots = ["linux:1", "linux:2", "linux:3", "win32:1", "win32:2", "win32:3"];
+  const actualSlots = rows.map((row) => `${row.environment}:${row.trial_id}`).sort();
+  if (!canonicalEqual(actualSlots, expectedSlots) ||
+      rows.some((row) => !canonicalEqual(row.subject, rows[0].subject)) ||
       rows[0].subject.commit !== observer.commit) {
     fail("INS-01 campaign lacks exact Linux and Windows coverage for one subject");
   }
   const payload = canonical({
-    schema: "pareto-capability-campaign/v1",
+    schema: "pareto-capability-campaign/v2",
     authority: "github_attestation_subject",
     capability_id: capabilityId,
-    environments: rows.map((row) => row.environment).sort(),
-    observations: rows.map(({ content_sha256, environment }) => ({ content_sha256, environment }))
-      .sort((left, right) => left.environment.localeCompare(right.environment)),
+    coverage: {
+      environments: ["linux", "win32"],
+      trials_per_environment: 3,
+    },
+    environments: ["linux", "win32"],
+    observations: rows.map(({ bundle_path, bundle_sha256, content_sha256, environment, trial_id }) => ({
+      bundle_path, bundle_sha256, content_sha256, environment, trial_id,
+    }))
+      .sort((left, right) => left.environment.localeCompare(right.environment) || left.trial_id - right.trial_id),
     observer,
     result: "pass",
     scenarios: cases,
@@ -647,7 +726,7 @@ function parseArguments(argv) {
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index];
     const value = argv[index + 1];
-    if (!value || !["--subject-root", "--codex-entry", "--input-dir", "--output"].includes(flag) || flag in options) {
+    if (!value || !["--subject-root", "--codex-entry", "--input-dir", "--output", "--trial"].includes(flag) || flag in options) {
       fail(`unsupported, duplicate, or incomplete argument: ${flag ?? "<missing>"}`);
     }
     options[flag] = value;
@@ -656,15 +735,20 @@ function parseArguments(argv) {
   const observing = options["--subject-root"] || options["--codex-entry"];
   const aggregating = options["--input-dir"];
   if (Boolean(observing) === Boolean(aggregating) ||
-      (observing && (!options["--subject-root"] || !options["--codex-entry"])) ||
-      (aggregating && (options["--subject-root"] || options["--codex-entry"]))) {
+      (observing && (!options["--subject-root"] || !options["--codex-entry"] || !options["--trial"])) ||
+      (aggregating && (options["--subject-root"] || options["--codex-entry"] || options["--trial"]))) {
     fail("choose one complete observation or aggregation mode");
+  }
+  const trial = options["--trial"] === undefined ? undefined : Number(options["--trial"]);
+  if (trial !== undefined && (!Number.isInteger(trial) || trial < 1 || trial > 3 || String(trial) !== options["--trial"])) {
+    fail("--trial must be one integer from 1 through 3");
   }
   return {
     subjectRoot: options["--subject-root"] ? path.resolve(options["--subject-root"]) : undefined,
     codexEntry: options["--codex-entry"] ? path.resolve(options["--codex-entry"]) : undefined,
     inputDir: options["--input-dir"] ? path.resolve(options["--input-dir"]) : undefined,
     output: path.resolve(options["--output"]),
+    trial,
   };
 }
 
