@@ -28,6 +28,13 @@ const trustedGitOptions = [
   "-c", "core.untrackedCache=false",
   ...(nodeProcess.platform === "win32" ? ["-c", "core.autocrlf=true"] : []),
 ];
+const scorerRuntimePaths = Object.freeze([
+  "package-lock.json",
+  "scripts/capability-score.mjs",
+  "scripts/eval.mjs",
+  "scripts/json.mjs",
+]);
+const mutableRuntimeAttributes = new Set(["filter", "ident", "working-tree-encoding"]);
 const sourceKinds = new Set(["deterministic_replay", "native_trace", "independent_review"]);
 const results = new Set(["pass", "fail", "unavailable"]);
 const scenarios = new Set(["positive", "negative", "recovery"]);
@@ -176,6 +183,32 @@ async function rejectMutableGitAuthority(repositoryRoot) {
     const info = await lstat(file).catch(() => null);
     if (info && (info.isSymbolicLink() || !info.isFile() || info.size > 0)) {
       fail(`candidate repository contains mutable Git authority: ${gitPath}`);
+    }
+  }
+  const configNames = (await gitBytes(repositoryRoot,
+    ["config", "--includes", "--null", "--name-only", "--list"]))
+    .toString("utf8").split("\0").filter(Boolean).map((name) => name.toLowerCase());
+  if (configNames.some((name) => name.startsWith("filter.") || name === "core.attributesfile")) {
+    fail("candidate repository config contains mutable Git filter or attributes authority");
+  }
+  const attributesLocator = await git(repositoryRoot, ["rev-parse", "--git-path", "info/attributes"]);
+  const attributesFile = path.isAbsolute(attributesLocator)
+    ? attributesLocator
+    : path.resolve(repositoryRoot, attributesLocator);
+  const attributesInfo = await lstat(attributesFile).catch(() => null);
+  if (attributesInfo && (attributesInfo.isSymbolicLink() || !attributesInfo.isFile() || attributesInfo.size > 0)) {
+    fail("candidate repository contains mutable Git authority: info/attributes");
+  }
+  const attributeFields = (await gitBytes(repositoryRoot,
+    ["check-attr", "-z", "--all", "--", ...scorerRuntimePaths]))
+    .toString("utf8").split("\0");
+  if (attributeFields.pop() !== "" || attributeFields.length % 3 !== 0) {
+    fail("candidate runtime Git attributes are malformed");
+  }
+  for (let index = 0; index < attributeFields.length; index += 3) {
+    const [file, name] = attributeFields.slice(index, index + 2);
+    if (scorerRuntimePaths.includes(file) && mutableRuntimeAttributes.has(name.toLowerCase())) {
+      fail(`candidate runtime file uses mutable Git attribute: ${name}`);
     }
   }
   const indexFlags = await git(repositoryRoot, ["ls-files", "-v", "--"]);

@@ -247,10 +247,14 @@ native-trace observations; those evidence classes require separate manifests so 
 dependencies cannot precede the content-bound verifier.
 Repository object reads use the platform's protected absolute system Git path rather than `PATH`, disable replace
 objects, fsmonitor and untracked-cache shortcuts, isolate system/global config, and reject replace refs, grafts,
-alternates, assume-unchanged and skip-worktree entries. The Node and Git
-executables, same-principal processes, and local filesystem remain explicit host trust boundaries; this
-fixed-observer design is therefore capped at 8 and cannot establish provider-attested completeness or the 9.5
-anchor. A non-repeated campaign remains capped at 6. The parent owns the private verifier directory and removes it after success, child failure, or timeout; the
+alternates, assume-unchanged and skip-worktree entries. Local and worktree Git filters, an external
+attributes file, a non-empty repository `info/attributes`, and mutable attributes on scorer runtime files
+are rejected even when unrelated to the submitted evidence. These checks detect mutable checkout
+mechanisms; they do not attest the scorer entry module or dependencies that were loaded before the gate.
+The Node and Git executables, pre-gate imports and installed dependency bytes, same-principal processes,
+and local filesystem remain explicit host trust boundaries. Local observations therefore remain capped at
+2, and the fixed-observer design is capped at 8; neither can establish provider-attested completeness or
+the 9.5 anchor. A non-repeated campaign remains capped at 6. The parent owns the private verifier directory and removes it after success, child failure, or timeout; the
 child also removes it defensively. The child lets its exact JSON receipt drain normally instead of forcing process exit.
 The installer observer accepts only version-bound app-server notification schemas. Environment-local
 remote-control identity and structured config warnings are recorded by shape only; neither is a pass
