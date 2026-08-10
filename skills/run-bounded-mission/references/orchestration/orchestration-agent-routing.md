@@ -1,8 +1,16 @@
 # Route Agent Lanes
 
 Load this owner only for one unresolved evidence question, one frozen mechanical leaf, or an admitted
-independent candidate lens. Main retains Frame, Plan, the writable winner, fan-in, effects, acceptance,
-and Finalize. A lane returns evidence, a proposal, or a bounded leaf.
+independent candidate lens inside one exact existing Mission. Main retains Frame, Plan, the writable
+winner, fan-in, effects, acceptance, and Finalize. A lane returns evidence, a proposal, or a bounded
+leaf.
+
+Every lane belongs to exactly one Mission and its dispatching Main. A Hub-local lane may answer only
+that Hub's orchestration question; a child-local lane may answer only that child's question or leaf.
+A lane cannot cross into live parent or sibling state, enter the Hub active-task set, carry an
+independently closable outcome, or replace a native Task. Route an independently valuable outcome
+through [task dispatch](orchestration-task-workflow.md); unavailable native Task capability stops that
+effect instead of rerouting it through a lane.
 
 Role load map:
 
@@ -27,8 +35,8 @@ marketing labels, or availability alone.
 | Frame, Plan admission, cross-owner/safety judgment, synthesis, Finalize | authorized main                                      | never delegate                                                  |
 | evidenced structural challenge                                          | one `mission_planner` proposal                       | main decides                                                    |
 | one decision-changing current/external fact                             | one `mission_researcher` brief                       | main or freeze dependent decision                               |
-| ordinary implementation                                                 | main or one standard builder                         | single writer                                                   |
-| exact low-risk mechanical leaf                                          | `fast_builder` only when all fields below are frozen | standard main once if capability is unavailable before dispatch |
+| ordinary implementation                                                 | authorized main                                      | never delegate                                                  |
+| exact low-risk mechanical leaf                                          | `fast_builder` only when all fields below are frozen | authorized main only if unavailable before dispatch             |
 | frozen-candidate semantic risk                                          | reviewer-handoff's zero/one/two lens set             | unsupported; no retry                                           |
 
 For each dispatch, bind immutable Origin, exact question/outcome and consumer, owner/write authority,
