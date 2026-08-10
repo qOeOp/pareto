@@ -175,7 +175,7 @@ function validatePromptfooCases(cases, { file, suites }) {
 
 function validateScenarioDesigns(catalog, design, cases) {
   validateExactKeys(design, new Set(["schema_version", "scenarios"]), "scenario design");
-  if (design.schema_version !== 1 || !Array.isArray(design.scenarios)) {
+  if (design.schema_version !== 2 || !Array.isArray(design.scenarios)) {
     fail("scenario design identity is invalid");
   }
   if (!Array.isArray(catalog.capabilities) || catalog.capabilities.length !== 39) {
@@ -215,9 +215,10 @@ function validateScenarioDesigns(catalog, design, cases) {
     ["external_effect_authority", "external_authority"],
     ["cross_mission_recurrence_authority", "external_authority"],
   ]);
+  const implementedFixedObservers = new Set(["INS-01", "EVAL-02"]);
   const slots = new Map();
   const caseIds = new Map();
-  const implemented = 0;
+  let implemented = 0;
   for (const row of design.scenarios) {
     validateExactOptionalKeys(row,
       new Set(["capability_id", "scenario", "case_id", "observer_kind", "authority_status", "missing_authority"]),
@@ -230,14 +231,21 @@ function validateScenarioDesigns(catalog, design, cases) {
     if (slots.has(slot) || caseIds.has(row.case_id)) {
       fail("scenario design contains a duplicate slot or case ID");
     }
-    if (row.authority_status !== "authority_unavailable") {
-      fail("scenario design authority cannot be self-declared");
-    }
-    if (!missingAuthorities.has(row.missing_authority)) {
-      fail("unavailable scenario design requires one known missing authority");
-    }
-    if (observerByMissingAuthority.get(row.missing_authority) !== row.observer_kind) {
-      fail("scenario observer does not match its missing authority");
+    if (row.authority_status === "implemented") {
+      if (row.missing_authority !== null || row.observer_kind !== "fixed_real_consumer" ||
+          !implementedFixedObservers.has(row.capability_id)) {
+        fail("implemented scenario authority is not an admitted fixed observer binding");
+      }
+      implemented += 1;
+    } else if (row.authority_status === "authority_unavailable") {
+      if (!missingAuthorities.has(row.missing_authority)) {
+        fail("unavailable scenario design requires one known missing authority");
+      }
+      if (observerByMissingAuthority.get(row.missing_authority) !== row.observer_kind) {
+        fail("scenario observer does not match its missing authority");
+      }
+    } else {
+      fail("scenario design authority status is invalid");
     }
     if (row.executable_suite !== undefined && !["golden", "holdout"].includes(row.executable_suite)) {
       fail("scenario design executable suite is invalid");

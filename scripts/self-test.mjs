@@ -649,8 +649,8 @@ try {
   await challengeScenarioDesign((design) => {
     design.scenarios[0].authority_status = "implemented";
     design.scenarios[0].missing_authority = null;
-  }, /scenario design authority cannot be self-declared/,
-  "scenario design cannot self-declare implemented authority");
+  }, /implemented scenario authority is not an admitted fixed observer binding/,
+  "scenario design cannot invent an implemented authority");
   await challengeScenarioDesign((design) => {
     const unavailable = design.scenarios.find((row) => row.authority_status === "authority_unavailable");
     unavailable.missing_authority = null;
@@ -665,8 +665,16 @@ try {
     executable.executable_suite = "holdout";
   }, /executable case suite does not match the scenario design/,
   "executable case suite must match its design slot");
+  const implementedDesign = JSON.parse(scenarioDesignSource);
+  for (const row of implementedDesign.scenarios.filter((entry) => entry.capability_id === "INS-01")) {
+    row.authority_status = "implemented";
+    row.missing_authority = null;
+  }
+  await writeFile(scenarioDesignPath, `${JSON.stringify(implementedDesign, null, 2)}\n`, "utf8");
+  const implementedValidation = await runProductionValidator();
+  assert.match(implementedValidation.stdout, /\(3 implemented authorities, 114 unavailable\)/);
   await writeFile(scenarioDesignPath,
-    scenarioDesignSource.replace('"schema_version": 1', '"schema_version": 1, "schema_version": 1'), "utf8");
+    scenarioDesignSource.replace('"schema_version": 2', '"schema_version": 2, "schema_version": 2'), "utf8");
   await expectReject(runProductionValidator, /duplicate JSON object member schema_version/,
     "duplicate scenario design member must fail closed");
   await writeFile(scenarioDesignPath, scenarioDesignSource, "utf8");

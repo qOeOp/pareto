@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "scenarios": [
     {"capability_id":"KRN-01","scenario":"positive","case_id":"answer-only-nonactivation","observer_kind":"native_thread","authority_status":"authority_unavailable","missing_authority":"host_native_provenance","executable_suite":"golden"},
     {"capability_id":"KRN-01","scenario":"negative","case_id":"quoted-token-nonactivation","observer_kind":"native_thread","authority_status":"authority_unavailable","missing_authority":"host_native_provenance","executable_suite":"golden"},

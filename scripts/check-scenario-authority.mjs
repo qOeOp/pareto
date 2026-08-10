@@ -134,7 +134,7 @@ function parseJsonBlob(repo, oid, file, label) {
 
 function parseDesign(repo, oid, label) {
   const design = parseJsonBlob(repo, oid, "evals/scenarios.json", `${label} scenario design`);
-  if (design?.schema_version !== 1 || !Array.isArray(design.scenarios) ||
+  if (design?.schema_version !== 2 || !Array.isArray(design.scenarios) ||
       Object.keys(design).sort().join(",") !== "scenarios,schema_version") {
     fail(`${label} scenario design identity is invalid`);
   }
@@ -199,12 +199,17 @@ const protectedFields = [
   "scenario",
   "case_id",
   "observer_kind",
-  "authority_status",
-  "missing_authority",
 ];
+const fixedObserverCapabilities = new Set(["INS-01", "EVAL-02"]);
 const controlPlaneFiles = [
   ".github/workflows/scenario-authority.yml",
+  ".github/workflows/observe-install-capability.yml",
+  ".github/workflows/observe-score-capability.yml",
   "scripts/check-scenario-authority.mjs",
+  "scripts/validate.mjs",
+  "scripts/capability-score.mjs",
+  "scripts/observe-install-capability.mjs",
+  "scripts/observe-score-capability.mjs",
   "scripts/json.mjs",
   "package.json",
   "package-lock.json",
@@ -234,12 +239,32 @@ export function checkScenarioAuthority({ repo = defaultRepo, base, candidate }) 
     for (const field of protectedFields) {
       if (candidateRow[field] !== baseRow[field]) fail(`candidate changed canonical ${slot} field ${field}`);
     }
+    const authorityUnchanged = candidateRow.authority_status === baseRow.authority_status &&
+      candidateRow.missing_authority === baseRow.missing_authority;
+    const admittedFixedObserver = baseRow.authority_status === "authority_unavailable" &&
+      baseRow.missing_authority === "scenario_consumer_binding" &&
+      candidateRow.authority_status === "implemented" && candidateRow.missing_authority === null &&
+      candidateRow.observer_kind === "fixed_real_consumer" && fixedObserverCapabilities.has(candidateRow.capability_id);
+    if (!authorityUnchanged && !admittedFixedObserver) {
+      fail(`candidate changed canonical ${slot} authority without an admitted fixed observer`);
+    }
     if (baseRow.executable_suite !== undefined && candidateRow.executable_suite !== baseRow.executable_suite) {
       fail(`candidate changed canonical ${slot} executable suite`);
     }
     if (baseRow.executable_suite === undefined && candidateRow.executable_suite !== undefined &&
         !["golden", "holdout"].includes(candidateRow.executable_suite)) {
       fail(`candidate added invalid ${slot} executable suite`);
+    }
+  }
+  for (const capabilityId of fixedObserverCapabilities) {
+    const rows = [...candidateSlots.values()].filter((row) => row.capability_id === capabilityId);
+    const changed = rows.some((row) => {
+      const baseRow = baseSlots.get(`${row.capability_id}/${row.scenario}`);
+      return row.authority_status !== baseRow.authority_status || row.missing_authority !== baseRow.missing_authority;
+    });
+    if (changed && (rows.length !== 3 || rows.some((row) =>
+      row.authority_status !== "implemented" || row.missing_authority !== null))) {
+      fail(`candidate must admit all ${capabilityId} fixed-observer scenarios atomically`);
     }
   }
 
