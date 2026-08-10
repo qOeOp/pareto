@@ -52,7 +52,8 @@ try {
     await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
     await writeFile(goldenPath, stringifyYaml(golden));
   });
-  assert.equal(checkScenarioAuthority({ repo: fixture, base, candidate: addition }).candidateCases, 26);
+  const additionResult = checkScenarioAuthority({ repo: fixture, base, candidate: addition });
+  assert.equal(additionResult.candidateCases, additionResult.canonicalCases + 1);
 
   const malformedAddition = await commitMutation("malformed-addition", async () => {
     const design = JSON.parse(await readFile(designPath, "utf8"));

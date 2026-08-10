@@ -437,3 +437,64 @@
         - "fresh_process_required: true"
         - "recovered_ins_01_score: 8"
         - "overall_eligible: false"
+
+- description: "[full] isolated install reaches the user Skill loader"
+  metadata:
+    observations: { capability: { id: INS-01, scenario: positive, case_id: portable-skill-install-and-loader-discovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A repository-pinned installer is asked to install the exact committed
+      Skill into isolated temporary user Skill and Codex homes. The source lock, installed manifest,
+      installer receipt, post-install check, and a fresh loader discovery all agree. Return exactly
+      the bounded admission below; do not turn this text case into capability evidence.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        install_status: admitted
+        source_lock: exact
+        installed_manifest: exact
+        post_install_check: pass
+        fresh_loader_discovery: observed
+        capability_evidence: unavailable
+
+- description: "[full] stale install lock fails without destination drift"
+  metadata:
+    observations: { capability: { id: INS-01, scenario: negative, case_id: stale-lock-rejected-without-install-drift }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. An isolated installation request names a source commit that does not
+      match the repository lock. The destination currently matches its pre-request manifest. Return
+      exactly the fail-closed result below; do not repair, rewrite the lock, or infer evidence.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        install_status: rejected
+        reason: source_lock_mismatch
+        destination_mutation: none
+        pre_request_manifest_preserved: true
+        capability_evidence: unavailable
+
+- description: "[full] installed Skill drift recovers through exact reinstall"
+  metadata:
+    observations: { capability: { id: INS-01, scenario: recovery, case_id: installed-skill-drift-repaired-and-discovered }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. An isolated installed Skill differs from the exact repository lock.
+      A separately authorized reinstall restores the committed bytes, post-install check passes, and
+      a new loader session discovers the restored Skill. Return exactly the recovery disposition below;
+      retain the original failed check and do not claim scored evidence.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        original_check: failed_retained
+        reinstall_authority: separate_and_exact
+        restored_manifest: exact
+        post_install_check: pass
+        fresh_loader_discovery: observed
+        capability_evidence: unavailable
