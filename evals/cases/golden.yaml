@@ -498,3 +498,275 @@
         post_install_check: pass
         fresh_loader_discovery: observed
         capability_evidence: unavailable
+
+- description: "[full] planner profile installs as the exact committed file"
+  metadata:
+    observations: { capability: { id: INS-03, scenario: positive, case_id: ins-03-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A lock-bound installer writes mission-planner.toml from the exact
+      committed source into an isolated CODEX_HOME/agents directory. The installed bytes
+      match the source, the other owned profiles reconcile from the same lock, foreign profiles stay
+      unchanged, and --check passes. Return exactly the
+      file-install decision below without claiming native planner routing or scored evidence.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        profile: mission-planner.toml
+        install_status: admitted
+        source_bytes: exact
+        other_owned_profiles: reconciled_from_same_lock
+        foreign_profiles: unchanged
+        post_install_check: pass
+        native_role_routing: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] planner profile drift is rejected without mutation"
+  metadata:
+    observations: { capability: { id: INS-03, scenario: negative, case_id: ins-03-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. The installed mission-planner.toml bytes differ from the exact committed
+      source. A read-only --check observes the mismatch. Return exactly the fail-closed decision below;
+      do not rewrite the profile, touch unrelated files, or infer planner execution.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        profile: mission-planner.toml
+        check_status: rejected
+        reason: profile_bytes_mismatch
+        destination_mutation: none
+        all_profile_files_after_check: unchanged
+        native_role_routing: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] planner profile drift recovers through exact reinstall"
+  metadata:
+    observations: { capability: { id: INS-03, scenario: recovery, case_id: ins-03-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A prior --check retained an exact mismatch for mission-planner.toml.
+      A separately authorized lock-bound reinstall restores the committed bytes, reconciles
+      the other owned profiles from the same lock, preserves foreign profiles, and a new --check passes.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        profile: mission-planner.toml
+        original_check: failed_retained
+        reinstall_authority: separate_and_exact
+        restored_bytes: exact
+        other_owned_profiles: reconciled_from_same_lock
+        foreign_profiles: unchanged
+        post_install_check: pass
+        native_role_routing: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] evaluator profile installs as the exact committed file"
+  metadata:
+    observations: { capability: { id: INS-05, scenario: positive, case_id: ins-05-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A lock-bound installer writes mission-evaluator.toml from the exact
+      committed source into an isolated CODEX_HOME/agents directory. The installed bytes
+      match the source, the other owned profiles reconcile from the same lock, foreign profiles stay
+      unchanged, and --check passes. Return exactly the
+      file-install decision below without claiming native evaluator routing or scored evidence.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        profile: mission-evaluator.toml
+        install_status: admitted
+        source_bytes: exact
+        other_owned_profiles: reconciled_from_same_lock
+        foreign_profiles: unchanged
+        post_install_check: pass
+        native_role_routing: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] evaluator profile drift is rejected without mutation"
+  metadata:
+    observations: { capability: { id: INS-05, scenario: negative, case_id: ins-05-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. The installed mission-evaluator.toml bytes differ from the exact committed
+      source. A read-only --check observes the mismatch. Return exactly the fail-closed decision below;
+      do not rewrite the profile, touch unrelated files, or infer evaluator execution.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        profile: mission-evaluator.toml
+        check_status: rejected
+        reason: profile_bytes_mismatch
+        destination_mutation: none
+        all_profile_files_after_check: unchanged
+        native_role_routing: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] evaluator profile drift recovers through exact reinstall"
+  metadata:
+    observations: { capability: { id: INS-05, scenario: recovery, case_id: ins-05-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A prior --check retained an exact mismatch for mission-evaluator.toml.
+      A separately authorized lock-bound reinstall restores the committed bytes, reconciles
+      the other owned profiles from the same lock, preserves foreign profiles, and a new --check passes.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        profile: mission-evaluator.toml
+        original_check: failed_retained
+        reinstall_authority: separate_and_exact
+        restored_bytes: exact
+        other_owned_profiles: reconciled_from_same_lock
+        foreign_profiles: unchanged
+        post_install_check: pass
+        native_role_routing: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] researcher profile installs as the exact committed file"
+  metadata:
+    observations: { capability: { id: INS-07, scenario: positive, case_id: ins-07-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A lock-bound installer writes mission-researcher.toml from the exact
+      committed source into an isolated CODEX_HOME/agents directory. The installed bytes
+      match the source, the other owned profiles reconcile from the same lock, foreign profiles stay
+      unchanged, and --check passes. Return exactly the
+      file-install decision below without claiming native researcher routing or scored evidence.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        profile: mission-researcher.toml
+        install_status: admitted
+        source_bytes: exact
+        other_owned_profiles: reconciled_from_same_lock
+        foreign_profiles: unchanged
+        post_install_check: pass
+        native_role_routing: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] researcher profile drift is rejected without mutation"
+  metadata:
+    observations: { capability: { id: INS-07, scenario: negative, case_id: ins-07-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. The installed mission-researcher.toml bytes differ from the exact committed
+      source. A read-only --check observes the mismatch. Return exactly the fail-closed decision below;
+      do not rewrite the profile, touch unrelated files, or infer researcher execution.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        profile: mission-researcher.toml
+        check_status: rejected
+        reason: profile_bytes_mismatch
+        destination_mutation: none
+        all_profile_files_after_check: unchanged
+        native_role_routing: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] researcher profile drift recovers through exact reinstall"
+  metadata:
+    observations: { capability: { id: INS-07, scenario: recovery, case_id: ins-07-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A prior --check retained an exact mismatch for mission-researcher.toml.
+      A separately authorized lock-bound reinstall restores the committed bytes, reconciles
+      the other owned profiles from the same lock, preserves foreign profiles, and a new --check passes.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        profile: mission-researcher.toml
+        original_check: failed_retained
+        reinstall_authority: separate_and_exact
+        restored_bytes: exact
+        other_owned_profiles: reconciled_from_same_lock
+        foreign_profiles: unchanged
+        post_install_check: pass
+        native_role_routing: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] fast-builder profile installs as the exact committed file"
+  metadata:
+    observations: { capability: { id: INS-09, scenario: positive, case_id: ins-09-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A lock-bound installer writes fast-builder.toml from the exact committed
+      source into an isolated CODEX_HOME/agents directory. The installed bytes match the
+      source, the other owned profiles reconcile from the same lock, foreign profiles stay unchanged,
+      and --check passes. Return exactly the file-install
+      decision below without claiming native fast-builder routing or scored evidence.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        profile: fast-builder.toml
+        install_status: admitted
+        source_bytes: exact
+        other_owned_profiles: reconciled_from_same_lock
+        foreign_profiles: unchanged
+        post_install_check: pass
+        native_role_routing: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] fast-builder profile drift is rejected without mutation"
+  metadata:
+    observations: { capability: { id: INS-09, scenario: negative, case_id: ins-09-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. The installed fast-builder.toml bytes differ from the exact committed source.
+      A read-only --check observes the mismatch. Return exactly the fail-closed decision below; do not
+      rewrite the profile, touch unrelated files, or infer fast-builder execution.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        profile: fast-builder.toml
+        check_status: rejected
+        reason: profile_bytes_mismatch
+        destination_mutation: none
+        all_profile_files_after_check: unchanged
+        native_role_routing: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] fast-builder profile drift recovers through exact reinstall"
+  metadata:
+    observations: { capability: { id: INS-09, scenario: recovery, case_id: ins-09-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A prior --check retained an exact mismatch for fast-builder.toml. A
+      separately authorized lock-bound reinstall restores the committed bytes, reconciles
+      the other owned profiles from the same lock, preserves foreign profiles, and a new --check passes.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        profile: fast-builder.toml
+        original_check: failed_retained
+        reinstall_authority: separate_and_exact
+        restored_bytes: exact
+        other_owned_profiles: reconciled_from_same_lock
+        foreign_profiles: unchanged
+        post_install_check: pass
+        native_role_routing: unavailable
+        capability_evidence: unavailable
