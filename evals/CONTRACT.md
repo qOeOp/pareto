@@ -180,6 +180,11 @@ observer commit; ancestor status or a caller-selected revision is insufficient.
 The installer observer accepts only version-bound app-server notification schemas. Environment-local
 remote-control identity and structured config warnings are recorded by shape only; neither is a pass
 oracle, and the exact Skill discovery response plus installation counterfactuals must still pass.
+Linux observes a disposable `HOME`. Windows uses the otherwise-absent `.agents` directory under the
+ephemeral runner's real OS profile because Codex resolves that root through the Windows known-folder
+API rather than environment overrides; the observer atomically claims a previously absent root,
+refuses pre-existing state, atomically moves the claimed directory to an isolated sibling custody,
+and verifies its identity before removal in `finally`.
 
 The CLI is an explicit operator gate, not a host Goal integration: it exits nonzero for every report
 whose minimum leaf is below 9.5. The candidate repository must match the scorer checkout's exact origin;

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, realpathSync } from "node:fs";
-import { cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { cp, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { arch, homedir, platform, tmpdir } from "node:os";
 import path from "node:path";
 import readline from "node:readline";
@@ -196,6 +196,34 @@ async function foreignStateDigest(files) {
     state[name] = { mode: info.mode & 0o777, sha256: digest(await readFile(file)) };
   }
   return digest(JSON.stringify(canonical(state)));
+}
+
+async function claimWindowsAgentsRoot(root) {
+  try {
+    await mkdir(root);
+  } catch (error) {
+    if (error.code === "EEXIST") fail("Windows runner user Skill root is not isolated");
+    throw error;
+  }
+  const info = await lstat(root);
+  if (!info.isDirectory() || info.isSymbolicLink()) fail("Windows runner user Skill root is unsafe");
+  return { dev: info.dev, ino: info.ino };
+}
+
+async function removeWindowsAgentsRoot(root, identity) {
+  const custody = path.join(path.dirname(root), `.pareto-ins01-agents-${randomUUID()}`);
+  await rename(root, custody).catch(() => fail("Windows runner user Skill root could not be isolated for cleanup"));
+  const current = await lstat(custody).catch(() => null);
+  if (!current?.isDirectory() || current.isSymbolicLink() ||
+      current.dev !== identity.dev || current.ino !== identity.ino) {
+    const replacement = await lstat(root).catch((error) => {
+      if (error.code === "ENOENT") return null;
+      throw error;
+    });
+    if (!replacement) await rename(custody, root).catch(() => {});
+    fail("Windows runner user Skill root identity changed before cleanup");
+  }
+  await rm(custody, { force: true, recursive: true });
 }
 
 async function expectedInstallation(subjectRoot, root) {
@@ -440,9 +468,14 @@ async function observe({ subjectRoot, codexEntry, output }) {
   const subject = subjectIdentity(subjectRoot);
   const observer = observerIdentity();
   const temporary = await mkdtemp(path.join(tmpdir(), "pareto-ins01-observer-"));
+  const windowsAgentsRoot = platform() === "win32" ? path.join(homedir(), ".agents") : null;
+  let windowsAgentsIdentity = null;
   try {
+  if (windowsAgentsRoot) {
+    windowsAgentsIdentity = await claimWindowsAgentsRoot(windowsAgentsRoot);
+  }
   const roots = {
-    agents: path.join(temporary, "home", ".agents"),
+    agents: windowsAgentsRoot ?? path.join(temporary, "home", ".agents"),
     codex: path.join(temporary, "codex-home"),
     env: isolatedEnvironment(temporary),
   };
@@ -550,7 +583,12 @@ async function observe({ subjectRoot, codexEntry, output }) {
   });
   await writeFile(output, `${JSON.stringify(envelope)}\n`, { flag: "wx" });
   } finally {
-    await rm(temporary, { force: true, recursive: true });
+    await Promise.all([
+      rm(temporary, { force: true, recursive: true }),
+      windowsAgentsIdentity
+        ? removeWindowsAgentsRoot(windowsAgentsRoot, windowsAgentsIdentity)
+        : Promise.resolve(),
+    ]);
   }
 }
 
