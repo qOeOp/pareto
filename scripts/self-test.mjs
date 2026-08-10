@@ -623,11 +623,14 @@ try {
     { encoding: "utf8", ...options },
   );
   const baseValidation = await runProductionValidator();
-  assert.match(baseValidation.stdout,
-    /Validated 1 Skill, \d+ executable cases, and 117 scenario designs \(0 implemented authorities, 117 unavailable\); committed baselines are disabled/);
-
   const scenarioDesignPath = path.join(validatorFixture, "evals", "scenarios.json");
   const scenarioDesignSource = await readFile(scenarioDesignPath, "utf8");
+  const baseScenarioDesign = JSON.parse(scenarioDesignSource);
+  const baseImplemented = baseScenarioDesign.scenarios.filter((row) => row.authority_status === "implemented").length;
+  const baseUnavailable = baseScenarioDesign.scenarios.length - baseImplemented;
+  assert.match(baseValidation.stdout,
+    new RegExp(`Validated 1 Skill, \\d+ executable cases, and 117 scenario designs \\(${baseImplemented} implemented authorities, ${baseUnavailable} unavailable\\); committed baselines are disabled`));
+
   const challengeScenarioDesign = async (mutate, pattern, label) => {
     const challenged = JSON.parse(scenarioDesignSource);
     mutate(challenged);
@@ -672,7 +675,9 @@ try {
   }
   await writeFile(scenarioDesignPath, `${JSON.stringify(implementedDesign, null, 2)}\n`, "utf8");
   const implementedValidation = await runProductionValidator();
-  assert.match(implementedValidation.stdout, /\(3 implemented authorities, 114 unavailable\)/);
+  const implementedCount = implementedDesign.scenarios.filter((row) => row.authority_status === "implemented").length;
+  assert.match(implementedValidation.stdout,
+    new RegExp(`\\(${implementedCount} implemented authorities, ${implementedDesign.scenarios.length - implementedCount} unavailable\\)`));
   await writeFile(scenarioDesignPath,
     scenarioDesignSource.replace('"schema_version": 2', '"schema_version": 2, "schema_version": 2'), "utf8");
   await expectReject(runProductionValidator, /duplicate JSON object member schema_version/,
