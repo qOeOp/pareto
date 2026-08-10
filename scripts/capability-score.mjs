@@ -719,7 +719,7 @@ async function gitIdentityAt(commit, objectPath) {
   return git(root, ["rev-parse", `${commit}:${objectPath}`]).catch(() => "");
 }
 
-async function verifySigstoreBundleFile(bundlePath, bundleSha256, expected, runtimeRoot) {
+async function verifySigstoreBundleFile(bundlePath, bundleSha256, expected, runtimeRoot, sharedRuntime = null) {
   exactKeys(expected, ["subject_name", "subject_sha256", "repository_slug", "source_commit", "workflow"], "Sigstore expectation");
   if (!shaPattern.test(bundleSha256) || !shaPattern.test(expected.subject_sha256) ||
       !/^[a-f0-9]{40}$/.test(expected.source_commit) || !/^[^/]+\/[^/]+$/.test(expected.repository_slug) ||
@@ -737,7 +737,7 @@ async function verifySigstoreBundleFile(bundlePath, bundleSha256, expected, runt
     fail("Sigstore attestation bundle shape is invalid");
   }
 
-  const runtime = await verifiedSigstoreRuntime(runtimeRoot);
+  const runtime = sharedRuntime ?? await verifiedSigstoreRuntime(runtimeRoot);
   let signer;
   try {
     const verifier = new runtime.Verifier(runtime.toTrustMaterial(runtime.trustedRoot), {
@@ -748,7 +748,7 @@ async function verifySigstoreBundleFile(bundlePath, bundleSha256, expected, runt
   } catch {
     fail("Sigstore attestation verification failed");
   } finally {
-    await runtime.dispose();
+    if (!sharedRuntime) await runtime.dispose();
   }
 
   const repositoryURL = `https://github.com/${expected.repository_slug}`;
@@ -800,6 +800,30 @@ async function verifySigstoreBundleFile(bundlePath, bundleSha256, expected, runt
   return { schema: "pareto-sigstore-verification/v1", bundle_sha256: bundleSha256 };
 }
 
+async function verifySigstoreBundleBatch(plan, runtimeRoot) {
+  if (!Array.isArray(plan) || plan.length < 1 || plan.length > 8) fail("Sigstore batch plan is invalid");
+  const runtime = await verifiedSigstoreRuntime(runtimeRoot);
+  const bundleSha256 = [];
+  const bundlePaths = new Set();
+  try {
+    for (const [index, item] of plan.entries()) {
+      exactKeys(item, ["bundle_path", "bundle_sha256", "expected"], `Sigstore batch item ${index + 1}`);
+      if (typeof item.bundle_path !== "string" || item.bundle_path.length < 1 || item.bundle_path.length > 4096 ||
+          /[\u0000-\u001f]/.test(item.bundle_path) || !path.isAbsolute(item.bundle_path) || bundlePaths.has(item.bundle_path)) {
+        fail(`Sigstore batch item ${index + 1} path is invalid`);
+      }
+      bundlePaths.add(item.bundle_path);
+      const receipt = await verifySigstoreBundleFile(
+        item.bundle_path, item.bundle_sha256, item.expected, runtimeRoot, runtime,
+      );
+      bundleSha256.push(receipt.bundle_sha256);
+    }
+  } finally {
+    await runtime.dispose();
+  }
+  return { schema: "pareto-sigstore-batch-verification/v1", bundle_sha256: bundleSha256 };
+}
+
 async function verifySigstoreInChild(bundleFile, entry, expected) {
   const encoded = Buffer.from(JSON.stringify(canonical(expected))).toString("base64");
   const script = fileURLToPath(import.meta.url);
@@ -823,6 +847,33 @@ async function verifySigstoreInChild(bundleFile, entry, expected) {
   exactKeys(receipt, ["bundle_sha256", "schema"], "isolated Sigstore verification receipt");
   if (receipt.schema !== "pareto-sigstore-verification/v1" || receipt.bundle_sha256 !== entry.bundle_sha256) {
     fail("isolated Sigstore verification receipt is invalid");
+  }
+}
+
+async function verifySigstoreBatchInChild(plan) {
+  const encoded = Buffer.from(JSON.stringify(canonical(plan))).toString("base64");
+  const script = fileURLToPath(import.meta.url);
+  const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), "pareto-sigstore-runtime-"));
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync(process.execPath,
+      [script, "--verify-sigstore-batch", encoded, runtimeRoot], {
+      cwd: root,
+      encoding: "utf8",
+      env: cleanProcessEnvironment,
+      maxBuffer: 1024 * 1024,
+      timeout: 120_000,
+      }));
+  } catch {
+    fail("isolated Sigstore batch verification failed");
+  } finally {
+    await rm(runtimeRoot, { force: true, recursive: true });
+  }
+  const { value: receipt } = parseUniqueJson(Buffer.from(stdout), "isolated Sigstore batch receipt");
+  exactKeys(receipt, ["bundle_sha256", "schema"], "isolated Sigstore batch receipt");
+  if (receipt.schema !== "pareto-sigstore-batch-verification/v1" ||
+      JSON.stringify(receipt.bundle_sha256) !== JSON.stringify(plan.map((item) => item.bundle_sha256))) {
+    fail("isolated Sigstore batch receipt is invalid");
   }
 }
 
@@ -961,6 +1012,7 @@ async function verifyInstallCampaign(entry, evidenceDirectory, candidate) {
     fail("attested campaign semantics are invalid");
   }
   const sourceCommit = await validateInstallCampaignIdentity(payload, candidate);
+  let repeatedVerificationPlan = null;
 
   if (repeated) {
     exactKeys(payload.coverage, ["environments", "trials_per_environment"], "attested campaign coverage");
@@ -1000,15 +1052,17 @@ async function verifyInstallCampaign(entry, evidenceDirectory, candidate) {
     if (JSON.stringify(actualSlots) !== JSON.stringify(expectedSlots)) {
       fail("attested campaign repeated observation slots are invalid");
     }
-    for (const { observationBundle, observationFile, row } of verifiedInputs) {
-      await verifySigstoreInChild(observationBundle, { bundle_sha256: row.bundle_sha256 }, {
+    repeatedVerificationPlan = verifiedInputs.map(({ observationBundle, observationFile, row }) => ({
+      bundle_path: observationBundle.path,
+      bundle_sha256: row.bundle_sha256,
+      expected: {
         subject_name: path.basename(observationFile.path),
         subject_sha256: digest(observationFile.bytes),
         repository_slug: githubRepositorySlug(candidate.repository),
         source_commit: sourceCommit,
         workflow: installCampaignWorkflow,
-      });
-    }
+      },
+    }));
   } else if (!Array.isArray(payload.observations) || payload.observations.length !== 2 ||
       payload.observations.some((row, index) => {
         exactKeys(row, ["content_sha256", "environment"], `attested campaign observation ${index + 1}`);
@@ -1017,13 +1071,22 @@ async function verifyInstallCampaign(entry, evidenceDirectory, candidate) {
     fail("attested campaign observations are invalid");
   }
 
-  await verifySigstoreInChild(bundleFile, entry, {
-    subject_name: path.basename(campaignFile.path),
-    subject_sha256: entry.campaign_sha256,
-    repository_slug: githubRepositorySlug(candidate.repository),
-    source_commit: sourceCommit,
-    workflow: installCampaignWorkflow,
-  });
+  const campaignVerification = {
+    bundle_path: bundleFile.path,
+    bundle_sha256: entry.bundle_sha256,
+    expected: {
+      subject_name: path.basename(campaignFile.path),
+      subject_sha256: entry.campaign_sha256,
+      repository_slug: githubRepositorySlug(candidate.repository),
+      source_commit: sourceCommit,
+      workflow: installCampaignWorkflow,
+    },
+  };
+  if (repeatedVerificationPlan) {
+    await verifySigstoreBatchInChild([...repeatedVerificationPlan, campaignVerification]);
+  } else {
+    await verifySigstoreInChild(bundleFile, entry, campaignVerification.expected);
+  }
   return repeated
     ? { capability_id: installCampaignCapability, score: repeatedAttestedCampaignScore, maturity: "representative", reason: "repeated_attested_fixed_observer_campaign" }
     : { capability_id: installCampaignCapability, score: singleAttestedCampaignScore, maturity: "dynamic", reason: "single_attested_campaign" };
@@ -1179,7 +1242,14 @@ const invokedAsMain = process.argv[1] &&
   await realpath(path.resolve(process.argv[1])).catch(() => "") === await realpath(fileURLToPath(import.meta.url));
 if (invokedAsMain) {
   try {
-    if (process.argv[2] === "--verify-sigstore") {
+    if (process.argv[2] === "--verify-sigstore-batch") {
+      if (process.argv.length !== 5) fail("isolated Sigstore batch verifier arguments are invalid");
+      const planBytes = Buffer.from(process.argv[3], "base64");
+      if (planBytes.toString("base64") !== process.argv[3]) fail("isolated Sigstore batch plan encoding is invalid");
+      const { value: plan } = parseUniqueJson(planBytes, "isolated Sigstore batch plan");
+      const receipt = await verifySigstoreBundleBatch(plan, process.argv[4]);
+      console.log(JSON.stringify(receipt));
+    } else if (process.argv[2] === "--verify-sigstore") {
       if (process.argv.length !== 7) fail("isolated Sigstore verifier arguments are invalid");
       const expectationBytes = Buffer.from(process.argv[5], "base64");
       if (expectationBytes.toString("base64") !== process.argv[5]) fail("isolated Sigstore expectation encoding is invalid");

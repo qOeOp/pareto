@@ -249,7 +249,7 @@ const holdoutCases = parseYaml(await readFile(path.join(root, "evals/cases/holdo
 const goldenDescriptions = validatePromptfooCases(goldenCases, {
   file: "evals/cases/golden.yaml",
   suites: new Set(["smoke", "full"]),
-  count: 19,
+  count: 21,
 });
 const holdoutDescriptions = validatePromptfooCases(holdoutCases, {
   file: "evals/cases/holdout.yaml",

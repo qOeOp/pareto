@@ -399,3 +399,41 @@
         - "major_gap: blocking"
         - "unproved_key_claim: blocking"
         - "status: incomplete"
+
+- description: "[full] signed evidence remains bounded by unproved critical floors"
+  metadata:
+    observations: { capability: { id: EVAL-02, scenario: positive, case_id: signed-campaign-produces-bounded-report }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_provider_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A canonical six-slot signed campaign gives INS-01 representative
+      evidence, while the other critical capabilities remain unproved. Return the bounded scoring
+      decision without spreading the campaign score or completing the overall Goal.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "ins_01_score: 8"
+        - "other_capability_score_inheritance: forbidden"
+        - "minimum_score: 0"
+        - "overall_eligible: false"
+        - "goal_complete: false"
+
+- description: "[full] scoring recovers only by removing the exact synthetic gap"
+  metadata:
+    observations: { capability: { id: EVAL-02, scenario: recovery, case_id: score-recovers-after-gap-removal }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_provider_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A critical-gap control correctly reduced INS-01 to zero. Remove only
+      that synthetic control and rerun the unchanged signed campaign in a fresh scorer process.
+      Return the recovery decision without rewriting the failed control result.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "failed_control_retained: true"
+        - "signed_campaign_changed: false"
+        - "fresh_process_required: true"
+        - "recovered_ins_01_score: 8"
+        - "overall_eligible: false"

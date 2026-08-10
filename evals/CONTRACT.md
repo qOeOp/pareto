@@ -13,7 +13,7 @@ locators, business repositories, credentials, and provider receipts remain exter
 ## Suites
 
 - `smoke`: the two `[smoke]` cases in `cases/golden.yaml`, one trial each.
-- `full`: all 19 public golden cases in `cases/golden.yaml`, two trials each.
+- `full`: all 21 public golden cases in `cases/golden.yaml`, two trials each.
 - `holdout`: the four public withheld-regression cases in the separate `cases/holdout.yaml`, three
   trials each. The runner never loads this file for smoke/full and requires a clean Git
   commit, binds the exact commit, tree, `skills/` tree, and matrix digest into Promptfoo output, and
@@ -188,7 +188,9 @@ Evidence schema v2 may reference the campaign JSON and Sigstore bundle as extern
 files. A fresh child of the absolute current Node executable copies the package-lock-pinned Sigstore bundle, TUF,
 protobuf, core, and verifier packages into an ephemeral directory, rejects symlinks, and requires their complete
 file-tree digest to equal the reviewed candidate constant before importing them. The child receives no parent loader
-arguments and clears Node, Git, and dynamic-loader environment selectors. It reads the content-bound bundled
+arguments and clears Node, Git, and dynamic-loader environment selectors. One child may verify one bounded campaign
+batch while reusing that exact frozen runtime; every indexed observation bundle and the aggregate campaign bundle
+still receives its own signature, subject, signer, transparency-log, and content-identity verification. It reads the content-bound bundled
 `trusted_root.json` directly and does not run a TUF updater or make a network request. It then requires the exact
 repository, signer workflow, `main` ref, source commit,
 GitHub-hosted runner claims, CT log, and transparency log; then it independently replays the campaign envelope,
@@ -228,6 +230,25 @@ ephemeral runner's real OS profile because Codex resolves that root through the 
 API rather than environment overrides; the observer atomically claims a previously absent root,
 refuses pre-existing state, atomically moves the claimed directory to an isolated sibling custody,
 and verifies its identity before removal in `finally`.
+
+`EVAL-02` uses a separate fixed observer to execute the canonical scorer CLI as a black box against
+one already-attested INS-01 campaign. Its positive path requires the signed campaign to score only
+INS-01 at 8 while the global minimum stays 0 and eligibility stays false. Its negative path injects
+one explicit critical-gap control and one unknown high-score field; the former must reduce the affected
+capability to 0 and the latter must be rejected before scoring. Recovery removes only the synthetic gap,
+reuses the unchanged signed input, and requires a fresh scorer process to reproduce the original report
+byte-for-byte after canonicalization. One Linux and one Windows observation are signed separately;
+the observation and aggregate jobs have no OIDC authority, while signing jobs download bytes without
+checking out or executing candidate code. The observer independently replays the exact 39-row catalog,
+per-row scores and counts, weighted score, below-target set, critical-breach set, and global gate rather
+than trusting a report summary. The signed input campaign is retained with the output so the reports and
+controls remain replayable. Every observation and campaign is machine-marked `bootstrap_only`; this first
+campaign is permanently non-authorizing and cannot raise a score. EVAL-02 may reach at most 6 only after
+its campaign consumer is canonical, a later unchanged scorer is observed, and a subsequent scorer
+verifies both observation bundles, the aggregate bundle, the exact scorer/catalog/contract blobs, the
+fixed source-campaign files and digests, and the positive, negative, and recovery reports. Manual dispatch
+does not prove a complete attempt inventory, representative repetition, independent observation, or the
+8/9.5 anchors; failures and replacement runs remain unavailable rather than being selected away.
 
 The CLI is an explicit operator gate, not a host Goal integration: it exits nonzero for every report
 whose minimum leaf is below 9.5. The candidate repository must match the scorer checkout's exact origin;
