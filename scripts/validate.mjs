@@ -99,6 +99,7 @@ function validatePromptfooCases(cases, { file, suites, count }) {
   if (!Array.isArray(cases)) fail(`${file}: cases must be an array`);
   if (count !== undefined && cases.length !== count) fail(`${file}: expected exactly ${count} cases`);
   const descriptions = [];
+  const capabilityCaseIds = new Set();
   for (const testCase of cases) {
     const suite = /^\[(smoke|full|holdout)\] /.exec(testCase.description ?? "")?.[1];
     if (!suite || !suites.has(suite)) {
@@ -122,8 +123,17 @@ function validatePromptfooCases(cases, { file, suites, count }) {
     validateExactKeys(testCase.metadata, new Set(["observations"]), `${testCase.description} metadata`);
     const observations = testCase.metadata.observations;
     validateExactKeys(observations,
-      new Set(["behavioral_oracle", "skill_activation", "required_raw_item_types", "unavailable"]),
+      new Set(["capability", "behavioral_oracle", "skill_activation", "required_raw_item_types", "unavailable"]),
       `${testCase.description} observations`);
+    validateExactKeys(observations.capability, new Set(["id", "scenario", "case_id"]),
+      `${testCase.description} capability binding`);
+    if (!/^[A-Z]{3,4}-\d{2}$/.test(observations.capability.id) ||
+        !["positive", "negative", "recovery"].includes(observations.capability.scenario) ||
+        !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(observations.capability.case_id) ||
+        capabilityCaseIds.has(observations.capability.case_id)) {
+      fail(`${testCase.description}: invalid or duplicate capability case binding`);
+    }
+    capabilityCaseIds.add(observations.capability.case_id);
     if (observations.behavioral_oracle !== "deterministic_text") {
       fail(`${testCase.description}: behavioral oracle must be deterministic_text`);
     }

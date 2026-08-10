@@ -152,6 +152,71 @@ export function runtimeCasesForInstalledSkill(cases) {
   }));
 }
 
+export function validateCapabilityCaseBindings(cases) {
+  if (!Array.isArray(cases) || cases.length === 0) throw new Error("Promptfoo cases must be a non-empty array");
+  const caseIds = new Set();
+  for (const [index, testCase] of cases.entries()) {
+    const binding = testCase?.metadata?.observations?.capability;
+    if (!hasExactFields(binding, ["id", "scenario", "case_id"]) ||
+        !/^[A-Z]{3,4}-\d{2}$/.test(binding.id) ||
+        !["positive", "negative", "recovery"].includes(binding.scenario) ||
+        !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(binding.case_id)) {
+      throw new Error(`Promptfoo case ${index} has an invalid capability binding`);
+    }
+    if (caseIds.has(binding.case_id)) throw new Error(`Promptfoo capability case id is duplicated: ${binding.case_id}`);
+    caseIds.add(binding.case_id);
+  }
+  return cases;
+}
+
+export function capabilityEvidenceForValidatedResult({
+  artifact,
+  cases,
+  repeat,
+  candidate,
+  repository,
+  catalogBytes,
+  resultArtifactName,
+}) {
+  validateCapabilityCaseBindings(cases);
+  if (!/^[^/\\]+\.json$/.test(resultArtifactName)) {
+    throw new Error("capability evidence result artifact name is invalid");
+  }
+  const artifactBytes = Buffer.from(`${JSON.stringify(artifact, null, 2)}\n`);
+  const artifactDigest = `sha256:${sha256(artifactBytes)}`;
+  const observations = [];
+  for (const testCase of cases) {
+    const binding = testCase.metadata.observations.capability;
+    const rows = artifact.results.results.filter((row) =>
+      row?.testCase?.metadata?.observations?.capability?.case_id === binding.case_id);
+    if (rows.length !== repeat) throw new Error(`validated result lost trials for ${binding.case_id}`);
+    for (const [index, row] of rows.entries()) {
+      observations.push({
+        capability_id: binding.id,
+        scenario: binding.scenario,
+        case_id: binding.case_id,
+        trial_id: String(index + 1),
+        environment_id: `promptfoo:${row.provider.id}:${artifact.config.providers[0].config.model}:${artifact.config.providers[0].config.model_reasoning_effort}`,
+        subject_id: candidate.commit,
+        producer_id: `sha256:${sha256(Buffer.from(row.response.raw, "utf8"))}`,
+        observer_id: artifactDigest,
+        source_kind: "deterministic_replay",
+        result: "pass",
+        artifact_path: resultArtifactName,
+        content_sha256: artifactDigest,
+      });
+    }
+  }
+  return {
+    schema_version: 1,
+    catalog_sha256: `sha256:${sha256(catalogBytes)}`,
+    candidate: { repository, ...candidate },
+    attempt_inventory: { status: "unavailable", locator: "provider-attested complete attempt inventory unavailable" },
+    observations,
+    open_gaps: [],
+  };
+}
+
 export function guardPromptfooFetch(fetchImplementation) {
   if (typeof fetchImplementation !== "function") throw new Error("Promptfoo fetch guard requires a fetch implementation");
   return (input, init) => {
@@ -413,8 +478,10 @@ export async function validateResultArtifact({
   workingDirectory,
   homeDirectory,
   codexHome,
+  candidateIdentity,
   holdoutIdentity = null,
 }) {
+  validateCapabilityCaseBindings(cases);
   const info = await lstat(resultPath);
   if (!info.isFile()) throw new Error("Promptfoo output must be a regular JSON file");
   const source = await readFile(resultPath, "utf8");
@@ -427,6 +494,10 @@ export async function validateResultArtifact({
   }
   if (artifact.author !== null) {
     throw new Error("Promptfoo output must not inherit an ambient author identity");
+  }
+  if (!candidateIdentity ||
+      !isDeepStrictEqual(artifact?.config?.metadata?.candidate, candidateIdentity)) {
+    throw new Error("Promptfoo output is not bound to the exact candidate commit and tree");
   }
 
   const rows = artifact?.results?.results;
@@ -614,9 +685,12 @@ async function main() {
       homeDirectory,
       codexHome,
     });
-    if (holdoutBefore) {
-      config.metadata = { ...config.metadata, holdout_candidate: holdoutBefore };
-    }
+    const candidateIdentity = {
+      commit: currentCommit,
+      tree: await gitText(root, ["rev-parse", `${currentCommit}^{tree}`]),
+    };
+    config.metadata = { ...config.metadata, candidate: candidateIdentity };
+    if (holdoutBefore) config.metadata.holdout_candidate = holdoutBefore;
     await mkdir(promptfooConfigDirectory, { recursive: true });
     process.env.PROMPTFOO_CONFIG_DIR = promptfooConfigDirectory;
     process.env.PROMPTFOO_DISABLE_TELEMETRY = "1";
@@ -664,9 +738,23 @@ async function main() {
       workingDirectory: workspace,
       homeDirectory,
       codexHome,
+      candidateIdentity,
       holdoutIdentity: holdoutBefore,
     });
+    const catalogBytes = await gitBytes(root, ["show", `${currentCommit}:evals/capabilities.json`]);
+    const evidence = capabilityEvidenceForValidatedResult({
+      artifact,
+      cases,
+      repeat: repeats[suite],
+      candidate: candidateIdentity,
+      repository: await gitText(root, ["remote", "get-url", "origin"]),
+      catalogBytes,
+      resultArtifactName: path.basename(resultPath),
+    });
+    const evidencePath = resultPath.replace(/\.json$/, "-evidence.json");
+    await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
     console.log(`Result: ${resultPath}`);
+    console.log(`Evidence: ${evidencePath}`);
   } finally {
     globalThis.fetch = previousFetch;
     for (const name of promptfooEnvironmentNames) {

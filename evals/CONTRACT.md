@@ -30,8 +30,9 @@ after its candidate or matrix changes.
 
 `cases/golden.yaml` and `cases/holdout.yaml` are the only corpus authority. Descriptions carry the
 suite selector; prompts express generalized consumer tasks without private repositories, task
-locators, transcripts, or business content. Every case binds deterministic text behavior plus an
-out-of-prompt observation contract in `metadata.observations`. Model-graded rubrics may be added only when semantic
+locators, transcripts, or business content. Every case binds exactly one primary capability, scenario,
+stable case ID, deterministic text behavior, and an out-of-prompt observation contract in
+`metadata.observations`. One case never upgrades unrelated leaves. Model-graded rubrics may be added only when semantic
 quality cannot be reduced to a stable check and every provider-capable grading route is preflighted
 against the exact admitted provider/model/effort authority.
 
@@ -63,6 +64,11 @@ Keep Promptfoo's raw per-trial evidence locally. The repository has no producer 
 committed evaluation summary, so it does not commit one. Dynamic result admission still binds exact
 candidate, case, provider, model, reasoning effort, assertions, elapsed time, token counts, and
 provider-reported cost when those fields are available.
+
+After the complete result passes validation, the same runner writes one scorer-ready local evidence
+manifest beside it. The manifest is derived from validated rows and committed case bindings; an
+operator does not reconstruct capability, trial, principal, or digest fields. The scorer still
+revalidates the referenced raw artifact and caches that validation once per artifact identity.
 
 Repository acceptance reads Promptfoo result artifacts as raw JSON and rejects duplicate object
 members before normalization; exit zero never authorizes a last-wins representation.
@@ -133,13 +139,14 @@ scorer reports both the weighted aggregate and the minimum leaf score. Completio
 at least 9.5 and every critical leaf to pass; no weight, domain aggregate, or unrelated strong leaf may
 hide a weaker capability.
 
-The scorer consumes content-addressed raw Codex rollout JSONL, not agent-authored numeric scores. Duplicate
-members, stale catalog identity, duplicate trials, unknown leaves, self-described independent review,
-artifact drift, failed observations, and material or critical gaps fail closed. Source adapters derive
-session/parent identities, terminal task and token receipts, tool execution for deterministic replay,
-the exact candidate-bound capability result, unavailable evidence, gaps, and mutation observation from
-the raw trace. Independent review must be a native subagent rollout. Plain files or evidence fields
-cannot unlock the 9.5 anchor. Local rollout files are writable by the same host and therefore cannot
+The scorer consumes content-addressed raw evidence, not agent-authored numeric scores. Deterministic
+replay accepts only a complete Promptfoo artifact that passes the production row, assertion, raw-turn,
+activation, candidate, suite, provider, model, and effort validator; the committed case supplies its
+sole capability/scenario identity. Native state uses the app-server receipt. Independent review uses a
+native subagent rollout and Main-authored final JSON cannot substitute for deterministic replay.
+Duplicate members, stale catalog or candidate identity, duplicate trials, unknown leaves,
+self-described independent review, artifact drift, failed observations, and material or critical gaps
+fail closed. Plain files or evidence fields cannot unlock the 9.5 anchor. Local artifacts are writable by the same host and therefore cannot
 prove their own completeness or authenticity. They are capped at 2 even when their internal shape is
 consistent; the assessor does not publish a higher "observed" score from author-controlled oracle text.
 The 9.5 anchor remains unavailable until Codex exposes a provider-attested complete attempt
@@ -149,9 +156,9 @@ The CLI is an explicit operator gate, not a host Goal integration: it exits nonz
 whose minimum leaf is below 9.5. The candidate repository must match the scorer checkout's exact origin;
 its commit must be the clean checkout `HEAD`, its tree must resolve exactly, and its committed catalog
 blob must equal the catalog being scored. The catalog is the checked-in 39-leaf authority; callers
-cannot substitute a smaller catalog. An explicit unavailable attempt is non-authorizing, and an
-unavailable provider inventory is reported as the global evidence limit rather than hidden by selected
-passes.
+cannot substitute a smaller catalog. An explicit unavailable observation scores that leaf zero with
+an explicit count and reason. An unavailable provider inventory is reported as the global evidence
+limit rather than hidden by selected passes.
 
 `scripts/capability-score.mjs` is an assessor, not a result producer, trace store, benchmark scheduler,
 or capability repair owner. Raw private traces remain external. A published assessment may contain

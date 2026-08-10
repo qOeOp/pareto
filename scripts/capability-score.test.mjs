@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
+import { parse as parseYaml } from "yaml";
 import { validateCatalogFile } from "./capability-score.mjs";
+import { capabilityEvidenceForValidatedResult, runtimeCasesForInstalledSkill } from "./eval.mjs";
 
 const execFileAsync = promisify(execFile);
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "capability-score-test-"));
@@ -37,18 +39,24 @@ await git(["config", "user.name", "Capability Score Test"]);
 await git(["config", "user.email", "capability-score@example.invalid"]);
 await git(["remote", "add", "origin", `${repositoryUrl}.git`]);
 await mkdir(path.join(repository, "evals"), { recursive: true });
+await mkdir(path.join(repository, "evals", "cases"), { recursive: true });
 await mkdir(path.join(repository, "scripts"), { recursive: true });
 await writeFile(path.join(repository, "evals", "capabilities.json"), catalogBytes);
 await copyFile(path.resolve("scripts/capability-score.mjs"), path.join(repository, "scripts", "capability-score.mjs"));
+await copyFile(path.resolve("scripts/eval.mjs"), path.join(repository, "scripts", "eval.mjs"));
 await copyFile(path.resolve("scripts/json.mjs"), path.join(repository, "scripts", "json.mjs"));
+await copyFile(path.resolve("evals/cases/golden.yaml"), path.join(repository, "evals", "cases", "golden.yaml"));
+await copyFile(path.resolve("evals/cases/holdout.yaml"), path.join(repository, "evals", "cases", "holdout.yaml"));
 await writeFile(path.join(repository, "fixture.txt"), "candidate\n");
-await git(["add", "evals/capabilities.json", "scripts", "fixture.txt"]);
+await git(["add", "evals", "scripts", "fixture.txt"]);
 await git(["commit", "--quiet", "-m", "candidate"]);
 const candidate = { repository: repositoryUrl, commit: await git(["rev-parse", "HEAD"]), tree: await git(["rev-parse", "HEAD^{tree}"]) };
 const { stdout: committedCatalogBytes } = await execFileAsync("git", ["-C", repository, "show", `${candidate.commit}:evals/capabilities.json`], {
   encoding: null,
   env: gitEnvironment,
 });
+await symlink(path.resolve("node_modules"), path.join(temporaryRoot, "node_modules"),
+  process.platform === "win32" ? "junction" : "dir");
 const { scoreEvidence } = await import(pathToFileURL(path.join(repository, "scripts", "capability-score.mjs")).href);
 
 function rollout({ capabilityId, scenario, trial, sourceKind, result = "pass", unverified = false }) {
@@ -126,21 +134,112 @@ function rollout({ capabilityId, scenario, trial, sourceKind, result = "pass", u
   };
 }
 
-async function fixture(name, { weakCapability, gap, selfReview = false, duplicateObservation = false, unavailable = false, unverifiedPass = false } = {}) {
+const goldenCases = parseYaml(await readFile(path.resolve("evals/cases/golden.yaml"), "utf8"));
+
+function deterministicOutput(testCase) {
+  return (testCase.assert ?? []).flatMap((assertion) => {
+    if (assertion.type === "contains") return [assertion.value];
+    if (assertion.type === "contains-all") return assertion.value;
+    return [];
+  }).join("\n");
+}
+
+async function deterministicEvidence(directory, weakCapability) {
+  const selectedCases = goldenCases.filter((testCase) => /^\[(?:smoke|full)\]/.test(testCase.description));
+  const runtimeCases = runtimeCasesForInstalledSkill(selectedCases);
+  const home = path.join(temporaryRoot, "eval-home");
+  const rows = runtimeCases.flatMap((testCase, caseIndex) => [1, 2].map((trial) => {
+    const output = deterministicOutput(testCase);
+    const expectsSkill = testCase.metadata.observations.skill_activation.expected === "used";
+    const command = expectsSkill
+      ? `sed -n 1,20p ${path.join(home, ".agents", "skills", "run-bounded-mission", "SKILL.md")}`
+      : "pwd";
+    const items = [
+      { id: `command-${caseIndex}-${trial}`, type: "command_execution", command, aggregated_output: "verified\n", exit_code: 0, status: "completed" },
+      { id: `message-${caseIndex}-${trial}`, type: "agent_message", text: output },
+    ];
+    return {
+      success: true,
+      provider: { id: "openai:codex-sdk" },
+      response: {
+        output,
+        raw: JSON.stringify({
+          finalResponse: output,
+          items,
+          usage: { input_tokens: 1, cached_input_tokens: 0, output_tokens: 1, reasoning_output_tokens: 0 },
+          reasoningTexts: [],
+          conversationMessages: [
+            { role: "user", content: testCase.vars.prompt },
+            { role: "assistant", content: output },
+          ],
+        }),
+      },
+      testCase: structuredClone(testCase),
+      gradingResult: {
+        pass: true,
+        componentResults: testCase.assert.map((assertion) => ({ pass: true, assertion: structuredClone(assertion) })),
+      },
+    };
+  }));
+  const artifact = {
+    author: null,
+    results: { results: rows, stats: { successes: rows.length, failures: 0, errors: 0 } },
+    config: {
+      providers: [{
+        id: "openai:codex-sdk",
+        label: "synthetic-model/low",
+        config: {
+          model: "synthetic-model",
+          model_reasoning_effort: "low",
+          working_dir: "[REDACTED]",
+          cli_env: { HOME: "[REDACTED]", CODEX_HOME: "[REDACTED]" },
+          sandbox_mode: "read-only",
+          approval_policy: "never",
+          network_access_enabled: false,
+          web_search_enabled: false,
+          enable_streaming: true,
+          inherit_process_env: false,
+        },
+      }],
+      metadata: { candidate: { commit: candidate.commit, tree: candidate.tree } },
+    },
+    runtimeOptions: { repeat: 2 },
+  };
+  const artifactBytes = Buffer.from(`${JSON.stringify(artifact, null, 2)}\n`);
+  const artifactName = "validated-full-result.json";
+  await writeFile(path.join(directory, artifactName), artifactBytes);
+  const runnerEvidence = capabilityEvidenceForValidatedResult({
+    artifact,
+    cases: runtimeCases,
+    repeat: 2,
+    candidate: { commit: candidate.commit, tree: candidate.tree },
+    repository: candidate.repository,
+    catalogBytes: committedCatalogBytes,
+    resultArtifactName: artifactName,
+  });
+  runnerEvidence.observations = runnerEvidence.observations.filter((entry) => entry.capability_id !== weakCapability);
+  const runnerEvidencePath = path.join(directory, "runner-evidence.json");
+  await writeFile(runnerEvidencePath, `${JSON.stringify(runnerEvidence, null, 2)}\n`);
+  return { observations: runnerEvidence.observations, runnerEvidencePath };
+}
+
+async function fixture(name, { weakCapability, gap, selfReview = false, duplicateObservation = false, unavailable = false } = {}) {
   const directory = path.join(temporaryRoot, name);
   await mkdir(directory, { recursive: true });
   const observations = [];
+  const generated = await deterministicEvidence(directory, weakCapability);
+  observations.push(...generated.observations);
   for (const capability of catalog.capabilities) {
     if (capability.id === weakCapability) continue;
     for (const scenario of catalog.default_requirements.scenarios) {
       for (const [index, sourceKind] of catalog.default_requirements.sources.entries()) {
+        if (sourceKind === "deterministic_replay") continue;
         const trial = index + 1;
         const built = rollout({
           capabilityId: capability.id,
           scenario,
           trial,
           sourceKind,
-          unverified: unverifiedPass && capability.id === catalog.capabilities[0].id && scenario === "positive" && sourceKind === "deterministic_replay",
         });
         const artifactName = `${capability.id}-${scenario}-${trial}-${sourceKind}.jsonl`;
         await writeFile(path.join(directory, artifactName), built.artifact);
@@ -171,12 +270,16 @@ async function fixture(name, { weakCapability, gap, selfReview = false, duplicat
   };
   const evidencePath = path.join(directory, "evidence.json");
   await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
-  return { directory, evidencePath };
+  return { directory, evidencePath, runnerEvidencePath: generated.runnerEvidencePath };
 }
 
 try {
   assert.match(await validateCatalogFile(catalogPath), /^sha256:[a-f0-9]{64}$/);
   const complete = await fixture("complete");
+  const runnerOnlyScore = await scoreEvidence({ evidencePath: complete.runnerEvidencePath });
+  assert.equal(runnerOnlyScore.eligible, false);
+  assert.equal(runnerOnlyScore.minimum_score, 0, "runner evidence must leave uncovered capability leaves at zero");
+  assert.ok(runnerOnlyScore.capabilities.some((row) => row.reason === "local_writable_trace_has_no_provider_attestation"));
   const completeScore = await scoreEvidence(complete);
   assert.equal(completeScore.eligible, false, "locally writable traces must never self-certify 9.5");
   assert.equal(completeScore.weighted_score, 2);
@@ -202,13 +305,9 @@ try {
 
   const unavailable = await fixture("unavailable", { unavailable: true });
   const unavailableRow = (await scoreEvidence(unavailable)).capabilities.find((row) => row.id === catalog.capabilities[0].id);
-  assert.equal(unavailableRow.score, 2);
-  assert.equal(unavailableRow.reason, "local_writable_trace_has_no_provider_attestation");
-
-  const unverified = await fixture("unverified-pass", { unverifiedPass: true });
-  const unverifiedRow = (await scoreEvidence(unverified)).capabilities.find((row) => row.id === catalog.capabilities[0].id);
-  assert.equal(unverifiedRow.score, 0);
-  assert.equal(unverifiedRow.reason, "unverified_pass");
+  assert.equal(unavailableRow.score, 0);
+  assert.equal(unavailableRow.reason, "unavailable_observation");
+  assert.equal(unavailableRow.unavailable_count, 1);
 
   const selfReview = await fixture("self-review", { selfReview: true });
   await assert.rejects(() => scoreEvidence(selfReview), /observer must differ/, "self-review must not count as independent evidence");
@@ -220,6 +319,34 @@ try {
   const corruptEvidence = JSON.parse(await readFile(corrupt.evidencePath, "utf8"));
   await writeFile(path.join(corrupt.directory, corruptEvidence.observations[0].artifact_path), "tampered\n");
   await assert.rejects(() => scoreEvidence(corrupt), /digest mismatch/);
+
+  const wrongCase = await fixture("wrong-case");
+  const wrongCaseEvidence = JSON.parse(await readFile(wrongCase.evidencePath, "utf8"));
+  const deterministicObservation = wrongCaseEvidence.observations.find((entry) => entry.source_kind === "deterministic_replay");
+  deterministicObservation.case_id = "answer-only-nonactivation";
+  await writeFile(wrongCase.evidencePath, `${JSON.stringify(wrongCaseEvidence, null, 2)}\n`);
+  await assert.rejects(() => scoreEvidence(wrongCase), /does not match the committed case binding/);
+
+  const wrongPrincipal = await fixture("wrong-principal");
+  const wrongPrincipalEvidence = JSON.parse(await readFile(wrongPrincipal.evidencePath, "utf8"));
+  wrongPrincipalEvidence.observations.find((entry) => entry.source_kind === "deterministic_replay").producer_id = `sha256:${"0".repeat(64)}`;
+  await writeFile(wrongPrincipal.evidencePath, `${JSON.stringify(wrongPrincipalEvidence, null, 2)}\n`);
+  await assert.rejects(() => scoreEvidence(wrongPrincipal), /principals or result do not match/);
+
+  const staleResult = await fixture("stale-result");
+  const staleEvidence = JSON.parse(await readFile(staleResult.evidencePath, "utf8"));
+  const staleObservation = staleEvidence.observations.find((entry) => entry.source_kind === "deterministic_replay");
+  const staleArtifactPath = path.join(staleResult.directory, staleObservation.artifact_path);
+  const staleArtifact = JSON.parse(await readFile(staleArtifactPath, "utf8"));
+  staleArtifact.config.metadata.candidate.commit = "f".repeat(40);
+  const staleBytes = Buffer.from(`${JSON.stringify(staleArtifact, null, 2)}\n`);
+  await writeFile(staleArtifactPath, staleBytes);
+  for (const observation of staleEvidence.observations.filter((entry) => entry.source_kind === "deterministic_replay")) {
+    observation.content_sha256 = sha(staleBytes);
+    observation.observer_id = sha(staleBytes);
+  }
+  await writeFile(staleResult.evidencePath, `${JSON.stringify(staleEvidence, null, 2)}\n`);
+  await assert.rejects(() => scoreEvidence(staleResult), /not bound to the exact candidate/);
 
   const nativeMismatch = await fixture("native-mismatch");
   const nativeEvidence = JSON.parse(await readFile(nativeMismatch.evidencePath, "utf8"));

@@ -162,6 +162,7 @@ try {
       description: "[smoke] harness positive control",
       metadata: {
         observations: {
+          capability: { id: "KRN-01", scenario: "positive", case_id: "synthetic-positive" },
           behavioral_oracle: "deterministic_text",
           skill_activation: { status: "dynamic_heuristic", expected: "used" },
           required_raw_item_types: ["command_execution"],
@@ -190,6 +191,7 @@ try {
       description: "[smoke] harness negative control",
       metadata: {
         observations: {
+          capability: { id: "KRN-01", scenario: "negative", case_id: "synthetic-negative" },
           behavioral_oracle: "deterministic_text",
           skill_activation: { status: "dynamic_heuristic", expected: "not_used" },
           required_raw_item_types: [],
@@ -262,7 +264,7 @@ try {
     },
     config: {
       providers: [structuredClone(preparedConfig.providers[0])],
-      metadata: {},
+      metadata: { candidate: { commit: "a".repeat(40), tree: "b".repeat(40) } },
     },
     runtimeOptions: { repeat: 1 },
   };
@@ -279,6 +281,7 @@ try {
     workingDirectory: temporaryRoot,
     homeDirectory: evaluationHome,
     codexHome: evaluationCodexHome,
+    candidateIdentity: { commit: "a".repeat(40), tree: "b".repeat(40) },
   });
   await writeFile(resultPath, JSON.stringify(validResultArtifact), "utf8");
   await validateSyntheticResult();
@@ -463,6 +466,7 @@ try {
     workingDirectory: temporaryRoot,
     homeDirectory: evaluationHome,
     codexHome: evaluationCodexHome,
+    candidateIdentity: { commit: "a".repeat(40), tree: "b".repeat(40) },
   });
   await writeFile(resultPath, JSON.stringify(repeatedArtifact), "utf8");
   await validateRepeatedSyntheticResult();

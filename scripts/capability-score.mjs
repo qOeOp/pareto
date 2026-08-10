@@ -4,6 +4,13 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { parse as parseYaml } from "yaml";
+import {
+  CANONICAL_PROVIDER_ID,
+  readHoldoutIdentity,
+  runtimeCasesForInstalledSkill,
+  validateResultArtifact,
+} from "./eval.mjs";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -15,6 +22,7 @@ const results = new Set(["pass", "fail", "unavailable"]);
 const goalStatuses = new Set(["active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"]);
 const shaPattern = /^sha256:[a-f0-9]{64}$/;
 const threadPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const deterministicArtifactCache = new Map();
 const expectedCapabilityIds = new Set([
   "KRN-01", "KRN-02", "PLN-01", "PLN-02", "PLN-03", "PLN-04", "PLN-05", "ORC-01", "ORC-02",
   "ORC-03", "ORC-04", "ORC-05", "ORC-06", "EXE-01", "EXE-02", "VER-01", "VER-02", "VER-03",
@@ -199,6 +207,108 @@ function parseRolloutTrace(bytes, observation, candidate) {
   return true;
 }
 
+function installedHomeFromArtifact(artifact) {
+  const homes = new Set();
+  for (const row of artifact?.results?.results ?? []) {
+    if (typeof row?.response?.raw !== "string") continue;
+    const { value: raw } = parseUniqueJson(Buffer.from(row.response.raw), "Promptfoo raw turn");
+    for (const item of raw?.items ?? []) {
+      if (item?.type !== "command_execution" || typeof item.command !== "string") continue;
+      for (const token of item.command.split(/\s+/)) {
+        const normalized = token.replace(/^[`"'([{<]+|[`"',;:)\]}>]+$/g, "").replace(/\\/g, "/");
+        const match = /^(.*)\/\.agents\/skills\/run-bounded-mission\/SKILL\.md$/.exec(normalized);
+        if (match) homes.add(match[1]);
+      }
+    }
+  }
+  if (homes.size !== 1) fail("Promptfoo evidence does not identify one installed user Skill root");
+  return [...homes][0];
+}
+
+async function validatedDeterministicArtifact(bytes, artifactPath, candidate) {
+  const cacheKey = `${artifactPath}\u0000${digest(bytes)}\u0000${candidate.commit}\u0000${candidate.tree}`;
+  if (deterministicArtifactCache.has(cacheKey)) return deterministicArtifactCache.get(cacheKey);
+  const validation = (async () => {
+  const { value: artifact } = parseUniqueJson(bytes, "Promptfoo capability evidence");
+  const repeat = artifact?.runtimeOptions?.repeat;
+  const suite = repeat === 1 ? "smoke" : repeat === 2 ? "full" : repeat === 3 ? "holdout" : null;
+  if (!suite) fail("Promptfoo capability evidence has an unsupported suite repeat");
+  const caseFile = suite === "holdout" ? "evals/cases/holdout.yaml" : "evals/cases/golden.yaml";
+  const caseBytes = await gitBytes(root, ["show", `${candidate.commit}:${caseFile}`]).catch(() => null);
+  if (!caseBytes) fail("Promptfoo capability case authority is unavailable from the candidate");
+  const sourceCases = parseYaml(caseBytes.toString("utf8"));
+  const suitePattern = suite === "smoke" ? /^\[smoke\]/ : suite === "full" ? /^\[(?:smoke|full)\]/ : /^\[holdout\]/;
+  const selectedCases = sourceCases.filter((testCase) => suitePattern.test(testCase.description));
+  const runtimeCases = runtimeCasesForInstalledSkill(selectedCases);
+  const provider = artifact?.config?.providers?.[0];
+  const model = provider?.config?.model;
+  const effort = provider?.config?.model_reasoning_effort;
+  const candidateIdentity = { commit: candidate.commit, tree: candidate.tree };
+  let holdoutIdentity = null;
+  if (suite === "holdout") {
+    holdoutIdentity = await readHoldoutIdentity(root);
+    if (holdoutIdentity.commit !== candidate.commit || holdoutIdentity.tree !== candidate.tree) {
+      fail("Promptfoo holdout authority does not match the candidate");
+    }
+  }
+  const installedHome = installedHomeFromArtifact(artifact);
+  await validateResultArtifact({
+    resultPath: artifactPath,
+    suite,
+    repeat,
+    cases: runtimeCases,
+    providerId: CANONICAL_PROVIDER_ID,
+    model,
+    effort,
+    workingDirectory: path.resolve("/redacted-eval-workspace"),
+    homeDirectory: installedHome,
+    codexHome: path.resolve("/redacted-codex-home"),
+    candidateIdentity,
+    holdoutIdentity,
+  });
+  if (artifact.config?.metadata?.candidate?.commit !== candidate.commit ||
+      artifact.config?.metadata?.candidate?.tree !== candidate.tree) {
+    fail("Promptfoo capability evidence is stale for the candidate");
+  }
+    return { artifact, repeat, selectedCases, provider, model, effort };
+  })();
+  deterministicArtifactCache.set(cacheKey, validation);
+  try {
+    return await validation;
+  } catch (error) {
+    deterministicArtifactCache.delete(cacheKey);
+    throw error;
+  }
+}
+
+async function parseDeterministicEvalTrace(bytes, artifactPath, observation, candidate) {
+  const { artifact, repeat, selectedCases, provider, model, effort } =
+    await validatedDeterministicArtifact(bytes, artifactPath, candidate);
+  const sourceCase = selectedCases.find((testCase) =>
+    testCase?.metadata?.observations?.capability?.case_id === observation.case_id);
+  const binding = sourceCase?.metadata?.observations?.capability;
+  if (!sourceCase || binding.id !== observation.capability_id || binding.scenario !== observation.scenario) {
+    fail("Promptfoo capability evidence does not match the committed case binding");
+  }
+  const rows = artifact.results.results.filter((row) =>
+    row?.testCase?.metadata?.observations?.capability?.case_id === observation.case_id);
+  const trialIndex = Number(observation.trial_id) - 1;
+  if (!Number.isInteger(trialIndex) || trialIndex < 0 || trialIndex >= rows.length || rows.length !== repeat) {
+    fail("Promptfoo capability trial binding is invalid");
+  }
+  const row = rows[trialIndex];
+  const rawBytes = Buffer.from(row.response.raw, "utf8");
+  const environment = `promptfoo:${provider.id}:${model}:${effort}`;
+  const producer = digest(rawBytes);
+  const observer = digest(bytes);
+  if (observation.environment_id !== environment || observation.subject_id !== candidate.commit ||
+      observation.producer_id !== producer || observation.observer_id !== observer ||
+      observation.result !== "pass") {
+    fail("Promptfoo capability principals or result do not match the validated trial");
+  }
+  return true;
+}
+
 function parseNativeTrace(bytes, observation, candidate) {
   const { value: envelope } = parseUniqueJson(bytes, "native evidence");
   exactKeys(envelope, ["schema", "content_sha256", "payload"], "native evidence envelope");
@@ -242,6 +352,9 @@ async function validateArtifact(observation, evidenceDirectory, candidate) {
   if (!info?.isFile() || info.isSymbolicLink()) fail(`evidence artifact is missing or unsafe: ${observation.artifact_path}`);
   const bytes = await readFile(artifactPath);
   if (digest(bytes) !== observation.content_sha256) fail(`evidence artifact digest mismatch: ${observation.artifact_path}`);
+  if (observation.source_kind === "deterministic_replay" && observation.result === "pass") {
+    return parseDeterministicEvalTrace(bytes, artifactPath, observation, candidate);
+  }
   if (observation.source_kind === "native_trace" && observation.result === "pass") return parseNativeTrace(bytes, observation, candidate);
   return parseRolloutTrace(bytes, observation, candidate);
 }
@@ -269,6 +382,7 @@ function scoreCapability(capability, observations, gaps, requirements, localTrac
     const reason = criticalGap ? "critical_gap" : materialGap ? "material_gap" : failed.length > 0 ? "failed_observation" : "unverified_pass";
     return { score: 0, maturity: "contradicted", reason };
   }
+  if (unavailable.length > 0) return { score: 0, maturity: "unavailable", reason: "unavailable_observation" };
   if (passed.length === 0) return { score: 0, maturity: "absent", reason: "no_passing_evidence" };
 
   const sources = new Set(passed.map((entry) => entry.source_kind));
@@ -295,11 +409,6 @@ function scoreCapability(capability, observations, gaps, requirements, localTrac
     reason = "positive_negative_recovery_with_independent_review";
   }
 
-  if (unavailable.length > 0 && score > 6) {
-    score = 6;
-    maturity = "dynamic";
-    reason = "unavailable_attempt_caps_observation";
-  }
   if (score > localTraceCeiling) {
     score = localTraceCeiling;
     maturity = "declared";
@@ -332,7 +441,9 @@ export async function scoreEvidence({ evidencePath }) {
     const key = [observation.capability_id, observation.scenario, observation.case_id, observation.trial_id, observation.environment_id, observation.source_kind, observation.observer_id].join("\u0000");
     if (keys.has(key)) fail("evidence repeats one observation identity");
     keys.add(key);
-    const trialArtifact = [observation.capability_id, observation.scenario, observation.source_kind, observation.content_sha256].join("\u0000");
+    const trialArtifact = [observation.capability_id, observation.scenario, observation.case_id,
+      observation.source_kind, observation.source_kind === "deterministic_replay"
+        ? observation.trial_id : observation.content_sha256].join("\u0000");
     if (trialArtifacts.has(trialArtifact)) fail("evidence reuses one artifact as multiple trials");
     trialArtifacts.add(trialArtifact);
     observation.source_verified = await validateArtifact(observation, evidenceDirectory, evidence.candidate);
@@ -350,7 +461,13 @@ export async function scoreEvidence({ evidencePath }) {
   const rows = [...capabilities.values()].map((capability) => {
     const observations = evidence.observations.filter((entry) => entry.capability_id === capability.id);
     const gaps = gapsByCapability.get(capability.id) ?? [];
-    return { ...capability, ...scoreCapability(capability, observations, gaps, catalog.default_requirements, catalog.local_trace_ceiling), observation_count: observations.length, gap_count: gaps.length };
+    return {
+      ...capability,
+      ...scoreCapability(capability, observations, gaps, catalog.default_requirements, catalog.local_trace_ceiling),
+      observation_count: observations.length,
+      unavailable_count: observations.filter((entry) => entry.result === "unavailable").length,
+      gap_count: gaps.length,
+    };
   });
   const weightedScore = rows.reduce((sum, row) => sum + row.score * row.weight, 0) / rows.reduce((sum, row) => sum + row.weight, 0);
   const minimumScore = Math.min(...rows.map((row) => row.score));
