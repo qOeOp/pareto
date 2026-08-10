@@ -261,6 +261,22 @@ API rather than environment overrides; the observer atomically claims a previous
 refuses pre-existing state, atomically moves the claimed directory to an isolated sibling custody,
 and verifies its identity before removal in `finally`.
 
+Profile-file installation uses the same fixed workflow but never relabels an `INS-01` observation.
+`INS-03`, `INS-05`, `INS-07`, and `INS-09` each receive a fresh job, temporary root, observation,
+observation signature, six-slot campaign, and campaign signature. The positive path binds the exact
+source and installed profile bytes, the complete four-profile same-lock bundle, foreign-state
+preservation, `--check`, and a fresh app-server config-loader barrier. The negative path corrupts only
+the fixed target profile with one deterministic malformed TOML value, requires the exact version-bound
+warning before the `config/read` response, and proves that read-only `--check` rejects the exact
+`agent:<profile>` mismatch without changing the drifted installation. Recovery retains that failed
+check, performs a separately authorized exact reinstall, and requires the restored bytes, bundle,
+foreign state, passing check, and a third fresh app-server process with no profile warning. This proves
+only profile-file installation and loader consumption; native role routing, executed model or effort,
+and hidden-context isolation remain unavailable. The first profile campaigns are bootstrap-only. Their
+scenario authority remains unavailable until both Linux and Windows observations succeed from canonical
+`main`; a later strict scorer revision must verify every per-capability observation and signature before
+any profile capability receives a score.
+
 `EVAL-02` uses a separate fixed observer to execute the canonical scorer CLI as a black box against
 one already-attested INS-01 campaign. Its positive path requires the signed campaign to score only
 INS-01 at 8 while the global minimum stays 0 and eligibility stays false. Its negative path injects
