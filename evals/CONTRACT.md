@@ -167,6 +167,17 @@ inventory with a repository verifier; the scorer rejects manifests that pretend 
 The local assessor does not derive representative coverage from writable trial, environment, or
 reviewer labels. Those requirements remain unavailable until an external attempt authority can enforce them.
 
+Deterministic runtime capabilities may use a fixed observer instead of a model text oracle. The
+observer must execute the real consumer against one exact canonical-main subject, fail closed on its
+positive, negative, and recovery matrix, and aggregate every prescribed environment before signing.
+GitHub-hosted execution becomes external evidence only through an offline-verifiable Sigstore bundle
+bound to the exact signer workflow and digest; a CI status, uploaded JSON, custom predicate, or
+candidate-controlled workflow is not sufficient. The first observer candidate is bootstrap evidence
+only and cannot raise a score. A later scorer candidate may consume a real bundle only after the
+observer is canonical, independently reviewed, and invoked from that immutable revision.
+An attested campaign additionally requires a `main` dispatch whose subject commit equals the fixed
+observer commit; ancestor status or a caller-selected revision is insufficient.
+
 The CLI is an explicit operator gate, not a host Goal integration: it exits nonzero for every report
 whose minimum leaf is below 9.5. The candidate repository must match the scorer checkout's exact origin;
 its commit must be the clean checkout `HEAD`, its tree must resolve exactly, and its committed catalog

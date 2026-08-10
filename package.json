@@ -9,7 +9,7 @@
   },
   "scripts": {
     "audit:consumer": "npm audit --omit=dev",
-    "check": "node scripts/validate.mjs && node scripts/self-test.mjs && node scripts/install-codex.test.mjs && node scripts/capability-score.test.mjs && node scripts/native-evidence.test.mjs && promptfoo validate -c evals/promptfooconfig.yaml",
+    "check": "node --check scripts/observe-install-capability.mjs && node scripts/validate.mjs && node scripts/self-test.mjs && node scripts/install-codex.test.mjs && node scripts/capability-score.test.mjs && node scripts/native-evidence.test.mjs && promptfoo validate -c evals/promptfooconfig.yaml",
     "install:codex": "node scripts/install-codex.mjs",
     "check:codex-install": "node scripts/install-codex.mjs --check",
     "eval:smoke": "node scripts/eval.mjs smoke",
