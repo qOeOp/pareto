@@ -29,6 +29,17 @@ try {
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, await readFile(path.join(root, file)));
   }
+  // Keep one intentionally incomplete canonical slot in this isolated fixture so the
+  // monotonic-addition checks remain meaningful after the real corpus reaches 117/117.
+  const fixtureDesignPath = path.join(fixture, "evals/scenarios.json");
+  const fixtureGoldenPath = path.join(fixture, "evals/cases/golden.yaml");
+  const fixtureDesign = JSON.parse(await readFile(fixtureDesignPath, "utf8"));
+  const fixtureRow = fixtureDesign.scenarios.find((entry) => entry.case_id === "ins-02-positive");
+  delete fixtureRow.executable_suite;
+  const fixtureGolden = (await import("yaml")).parse(await readFile(fixtureGoldenPath, "utf8"));
+  await writeFile(fixtureDesignPath, `${JSON.stringify(fixtureDesign, null, 2)}\n`);
+  await writeFile(fixtureGoldenPath, stringifyYaml(fixtureGolden.filter((testCase) =>
+    testCase.metadata.observations.capability.case_id !== fixtureRow.case_id)));
   runGit("add", ".");
   runGit("commit", "--quiet", "-m", "base");
   const base = runGit("rev-parse", "HEAD");
