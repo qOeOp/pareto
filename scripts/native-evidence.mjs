@@ -41,7 +41,7 @@ async function executableIdentity(executable) {
   if (!path.isAbsolute(executable)) fail("codex executable must be one absolute path");
   const resolved = await realpath(executable).catch(() => "");
   const info = resolved ? await lstat(resolved).catch(() => null) : null;
-  if (!info?.isFile() || info.isSymbolicLink() || (info.mode & 0o111) === 0) fail("codex executable is missing or unsafe");
+  if (!info?.isFile() || info.isSymbolicLink() || (process.platform !== "win32" && (info.mode & 0o111) === 0)) fail("codex executable is missing or unsafe");
   const hash = createHash("sha256");
   for await (const chunk of createReadStream(resolved)) hash.update(chunk);
   return { path: resolved, sha256: `sha256:${hash.digest("hex")}` };
@@ -82,6 +82,7 @@ export async function collectNativeEvidence({
   candidateTree,
   codexExecutable,
   expectedServerVersion,
+  appServerCwd,
   timeoutMs = 10_000,
 }) {
   if (!threadPattern.test(threadId)) fail("thread id must be one exact UUID");
@@ -94,7 +95,7 @@ export async function collectNativeEvidence({
   if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(expectedServerVersion ?? "")) fail("expected server version is invalid");
 
   const executable = await executableIdentity(codexExecutable ?? "");
-  const child = spawn(executable.path, ["app-server"], { stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(executable.path, ["app-server"], { cwd: appServerCwd, stdio: ["pipe", "pipe", "pipe"] });
   if (!child?.stdin || !child?.stdout || !child?.stderr) fail("app-server process transport is unavailable");
   const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
   const messages = [];

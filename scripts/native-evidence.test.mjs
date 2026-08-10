@@ -9,11 +9,10 @@ const threadId = "019fb8b4-ebd0-7c20-8ba1-041ed6836204";
 const objective = "prove the native evidence route";
 const objectiveSha256 = `sha256:${createHash("sha256").update(objective).digest("hex")}`;
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "native-evidence-test-"));
-const binding = { capabilityId: "ORC-01", scenario: "positive", caseId: "goal-active", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40), expectedServerVersion: "0.147.0" };
-let fixtureIndex = 0;
+const binding = { capabilityId: "ORC-01", scenario: "positive", caseId: "goal-active", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40), expectedServerVersion: "0.147.0", appServerCwd: temporaryRoot };
 
 async function fakeServer({ goal = { threadId, objective, status: "active" }, duplicate = false, initializeError = false, readError = false, silent = false, source = "cli", sessionId = threadId, parentThreadId = null, ignoreTerm = false, pidFile = null } = {}) {
-  const executable = path.join(temporaryRoot, `codex-${fixtureIndex += 1}`);
+  const executable = path.join(temporaryRoot, "app-server");
   const fixture = { threadId, goal, duplicate, initializeError, readError, silent, source, sessionId, parentThreadId, ignoreTerm, pidFile };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
@@ -39,7 +38,7 @@ rl.on("line", (line) => {
 `;
   await writeFile(executable, program);
   await chmod(executable, 0o755);
-  return executable;
+  return process.execPath;
 }
 
 try {
