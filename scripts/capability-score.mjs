@@ -3,6 +3,7 @@ import { execFile } from "node:child_process";
 import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import nodeProcess from "node:process";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
@@ -10,22 +11,22 @@ import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultCatalogPath = path.join(root, "evals", "capabilities.json");
 const execFileAsync = promisify(execFile);
-const cleanProcessEnvironment = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
+const cleanProcessEnvironment = Object.fromEntries(Object.entries(nodeProcess.env).filter(([name]) =>
   !/^(?:GIT_|NODE_|DYLD_|LD_)/i.test(name)));
 const gitEnvironment = {
   ...cleanProcessEnvironment,
   // Git for Windows does not accept Node's `\\.\nul` spelling here; its
   // native null-device pathname is the reserved DOS name `NUL`.
-  GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : os.devNull,
+  GIT_CONFIG_GLOBAL: nodeProcess.platform === "win32" ? "NUL" : os.devNull,
   GIT_CONFIG_NOSYSTEM: "1",
   GIT_NO_REPLACE_OBJECTS: "1",
   GIT_OPTIONAL_LOCKS: "0",
 };
-const trustedGitPath = process.platform === "win32" ? "C:\\Program Files\\Git\\cmd\\git.exe" : "/usr/bin/git";
+const trustedGitPath = nodeProcess.platform === "win32" ? "C:\\Program Files\\Git\\cmd\\git.exe" : "/usr/bin/git";
 const trustedGitOptions = [
   "-c", "core.fsmonitor=false",
   "-c", "core.untrackedCache=false",
-  ...(process.platform === "win32" ? ["-c", "core.autocrlf=true"] : []),
+  ...(nodeProcess.platform === "win32" ? ["-c", "core.autocrlf=true"] : []),
 ];
 const sourceKinds = new Set(["deterministic_replay", "native_trace", "independent_review"]);
 const results = new Set(["pass", "fail", "unavailable"]);
@@ -44,6 +45,7 @@ const passiveNativeItemTypes = new Set([
 ]);
 const deterministicArtifactCache = new Map();
 let evaluationRuntimePromise;
+const evidenceRuntimeModeKey = "__qoeopParetoCapabilityScoreEvidenceRuntimeMode";
 const singleAttestedCampaignScore = 6;
 const repeatedAttestedCampaignScore = 8;
 const installCampaignCapability = "INS-01";
@@ -67,6 +69,11 @@ const installCampaignScenarios = Object.freeze({
   negative: "stale-lock-rejected-without-install-drift",
   positive: "portable-skill-install-and-loader-discovery",
   recovery: "installed-skill-drift-repaired-and-discovered",
+});
+const scoreCampaignScenarios = Object.freeze({
+  negative: "score-cannot-hide-failed-floor",
+  positive: "signed-campaign-produces-bounded-report",
+  recovery: "score-recovers-after-gap-removal",
 });
 const expectedCapabilityIds = new Set([
   "KRN-01", "KRN-02", "PLN-01", "PLN-02", "PLN-03", "PLN-04", "PLN-05", "ORC-01", "ORC-02",
@@ -246,7 +253,7 @@ async function boundedEvidenceDirectory(evidenceDirectory, relativePath, label) 
   return resolved;
 }
 
-export function nodeSupportsSigstore(version = process.versions.node) {
+export function nodeSupportsSigstore(version = nodeProcess.versions.node) {
   const match = /^(\d+)\.(\d+)\.(\d+)(?:-|$)/.exec(version);
   if (!match) return false;
   const [, majorText, minorText, patchText] = match;
@@ -401,6 +408,71 @@ async function committedCapabilityCases(repositoryRoot, candidate, capabilities)
     }
   }
   return cases;
+}
+
+async function verifyCommittedFixedObserverBindings(repositoryRoot, candidate) {
+  const bytes = await gitBytes(repositoryRoot, ["show", `${candidate.commit}:evals/scenarios.json`]).catch(() => null);
+  if (!bytes) fail("committed scenario authority is unavailable from the candidate");
+  const { value: design } = parseUniqueJson(bytes, "scenario authority");
+  exactKeys(design, ["schema_version", "scenarios"], "scenario authority");
+  if (design.schema_version !== 2 || !Array.isArray(design.scenarios) || design.scenarios.length !== 117) {
+    fail("scenario authority identity is invalid");
+  }
+  const rows = new Map();
+  for (const row of design.scenarios) {
+    if (!row || typeof row !== "object" || Array.isArray(row) ||
+        typeof row.capability_id !== "string" || !scenarios.has(row.scenario) ||
+        typeof row.case_id !== "string") {
+      fail("scenario authority row is invalid");
+    }
+    const slot = `${row.capability_id}/${row.scenario}`;
+    if (rows.has(slot)) fail("scenario authority contains a duplicate slot");
+    rows.set(slot, row);
+  }
+  const authority = new Map();
+  for (const [capabilityId, bindings] of [
+    [installCampaignCapability, installCampaignScenarios],
+    [scoreCampaignCapability, scoreCampaignScenarios],
+  ]) {
+    const capabilityRows = [];
+    for (const [scenario, caseId] of Object.entries(bindings)) {
+      const row = rows.get(`${capabilityId}/${scenario}`);
+      if (row?.case_id !== caseId || row?.observer_kind !== "fixed_real_consumer" ||
+          row?.executable_suite !== "golden") {
+        fail(`${capabilityId} fixed observer does not match the committed scenario authority`);
+      }
+      capabilityRows.push(row);
+    }
+    const implemented = capabilityRows.every((row) =>
+      row.authority_status === "implemented" && row.missing_authority === null);
+    const unavailable = capabilityRows.every((row) =>
+      row.authority_status === "authority_unavailable" && row.missing_authority === "scenario_consumer_binding");
+    if (!implemented && !unavailable) fail(`${capabilityId} fixed observer scenario authority is partial or invalid`);
+    authority.set(capabilityId, { implemented });
+  }
+  return authority;
+}
+
+function enterEvidenceRuntimeMode(mode) {
+  if (mode === null) return;
+  const descriptor = Object.getOwnPropertyDescriptor(nodeProcess, evidenceRuntimeModeKey);
+  if (descriptor && (descriptor.configurable || descriptor.writable !== false ||
+      descriptor.get !== undefined || descriptor.set !== undefined ||
+      !["attested", "local"].includes(descriptor.value))) {
+    fail("scorer process runtime mode lock is invalid");
+  }
+  const current = descriptor?.value;
+  if (current !== undefined && current !== mode) {
+    fail("attested and local observation runtimes require separate scorer processes");
+  }
+  if (current === undefined) {
+    Object.defineProperty(nodeProcess, evidenceRuntimeModeKey, {
+      configurable: false,
+      enumerable: false,
+      value: mode,
+      writable: false,
+    });
+  }
 }
 
 function verifyDeterministicText(output, assertions, label) {
@@ -851,7 +923,7 @@ async function verifySigstoreInChild(bundleFile, entry, expected) {
   const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), "pareto-sigstore-runtime-"));
   let stdout;
   try {
-    ({ stdout } = await execFileAsync(process.execPath,
+    ({ stdout } = await execFileAsync(nodeProcess.execPath,
       [script, "--verify-sigstore", bundleFile.path, entry.bundle_sha256, encoded, runtimeRoot], {
       cwd: root,
       encoding: "utf8",
@@ -877,7 +949,7 @@ async function verifySigstoreBatchInChild(plan) {
   const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), "pareto-sigstore-runtime-"));
   let stdout;
   try {
-    ({ stdout } = await execFileAsync(process.execPath,
+    ({ stdout } = await execFileAsync(nodeProcess.execPath,
       [script, "--verify-sigstore-batch", encoded, runtimeRoot], {
       cwd: root,
       encoding: "utf8",
@@ -1363,9 +1435,14 @@ async function verifyScoreCampaign(entry, evidenceDirectory, candidate, loaded) 
   return { capability_id: scoreCampaignCapability, score: singleAttestedCampaignScore, maturity: "dynamic", reason: "single_attested_score_observer_campaign" };
 }
 
-async function verifyAttestedCampaign(entry, evidenceDirectory, candidate) {
+async function verifyAttestedCampaign(entry, evidenceDirectory, candidate, fixedObserverAuthority) {
   const loaded = await loadAttestedCampaign(entry, evidenceDirectory);
   const capabilityId = loaded.envelope.payload?.capability_id;
+  if (!fixedObserverAuthority.get(capabilityId)?.implemented ||
+      (capabilityId === scoreCampaignCapability &&
+        !fixedObserverAuthority.get(installCampaignCapability)?.implemented)) {
+    fail(`${capabilityId ?? "unknown"} attested campaign lacks implemented scenario authority`);
+  }
   if (capabilityId === installCampaignCapability) {
     return verifyInstallCampaign(entry, evidenceDirectory, candidate, loaded);
   }
@@ -1407,7 +1484,7 @@ function scoreCapability(observations, gaps, localTraceCeiling, attestedCampaign
   return { score: localTraceCeiling, maturity: "declared", reason: "local_writable_trace_has_no_provider_attestation" };
 }
 
-export async function scoreEvidence({ evidencePath }) {
+async function scoreEvidenceInternal({ evidencePath }, allowAttested) {
   if (!evidencePath) fail("evidence path is required");
   const { value: evidence } = await readUniqueJson(evidencePath, "capability evidence");
   if (evidence.schema_version === 1) {
@@ -1423,6 +1500,7 @@ export async function scoreEvidence({ evidencePath }) {
   const catalogBytes = await verifyCandidate(root, evidence.candidate);
   const { value: catalog } = parseUniqueJson(catalogBytes, "capability catalog");
   const capabilities = validateCatalog(catalog);
+  const fixedObserverAuthority = await verifyCommittedFixedObserverBindings(root, evidence.candidate);
   if (evidence.catalog_sha256 !== digest(catalogBytes)) fail("evidence catalog binding is stale or invalid");
   exactKeys(evidence.attempt_inventory, ["status", "locator"], "attempt inventory");
   if (evidence.attempt_inventory.status !== "unavailable") fail("provider-attested attempt inventory is not supported by this scorer");
@@ -1432,6 +1510,12 @@ export async function scoreEvidence({ evidencePath }) {
   if (!Array.isArray(attestedCampaignEntries)) fail("attested campaigns must be an array");
   if (attestedCampaignEntries.length > 0 && evidence.observations.length > 0) {
     fail("attested campaigns cannot share a process with locally loaded observation runtimes");
+  }
+  enterEvidenceRuntimeMode(attestedCampaignEntries.length > 0
+    ? "attested"
+    : evidence.observations.length > 0 ? "local" : null);
+  if (attestedCampaignEntries.length > 0 && !allowAttested) {
+    fail("attested scoring requires a one-time CLI scorer process");
   }
   const committedCases = evidence.observations.length > 0
     ? await committedCapabilityCases(root, evidence.candidate, capabilities)
@@ -1460,7 +1544,9 @@ export async function scoreEvidence({ evidencePath }) {
   const attestedCampaigns = [];
   const attestedCapabilities = new Set();
   for (const entry of attestedCampaignEntries) {
-    const campaign = await verifyAttestedCampaign(entry, evidenceDirectory, evidence.candidate);
+    const campaign = await verifyAttestedCampaign(
+      entry, evidenceDirectory, evidence.candidate, fixedObserverAuthority,
+    );
     if (attestedCapabilities.has(campaign.capability_id)) fail("evidence repeats one attested capability campaign");
     attestedCapabilities.add(campaign.capability_id);
     attestedCampaigns.push(campaign);
@@ -1515,39 +1601,42 @@ export async function scoreEvidence({ evidencePath }) {
   };
 }
 
+export async function scoreEvidence(options) {
+  return scoreEvidenceInternal(options, false);
+}
+
 export async function validateCatalogFile(catalogPath = defaultCatalogPath) {
   const { bytes, value } = await readUniqueJson(catalogPath, "capability catalog");
   validateCatalog(value);
   return digest(bytes);
 }
 
-const invokedAsMain = process.argv[1] &&
-  await realpath(path.resolve(process.argv[1])).catch(() => "") === await realpath(fileURLToPath(import.meta.url));
+const invokedAsMain = import.meta.main === true;
 if (invokedAsMain) {
   try {
-    if (process.argv[2] === "--verify-sigstore-batch") {
-      if (process.argv.length !== 5) fail("isolated Sigstore batch verifier arguments are invalid");
-      const planBytes = Buffer.from(process.argv[3], "base64");
-      if (planBytes.toString("base64") !== process.argv[3]) fail("isolated Sigstore batch plan encoding is invalid");
+    if (nodeProcess.argv[2] === "--verify-sigstore-batch") {
+      if (nodeProcess.argv.length !== 5) fail("isolated Sigstore batch verifier arguments are invalid");
+      const planBytes = Buffer.from(nodeProcess.argv[3], "base64");
+      if (planBytes.toString("base64") !== nodeProcess.argv[3]) fail("isolated Sigstore batch plan encoding is invalid");
       const { value: plan } = parseUniqueJson(planBytes, "isolated Sigstore batch plan");
-      const receipt = await verifySigstoreBundleBatch(plan, process.argv[4]);
+      const receipt = await verifySigstoreBundleBatch(plan, nodeProcess.argv[4]);
       console.log(JSON.stringify(receipt));
-    } else if (process.argv[2] === "--verify-sigstore") {
-      if (process.argv.length !== 7) fail("isolated Sigstore verifier arguments are invalid");
-      const expectationBytes = Buffer.from(process.argv[5], "base64");
-      if (expectationBytes.toString("base64") !== process.argv[5]) fail("isolated Sigstore expectation encoding is invalid");
+    } else if (nodeProcess.argv[2] === "--verify-sigstore") {
+      if (nodeProcess.argv.length !== 7) fail("isolated Sigstore verifier arguments are invalid");
+      const expectationBytes = Buffer.from(nodeProcess.argv[5], "base64");
+      if (expectationBytes.toString("base64") !== nodeProcess.argv[5]) fail("isolated Sigstore expectation encoding is invalid");
       const { value: expected } = parseUniqueJson(expectationBytes, "isolated Sigstore expectation");
-      const receipt = await verifySigstoreBundleFile(process.argv[3], process.argv[4], expected, process.argv[6]);
+      const receipt = await verifySigstoreBundleFile(nodeProcess.argv[3], nodeProcess.argv[4], expected, nodeProcess.argv[6]);
       console.log(JSON.stringify(receipt));
     } else {
-      const evidencePath = process.argv[2];
-      if (process.argv.length > 3) fail("capability scorer accepts only one evidence path");
-      const report = await scoreEvidence({ evidencePath });
+      const evidencePath = nodeProcess.argv[2];
+      if (nodeProcess.argv.length > 3) fail("capability scorer accepts only one evidence path");
+      const report = await scoreEvidenceInternal({ evidencePath }, true);
       console.log(JSON.stringify(report, null, 2));
-      if (!report.eligible) process.exitCode = 1;
+      if (!report.eligible) nodeProcess.exitCode = 1;
     }
   } catch (error) {
     console.error(error.message);
-    process.exitCode = 1;
+    nodeProcess.exitCode = 1;
   }
 }

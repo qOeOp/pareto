@@ -32,12 +32,13 @@ after its candidate or matrix changes.
 negative, and recovery design slot and fixes the required observer class. It contains no score, result,
 run, artifact, attempt, owner, weight, consumer, or campaign state. A complete design matrix proves only
 that no leaf/scenario was omitted; `authority_unavailable` remains non-evidence and cannot raise a score.
-Schema v1 accepts only `authority_unavailable`; a later schema may admit an implemented authority only
-when the validator also consumes that observer's exact case binding instead of trusting the matrix field.
+Schema v2 admits `implemented` only for the fixed INS-01 and EVAL-02 observers after the scorer consumes
+their exact committed positive, negative, and recovery case bindings. The matrix field alone never proves
+that an observer ran and never raises a score.
 The missing-authority class fixes the observer kind rather than letting a case author downgrade it.
 `executable_suite`, when present, creates a two-way binding to exactly one golden or holdout case; omitting
 or moving that case fails validation. It is corpus structure only, not evidence that the required observer ran.
-These candidate-owned checks establish internal consistency only. Schema v1 is bootstrap-only and
+These candidate-owned matrix and corpus checks establish internal consistency only and are
 non-authorizing: coordinated edits to both the matrix and corpus are not anti-omission evidence. A later
 canonical-base consumer must reject deletion, suite movement, or authority-class downgrade before any such
 claim can be admitted.
@@ -48,6 +49,9 @@ executable case on a previously unbound slot. Schema, catalog, case, or authorit
 requires a separate base-first change.
 The workflow, checker, JSON parser, and package manifest/lock are exact protected control-plane blobs. Their
 migration requires explicit repository-owner bypass; a scenario candidate cannot authorize its own checker.
+The schema-v2 migration itself keeps every slot unavailable. Only a later PR may switch the six fixed-observer
+slots to `implemented`, and the already-canonical base checker rejects any simultaneous observer, scorer,
+workflow, validator, parser, package, or case-control change.
 The PR that first introduces this workflow is bootstrap-only because its base cannot run a workflow it does
 not yet contain. Authority begins only after merge and a subsequent exact-head PR dynamically passes the
 base-owned check; until then no anti-omission claim is admitted.

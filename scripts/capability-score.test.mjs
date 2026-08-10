@@ -49,6 +49,15 @@ for (const packageName of ["bundle", "core", "protobuf-specs", "tuf", "verify"])
 }
 await writeFile(path.join(repository, "evals", "capabilities.json"), catalogBytes);
 await copyFile(path.resolve("evals/CONTRACT.md"), path.join(repository, "evals", "CONTRACT.md"));
+await copyFile(path.resolve("evals/scenarios.json"), path.join(repository, "evals", "scenarios.json"));
+const fixtureScenarioPath = path.join(repository, "evals", "scenarios.json");
+const fixtureScenarioDesign = JSON.parse(await readFile(fixtureScenarioPath, "utf8"));
+for (const row of fixtureScenarioDesign.scenarios.filter((entry) =>
+  entry.capability_id === "INS-01" || entry.capability_id === "EVAL-02")) {
+  row.authority_status = "implemented";
+  row.missing_authority = null;
+}
+await writeFile(fixtureScenarioPath, `${JSON.stringify(fixtureScenarioDesign, null, 2)}\n`);
 await copyFile(path.resolve("scripts/capability-score.mjs"), path.join(repository, "scripts", "capability-score.mjs"));
 await copyFile(path.resolve("scripts/eval.mjs"), path.join(repository, "scripts", "eval.mjs"));
 await copyFile(path.resolve("scripts/json.mjs"), path.join(repository, "scripts", "json.mjs"));
@@ -75,7 +84,23 @@ const { stdout: committedCatalogBytes } = await execFileAsync("git", ["-C", repo
 });
 await symlink(path.resolve("node_modules"), path.join(temporaryRoot, "node_modules"),
   process.platform === "win32" ? "junction" : "dir");
-const { scoreEvidence } = await import(pathToFileURL(path.join(repository, "scripts", "capability-score.mjs")).href);
+const scorerModuleUrl = pathToFileURL(path.join(repository, "scripts", "capability-score.mjs")).href;
+async function scoreEvidence(options) {
+  try {
+    const { stdout } = await execFileAsync(process.execPath,
+      [path.join(repository, "scripts", "capability-score.mjs"), options.evidencePath], {
+        cwd: repository,
+        encoding: "utf8",
+        env: process.env,
+      });
+    return JSON.parse(stdout);
+  } catch (error) {
+    try {
+      return JSON.parse(error.stdout);
+    } catch {}
+    throw new Error((error.stderr || error.message).trim(), { cause: error });
+  }
+}
 
 function rollout({ sourceCase, trial, sourceKind, result = "pass", unverified = false }) {
   const caseBinding = sourceCase.metadata.observations.capability;
@@ -673,6 +698,107 @@ try {
     "caller-authored verifier output and unsigned bundles must never produce a dynamic score",
   );
 
+  const localThenAttested = await import(`${scorerModuleUrl}?mode=local-then-attested`);
+  await localThenAttested.scoreEvidence(complete);
+  const attestedAlias = await import(`${scorerModuleUrl}?mode=attested-after-local`);
+  await assert.rejects(
+    () => attestedAlias.scoreEvidence(attested),
+    /attested and local observation runtimes require separate scorer processes/,
+    "an ESM alias must not bypass the process-wide local-runtime lock",
+  );
+  const attestedThenLocalSource = `
+    const attested = await import(process.argv[1] + "?attested-first");
+    try {
+      await attested.scoreEvidence({ evidencePath: process.argv[2] });
+      throw new Error("unsigned attested fixture unexpectedly passed");
+    } catch (error) {
+      if (!/attested scoring requires a one-time CLI scorer process/.test(error.message)) throw error;
+    }
+    const local = await import(process.argv[1] + "?local-second");
+    try {
+      await local.scoreEvidence({ evidencePath: process.argv[3] });
+      throw new Error("local evidence entered an attested scorer process");
+    } catch (error) {
+      if (!/attested and local observation runtimes require separate scorer processes/.test(error.message)) throw error;
+    }
+  `;
+  await execFileAsync(process.execPath,
+    ["--input-type=module", "--eval", attestedThenLocalSource,
+      scorerModuleUrl, attested.evidencePath, complete.evidencePath], {
+      cwd: repository,
+      encoding: "utf8",
+      env: process.env,
+    });
+
+  const preseededModeSource = `
+    const { default: canonicalProcess } = await import("node:process");
+    let reads = 0;
+    Object.defineProperty(canonicalProcess,
+      "__qoeopParetoCapabilityScoreEvidenceRuntimeMode",
+      { configurable: true, get() { return reads++ === 0 ? "local" : "attested"; } });
+    const scorer = await import(process.argv[1] + "?preseeded-mode");
+    try {
+      await scorer.scoreEvidence({ evidencePath: process.argv[2] });
+      throw new Error("configurable runtime mode descriptor was accepted");
+    } catch (error) {
+      if (!/scorer process runtime mode lock is invalid/.test(error.message)) throw error;
+    }
+  `;
+  await execFileAsync(process.execPath,
+    ["--input-type=module", "--eval", preseededModeSource,
+      scorerModuleUrl, complete.evidencePath], {
+      cwd: repository,
+      encoding: "utf8",
+      env: process.env,
+    });
+
+  const replacedGlobalsSource = `
+    const [moduleUrl, localEvidence, attestedEvidence] = process.argv.slice(1);
+    const local = await import(moduleUrl + "?canonical-local");
+    await local.scoreEvidence({ evidencePath: localEvidence });
+    Object.defineProperty(globalThis, "process", {
+      configurable: true,
+      value: { argv: [], env: {}, platform: "fixture", versions: { node: "0.0.0" } },
+      writable: true,
+    });
+    Symbol.for = () => Symbol("candidate-controlled");
+    const attested = await import(moduleUrl + "?candidate-controlled-attested");
+    try {
+      await attested.scoreEvidence({ evidencePath: attestedEvidence });
+      throw new Error("replaced globals bypassed the canonical process latch");
+    } catch (error) {
+      if (!/attested and local observation runtimes require separate scorer processes/.test(error.message)) throw error;
+    }
+  `;
+  await execFileAsync(process.execPath,
+    ["--input-type=module", "--eval", replacedGlobalsSource,
+      scorerModuleUrl, complete.evidencePath, attested.evidencePath], {
+      cwd: repository,
+      encoding: "utf8",
+      env: process.env,
+    });
+
+  const spoofedArgvSource = `
+    const { default: canonicalProcess } = await import("node:process");
+    const { fileURLToPath: fromFileUrl } = await import("node:url");
+    const [moduleUrl, attestedEvidence] = canonicalProcess.argv.slice(1);
+    canonicalProcess.argv[1] = fromFileUrl(moduleUrl);
+    const scorer = await import(moduleUrl + "?spoofed-main");
+    try {
+      await scorer.scoreEvidence({ evidencePath: attestedEvidence });
+      throw new Error("imported attested scorer accepted spoofed argv");
+    } catch (error) {
+      if (!/attested scoring requires a one-time CLI scorer process/.test(error.message)) throw error;
+    }
+  `;
+  await execFileAsync(process.execPath,
+    ["--input-type=module", "--eval", spoofedArgvSource,
+      scorerModuleUrl, attested.evidencePath], {
+      cwd: repository,
+      encoding: "utf8",
+      env: process.env,
+    });
+
   const duplicateRepeated = await repeatedAttestedFixture("repeated-attested-duplicate-slot");
   const duplicateEnvelope = JSON.parse(duplicateRepeated.campaign);
   duplicateEnvelope.payload.observations[1] = structuredClone(duplicateEnvelope.payload.observations[0]);
@@ -778,6 +904,43 @@ try {
   } finally {
     await git(["update-index", "--no-assume-unchanged", "fixture.txt"]);
   }
+
+  async function commitFixedObserverAuthority({ implemented, partial = false }) {
+    const design = JSON.parse(await readFile(fixtureScenarioPath, "utf8"));
+    const rows = design.scenarios.filter((row) =>
+      row.capability_id === "INS-01" || row.capability_id === "EVAL-02");
+    for (const [index, row] of rows.entries()) {
+      const rowImplemented = implemented && (!partial || index === 0);
+      row.authority_status = rowImplemented ? "implemented" : "authority_unavailable";
+      row.missing_authority = rowImplemented ? null : "scenario_consumer_binding";
+    }
+    await writeFile(fixtureScenarioPath, `${JSON.stringify(design, null, 2)}\n`);
+    await git(["add", "evals/scenarios.json"]);
+    await git(["commit", "--quiet", "-m", `set fixed observer authority ${implemented ? partial ? "partial" : "implemented" : "unavailable"}`]);
+    candidate.commit = await git(["rev-parse", "HEAD"]);
+    candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
+  }
+
+  const unavailableAuthority = await attestedFixture("attested-install-unavailable-authority");
+  await commitFixedObserverAuthority({ implemented: false });
+  unavailableAuthority.evidence.candidate = { ...candidate };
+  await writeFile(unavailableAuthority.evidencePath, `${JSON.stringify(unavailableAuthority.evidence, null, 2)}\n`);
+  await assert.rejects(
+    () => scoreEvidence(unavailableAuthority),
+    /INS-01 attested campaign lacks implemented scenario authority/,
+    "an unavailable committed observer must reject a campaign before the Sigstore boundary",
+  );
+
+  const partialAuthority = await attestedFixture("attested-install-partial-authority");
+  await commitFixedObserverAuthority({ implemented: true, partial: true });
+  partialAuthority.evidence.candidate = { ...candidate };
+  await writeFile(partialAuthority.evidencePath, `${JSON.stringify(partialAuthority.evidence, null, 2)}\n`);
+  await assert.rejects(
+    () => scoreEvidence(partialAuthority),
+    /INS-01 fixed observer scenario authority is partial or invalid/,
+    "one implemented slot must not authorize a partially migrated fixed observer",
+  );
+  await commitFixedObserverAuthority({ implemented: true });
 
   const mixedAuthority = await attestedFixture("attested-install-mixed-authority");
   mixedAuthority.evidence.observations = [{}];
