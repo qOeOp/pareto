@@ -53,6 +53,8 @@ await copyFile(path.resolve("scripts/eval.mjs"), path.join(repository, "scripts"
 await copyFile(path.resolve("scripts/json.mjs"), path.join(repository, "scripts", "json.mjs"));
 await copyFile(path.resolve("scripts/observe-install-capability.mjs"), path.join(repository, "scripts", "observe-install-capability.mjs"));
 await copyFile(path.resolve("scripts/install-codex.mjs"), path.join(repository, "scripts", "install-codex.mjs"));
+await copyFile(path.resolve("package.json"), path.join(repository, "package.json"));
+await copyFile(path.resolve("package-lock.json"), path.join(repository, "package-lock.json"));
 await copyFile(path.resolve(".github/workflows/observe-install-capability.yml"), path.join(repository, ".github", "workflows", "observe-install-capability.yml"));
 await copyFile(path.resolve("codex/hooks/qoeop-trade-session-start.mjs"), path.join(repository, "codex", "hooks", "qoeop-trade-session-start.mjs"));
 await cp(path.resolve("codex/agents"), path.join(repository, "codex", "agents"), { recursive: true });
@@ -61,7 +63,7 @@ await copyFile(path.resolve("evals/cases/golden.yaml"), path.join(repository, "e
 await copyFile(path.resolve("evals/cases/holdout.yaml"), path.join(repository, "evals", "cases", "holdout.yaml"));
 await writeFile(path.join(repository, ".gitignore"), "node_modules/\n");
 await writeFile(path.join(repository, "fixture.txt"), "candidate\n");
-await git(["add", ".github", ".gitignore", "codex", "evals", "scripts", "skills", "fixture.txt"]);
+await git(["add", ".github", ".gitignore", "codex", "evals", "scripts", "skills", "fixture.txt", "package.json", "package-lock.json"]);
 await git(["commit", "--quiet", "-m", "candidate"]);
 const candidate = { repository: repositoryUrl, commit: await git(["rev-parse", "HEAD"]), tree: await git(["rev-parse", "HEAD^{tree}"]) };
 const { stdout: committedCatalogBytes } = await execFileAsync("git", ["-C", repository, "show", `${candidate.commit}:evals/capabilities.json`], {
@@ -399,6 +401,90 @@ async function attestedFixture(name) {
   return { campaign, directory, evidence, evidencePath };
 }
 
+async function repeatedAttestedFixture(name) {
+  const fixture = await attestedFixture(name);
+  const baseEnvelope = JSON.parse(fixture.campaign);
+  const observations = [];
+  for (const environment of ["linux", "win32"]) {
+    const runner = environment === "linux" ? "Linux" : "Windows";
+    for (const trialId of [1, 2, 3]) {
+      const payload = canonical({
+        schema: "pareto-capability-observation/v2",
+        authority: "fixed_observer_real_consumer",
+        capability_id: "INS-01",
+        environment: {
+          arch: "x64",
+          codex_entry_sha256: `sha256:${"3".repeat(64)}`,
+          codex_user_agent: `fixture/${trialId}`,
+          node: "v24.18.0",
+          platform: environment,
+        },
+        observer: baseEnvelope.payload.observer,
+        result: "pass",
+        scenarios: {
+          negative: {
+            case_id: "stale-lock-rejected-without-install-drift",
+            diagnostic_sha256: `sha256:${"4".repeat(64)}`,
+            installation_after_sha256: `sha256:${"5".repeat(64)}`,
+            installation_before_sha256: `sha256:${"5".repeat(64)}`,
+            result: "pass",
+          },
+          positive: {
+            case_id: "portable-skill-install-and-loader-discovery",
+            installed_manifest_sha256: `sha256:${"6".repeat(64)}`,
+            loader_sha256: `sha256:${"7".repeat(64)}`,
+            protocol_notifications_sha256: `sha256:${"8".repeat(64)}`,
+            result: "pass",
+          },
+          recovery: {
+            case_id: "installed-skill-drift-repaired-and-discovered",
+            drift_diagnostic_sha256: `sha256:${"9".repeat(64)}`,
+            installed_manifest_sha256: `sha256:${"6".repeat(64)}`,
+            loader_sha256: `sha256:${"7".repeat(64)}`,
+            protocol_notifications_sha256: `sha256:${"8".repeat(64)}`,
+            result: "pass",
+          },
+        },
+        subject: baseEnvelope.payload.subject,
+        trial_id: trialId,
+      });
+      const envelope = canonical({
+        schema: "pareto-capability-observation-envelope/v1",
+        content_sha256: sha(Buffer.from(JSON.stringify(payload))),
+        payload,
+      });
+      const bytes = Buffer.from(`${JSON.stringify(envelope)}\n`);
+      const directory = path.join(fixture.directory, "observations", `ins-01-${runner}-${trialId}`);
+      await mkdir(directory, { recursive: true });
+      await writeFile(path.join(directory, `observation-${runner}-${trialId}.json`), bytes);
+      await copyFile(path.join(fixture.directory, "attestation.json"), path.join(directory, "attestation.json"));
+      observations.push({
+        bundle_path: `observations/ins-01-${runner}-${trialId}/attestation.json`,
+        bundle_sha256: fixture.evidence.attested_campaigns[0].bundle_sha256,
+        content_sha256: envelope.content_sha256,
+        environment,
+        trial_id: trialId,
+      });
+    }
+  }
+  const payload = canonical({
+    ...baseEnvelope.payload,
+    schema: "pareto-capability-campaign/v2",
+    coverage: { environments: ["linux", "win32"], trials_per_environment: 3 },
+    observations,
+  });
+  const campaign = Buffer.from(`${JSON.stringify(canonical({
+    schema: "pareto-capability-campaign-envelope/v1",
+    content_sha256: sha(Buffer.from(JSON.stringify(payload))),
+    payload,
+  }))}\n`);
+  await writeFile(path.join(fixture.directory, "ins-01-campaign.json"), campaign);
+  fixture.campaign = campaign;
+  fixture.evidence.attested_campaigns[0].campaign_sha256 = sha(campaign);
+  await writeFile(fixture.evidencePath, `${JSON.stringify(fixture.evidence, null, 2)}\n`);
+  return fixture;
+}
+
 try {
   assert.equal(nodeSupportsSigstore("22.22.1"), false);
   assert.equal(nodeSupportsSigstore("22.22.2"), true);
@@ -439,6 +525,58 @@ try {
     () => scoreEvidence(attested),
     /Sigstore attestation verification failed/,
     "caller-authored verifier output and unsigned bundles must never produce a dynamic score",
+  );
+
+  const duplicateRepeated = await repeatedAttestedFixture("repeated-attested-duplicate-slot");
+  const duplicateEnvelope = JSON.parse(duplicateRepeated.campaign);
+  duplicateEnvelope.payload.observations[1] = structuredClone(duplicateEnvelope.payload.observations[0]);
+  duplicateEnvelope.content_sha256 = sha(Buffer.from(JSON.stringify(canonical(duplicateEnvelope.payload))));
+  const duplicateBytes = Buffer.from(`${JSON.stringify(canonical(duplicateEnvelope))}\n`);
+  await writeFile(path.join(duplicateRepeated.directory, "ins-01-campaign.json"), duplicateBytes);
+  duplicateRepeated.evidence.attested_campaigns[0].campaign_sha256 = sha(duplicateBytes);
+  await writeFile(duplicateRepeated.evidencePath, `${JSON.stringify(duplicateRepeated.evidence, null, 2)}\n`);
+  await assert.rejects(
+    () => scoreEvidence(duplicateRepeated),
+    /repeated observation slots are invalid/,
+    "a repeated slot must not substitute for a missing trial",
+  );
+
+  const mutatedNegative = await repeatedAttestedFixture("repeated-attested-mutated-negative");
+  const observationPath = path.join(mutatedNegative.directory, "observations", "ins-01-Linux-1", "observation-Linux-1.json");
+  const observationEnvelope = JSON.parse(await readFile(observationPath, "utf8"));
+  observationEnvelope.payload.scenarios.negative.installation_after_sha256 = `sha256:${"a".repeat(64)}`;
+  observationEnvelope.content_sha256 = sha(Buffer.from(JSON.stringify(canonical(observationEnvelope.payload))));
+  await writeFile(observationPath, `${JSON.stringify(canonical(observationEnvelope))}\n`);
+  const mutatedCampaignEnvelope = JSON.parse(mutatedNegative.campaign);
+  mutatedCampaignEnvelope.payload.observations[0].content_sha256 = observationEnvelope.content_sha256;
+  mutatedCampaignEnvelope.content_sha256 = sha(Buffer.from(JSON.stringify(canonical(mutatedCampaignEnvelope.payload))));
+  const mutatedCampaignBytes = Buffer.from(`${JSON.stringify(canonical(mutatedCampaignEnvelope))}\n`);
+  await writeFile(path.join(mutatedNegative.directory, "ins-01-campaign.json"), mutatedCampaignBytes);
+  mutatedNegative.evidence.attested_campaigns[0].campaign_sha256 = sha(mutatedCampaignBytes);
+  await writeFile(mutatedNegative.evidencePath, `${JSON.stringify(mutatedNegative.evidence, null, 2)}\n`);
+  await assert.rejects(
+    () => scoreEvidence(mutatedNegative),
+    /negative scenario changed the installation/,
+    "a signed or unsigned negative path with install drift must fail before scoring",
+  );
+
+  const divergentRecovery = await repeatedAttestedFixture("repeated-attested-divergent-recovery");
+  const recoveryPath = path.join(divergentRecovery.directory, "observations", "ins-01-Linux-1", "observation-Linux-1.json");
+  const recoveryEnvelope = JSON.parse(await readFile(recoveryPath, "utf8"));
+  recoveryEnvelope.payload.scenarios.recovery.loader_sha256 = `sha256:${"b".repeat(64)}`;
+  recoveryEnvelope.content_sha256 = sha(Buffer.from(JSON.stringify(canonical(recoveryEnvelope.payload))));
+  await writeFile(recoveryPath, `${JSON.stringify(canonical(recoveryEnvelope))}\n`);
+  const recoveryCampaignEnvelope = JSON.parse(divergentRecovery.campaign);
+  recoveryCampaignEnvelope.payload.observations[0].content_sha256 = recoveryEnvelope.content_sha256;
+  recoveryCampaignEnvelope.content_sha256 = sha(Buffer.from(JSON.stringify(canonical(recoveryCampaignEnvelope.payload))));
+  const recoveryCampaignBytes = Buffer.from(`${JSON.stringify(canonical(recoveryCampaignEnvelope))}\n`);
+  await writeFile(path.join(divergentRecovery.directory, "ins-01-campaign.json"), recoveryCampaignBytes);
+  divergentRecovery.evidence.attested_campaigns[0].campaign_sha256 = sha(recoveryCampaignBytes);
+  await writeFile(divergentRecovery.evidencePath, `${JSON.stringify(divergentRecovery.evidence, null, 2)}\n`);
+  await assert.rejects(
+    () => scoreEvidence(divergentRecovery),
+    /recovery did not restore the positive consumer state/,
+    "a recovery result that diverges from the positive installed consumer must fail before scoring",
   );
 
   const loaderMarker = path.join(temporaryRoot, "loader-hook-observed");
@@ -511,8 +649,8 @@ try {
     const campaignEnvelope = JSON.parse(tamperedRuntime.campaign);
     const campaignEntry = tamperedRuntime.evidence.attested_campaigns[0];
     const runtimeExpectation = Buffer.from(JSON.stringify(canonical({
-      campaign_name: campaignEntry.campaign_path,
-      campaign_sha256: campaignEntry.campaign_sha256,
+      subject_name: campaignEntry.campaign_path,
+      subject_sha256: campaignEntry.campaign_sha256,
       repository_slug: "qoeop/pareto-fixture",
       source_commit: campaignEnvelope.payload.observer.commit,
       workflow: ".github/workflows/observe-install-capability.yml",
@@ -704,6 +842,21 @@ try {
   }).catch((error) => error);
   assert.equal(cli.code, 1, "an ineligible capability report must fail the CLI gate");
   assert.match(cli.stdout, /"eligible": false/);
+
+  const staleObserverRuntime = await repeatedAttestedFixture("repeated-attested-stale-runtime");
+  const oldLock = await readFile(path.join(repository, "package-lock.json"));
+  await writeFile(path.join(repository, "package-lock.json"), Buffer.concat([oldLock, Buffer.from("\n")]));
+  await git(["add", "package-lock.json"]);
+  await git(["commit", "--quiet", "-m", "change observer runtime"]);
+  candidate.commit = await git(["rev-parse", "HEAD"]);
+  candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
+  staleObserverRuntime.evidence.candidate = { ...candidate };
+  await writeFile(staleObserverRuntime.evidencePath, `${JSON.stringify(staleObserverRuntime.evidence, null, 2)}\n`);
+  await assert.rejects(
+    () => scoreEvidence(staleObserverRuntime),
+    /stale for the current install consumer/,
+    "a changed Codex dependency lock must invalidate older install observations before signature replay",
+  );
 
   console.log("capability score tests passed");
 } finally {

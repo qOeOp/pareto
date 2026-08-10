@@ -170,6 +170,8 @@ reviewer labels. Those requirements remain unavailable until an external attempt
 Deterministic runtime capabilities may use a fixed observer instead of a model text oracle. The
 observer must execute the real consumer against one exact canonical-main subject, fail closed on its
 positive, negative, and recovery matrix, and aggregate every prescribed environment before signing.
+Recovery must restore the same installed manifest, loader result, and protocol notification state as
+the positive path; shaped but divergent recovery fields are not recovery evidence.
 GitHub-hosted execution becomes external evidence only through an offline-verifiable Sigstore bundle
 bound to the exact signer workflow and digest; a CI status, uploaded JSON, custom predicate, or
 candidate-controlled workflow is not sufficient. The first observer candidate is bootstrap evidence
@@ -191,27 +193,32 @@ arguments and clears Node, Git, and dynamic-loader environment selectors. It rea
 repository, signer workflow, `main` ref, source commit,
 GitHub-hosted runner claims, CT log, and transparency log; then it independently replays the campaign envelope,
 SLSA subject, Git ancestry, observer/workflow blobs, and current installer, Skill, profile, and hook
-identities. A changed bundle, self-hosted runner, stale consumer surface, non-`main` signer, or caller
-invented scenario fails closed. One such Linux+Windows positive/negative/recovery campaign establishes
-one dynamic observation and scores 6, not representative coverage or 9.5. Repetition, variation, and
-independent observer requirements remain unavailable rather than being inferred from the signature.
+identities. Freshness also binds the observer's package manifest, dependency lock, and shared JSON parser,
+because they select the Codex loader and parse its protocol. A changed bundle, self-hosted runner,
+stale consumer surface, non-`main` signer, or caller
+invented scenario fails closed. One Linux+Windows positive/negative/recovery campaign establishes one
+dynamic observation and scores 6. Six separately scheduled and individually signed Linux/Windows trials
+establish representative repetition at 8 only when all six slots and signatures verify. Independent
+observer and provider-complete attempt requirements remain unavailable rather than being inferred from
+the signatures.
 The next observer schema runs three fresh positive/negative/recovery trials in each of Linux and Windows
 as six separately scheduled and attested jobs. Its bootstrap aggregator rejects missing, duplicate, and
 cross-subject slots and records each observation and bundle digest; substitution resistance remains
 unavailable until the later scorer verifies every recorded bundle against its observation bytes.
-Its first canonical campaign is bootstrap evidence only: until a later scorer revision independently
-verifies that exact signed schema, the repeated campaign changes no score. Repetition by one fixed observer
-still does not satisfy the independent-observer requirement, prove process isolation between the
-same-repository observer and subject, or authorize 9.5.
+Its first canonical campaign is bootstrap evidence only. A later scorer may raise only `INS-01` to 8
+after it verifies the campaign signature, the exact six-slot matrix, every raw observation envelope,
+and every nested signature against the raw file bytes. Repetition by one fixed observer still does not
+satisfy the independent-observer requirement, prove process isolation between the same-repository
+observer and subject, or authorize 9.5.
 An attested campaign cannot share one scorer process with locally loaded Promptfoo, YAML, rollout, or
 native-trace observations; those evidence classes require separate manifests so writable runtime
 dependencies cannot precede the content-bound verifier.
 Repository object reads use the platform's protected absolute system Git path rather than `PATH`, disable replace
 objects, fsmonitor and untracked-cache shortcuts, isolate system/global config, and reject replace refs, grafts,
 alternates, assume-unchanged and skip-worktree entries. The Node and Git
-executables, same-principal processes, and local filesystem remain explicit host trust boundaries; this single
-fixed-observer campaign is therefore capped at 6 and cannot establish provider-attested completeness or the 9.5
-anchor. The parent owns the private verifier directory and removes it after success, child failure, or timeout; the
+executables, same-principal processes, and local filesystem remain explicit host trust boundaries; this
+fixed-observer design is therefore capped at 8 and cannot establish provider-attested completeness or the 9.5
+anchor. A non-repeated campaign remains capped at 6. The parent owns the private verifier directory and removes it after success, child failure, or timeout; the
 child also removes it defensively. The child lets its exact JSON receipt drain normally instead of forcing process exit.
 The installer observer accepts only version-bound app-server notification schemas. Environment-local
 remote-control identity and structured config warnings are recorded by shape only; neither is a pass
