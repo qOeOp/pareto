@@ -523,6 +523,265 @@
         native_role_routing: unavailable
         capability_evidence: unavailable
 
+- description: "[full] independent outcomes admit Hub mode under a matching Goal"
+  metadata:
+    observations: { capability: { id: ORC-01, scenario: positive, case_id: orc-01-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_goal_state, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. The admitted request contains two independently valuable outcomes with separate
+      consumers, write owners, falsifiable acceptance, and closable endpoints. A matching active Goal exists.
+      Return exactly the session-mode decision below without claiming native Goal or Task provenance.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        independent_outcomes: two
+        parent_cancellation_counterfactual: survive
+        matching_goal_observed: true
+        session_mode: hub
+        native_task_creation: eligible_after_exact_packet
+        goal_or_task_provenance: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] support work without an independent endpoint remains in one Mission"
+  metadata:
+    observations: { capability: { id: ORC-01, scenario: negative, case_id: orc-01-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A proposed second Mission only diagnoses and tests the parent outcome; cancelling
+      the parent leaves no independently valuable consumer or meaningful endpoint. Return exactly the mode
+      decision below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        proposed_child_outcome: support_only
+        parent_cancellation_counterfactual: fails
+        independent_consumer: none
+        independent_endpoint: none
+        new_mission: rejected
+        session_mode: single
+        support_work_location: parent_mission
+
+- description: "[full] exact packet admits one native Task release"
+  metadata:
+    observations: { capability: { id: ORC-02, scenario: positive, case_id: orc-02-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. An existing Hub has explicit user approval for one new independent Mission.
+      Its complete packet freezes Frame, Plan, Origin, owner paths, consumer, acceptance, dependencies, effects,
+      endpoint, language, and one next action; no colliding or ambiguous identity exists. Return exactly the
+      native release contract below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        creator: existing_hub
+        create_attempts: one
+        title_set_and_readback: once
+        complete_message_send: once
+        supplemental_send: forbidden
+        semantic_release: native_send_receipt
+        model_receipt_of_payload_bytes: unproved
+        native_task_provenance: unavailable
+
+- description: "[full] one changed child event drives one Hub reconciliation"
+  metadata:
+    observations: { capability: { id: ORC-03, scenario: positive, case_id: orc-03-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A checkpointed Hub observes the complete exact active set once. One child returns
+      an unseen needs-attention receipt that changes a dependency release; all other targets preserve cursor
+      continuity. Return exactly the event-handling receipt below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        observation_windows: one
+        active_set: complete_exact
+        changed_receipts: one
+        reconcile_stable_component: once
+        dependency_release: same_turn
+        replacement_checkpoint: emitted
+        repeated_global_pass: false
+        native_event_provenance: unavailable
+
+- description: "[full] unchanged observation yields silently without polling"
+  metadata:
+    observations: { capability: { id: ORC-03, scenario: negative, case_id: orc-03-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A cursor-bound bounded wait times out with no unseen terminal or needs-attention
+      content. Return exactly the required no-action disposition below; do not poll, comment, read history, or
+      immediately resubscribe.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        actionable_change: none
+        commentary: none
+        history_read: none
+        repository_or_github_effect: none
+        immediate_resubscription: forbidden
+        next_observation_action: checkpointed
+        disposition: silent_yield
+
+- description: "[full] incomplete recovery checkpoint freezes only the affected action"
+  metadata:
+    observations: { capability: { id: ORC-04, scenario: negative, case_id: orc-04-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, conversation_compaction_state, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. After compaction, the checkpoint lacks the exact cursor for one continued child
+      while another independent owner and edge remain fully bound. A same-title task is visible. Return exactly
+      the fail-closed recovery decision below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        missing_exact_cursor: true
+        same_title_adoption: forbidden
+        affected_child_action: frozen
+        independently_bound_edge: retained
+        whole_mission_blocked: false
+        inferred_no_change: false
+        earliest_useful_read: exact_child_custody
+
+- description: "[full] frozen mechanical leaf uses the lowest sufficient route"
+  metadata:
+    observations: { capability: { id: ORC-05, scenario: positive, case_id: orc-05-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_provider_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A leaf has frozen Origin, exact paths, one writer, owner, byte-for-byte replacement,
+      safe checks, oracle, and Stop; no design, wording, schema, safety, dependency, authority, or effect choice
+      remains. The configured route is observable but executed model and effort are not. Return exactly the route.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        leaf_class: exact_low_risk_mechanical
+        lowest_sufficient_route: fast_builder
+        quality_floor: unchanged
+        dispatch_packet: complete_once
+        executed_model: unavailable
+        executed_effort: unavailable
+        durable_model_ranking: forbidden
+        capability_evidence: unavailable
+
+- description: "[full] unresolved safety decision stays with authorized Main"
+  metadata:
+    observations: { capability: { id: ORC-05, scenario: negative, case_id: orc-05-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A proposed implementation still contains a public-contract choice and an unresolved
+      safety consequence. A cheaper model route is available. Return exactly the routing decision below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        unresolved_design_choice: true
+        unresolved_safety_consequence: true
+        fast_builder: rejected
+        cheapest_available_model_as_authority: false
+        selected_route: authorized_main
+        quality_floor_reduction: forbidden
+        capability_evidence: unavailable
+
+- description: "[full] pre-dispatch route unavailability falls back once without lowering floors"
+  metadata:
+    observations: { capability: { id: ORC-05, scenario: recovery, case_id: orc-05-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_provider_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A fully frozen mechanical leaf qualifies for fast_builder, but that native route is
+      observed unavailable before any dispatch attempt. The authorized Main can execute the same packet and quality
+      floor. Return exactly the recovery decision below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        preferred_route: fast_builder
+        unavailability_time: before_dispatch
+        attempted_dispatch: false
+        fallback_count: one
+        fallback_route: authorized_main
+        packet_and_quality_floor: unchanged
+        model_effort_comparison: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] task type follows the primary delivery consumer"
+  metadata:
+    observations: { capability: { id: ORC-06, scenario: positive, case_id: orc-06-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Classify a proposed independent Mission whose primary consumer and acceptance are
+      an exact-head pull request, required CI, guarded merge handoff, and post-merge cleanup. Planning and tests are
+      internal work, not independent outcomes. Return exactly the task-type admission below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        independent_outcome: true
+        primary_consumer: pull_request_delivery
+        primary_owner: delivery
+        acceptance: exact_head_ci_and_merge_handoff
+        task_code: DLV
+        classification_basis: consumer_owner_acceptance
+        planning_or_test_subtask_code: none
+        routing_authority_from_code: none
+
+- description: "[full] verb and test files do not create a test-system task type"
+  metadata:
+    observations: { capability: { id: ORC-06, scenario: negative, case_id: orc-06-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A proposed independent Mission is described with the verb test and modifies test
+      files, but its primary consumer and acceptance are an ordinary runtime correctness fix; the tests only verify
+      that product outcome. Return exactly the classification below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        description_verb: ignored
+        changed_filename_kind: ignored
+        primary_consumer: product_runtime
+        primary_owner: ordinary_implementation
+        acceptance: runtime_correctness
+        task_code: DEV
+        task_code_TST: rejected
+        routing_authority_from_code: none
+
+- description: "[full] ambiguous task type stops creation without renaming history"
+  metadata:
+    observations: { capability: { id: ORC-06, scenario: recovery, case_id: orc-06-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. After independent Outcomes are split, one proposed Mission still has conflicting
+      primary consumers, owners, and acceptance boundaries, so no canonical type is supported. A historical task
+      with a similar title has an exact old identity and code. Return exactly the fail-closed classification below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        outcomes_split_first: true
+        remaining_type_evidence: ambiguous
+        task_code: unknown
+        type_dependent_creation: stopped
+        historical_identity: preserved_exact
+        historical_task_rename: forbidden
+        historical_code_as_fallback_alias: forbidden
+        resume_condition: consumer_owner_acceptance_disambiguated
+
 - description: "[full] explicit invocation recovers from a quoted-token near miss"
   metadata:
     observations: { capability: { id: KRN-01, scenario: recovery, case_id: krn-01-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
