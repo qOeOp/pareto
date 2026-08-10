@@ -48,6 +48,12 @@ const singleAttestedCampaignScore = 6;
 const repeatedAttestedCampaignScore = 8;
 const installCampaignCapability = "INS-01";
 const installCampaignWorkflow = ".github/workflows/observe-install-capability.yml";
+const scoreCampaignCapability = "EVAL-02";
+const scoreCampaignWorkflow = ".github/workflows/observe-score-capability.yml";
+const campaignWorkflowNames = new Map([
+  [installCampaignWorkflow, "observe-install-capability"],
+  [scoreCampaignWorkflow, "observe-score-capability"],
+]);
 const sigstoreMirror = "https://tuf-repo-cdn.sigstore.dev";
 const sigstoreRuntimePackages = Object.freeze([
   "@sigstore/bundle",
@@ -223,6 +229,21 @@ async function boundedEvidenceFile(evidenceDirectory, relativePath, expectedDige
   const bytes = await readFile(resolved);
   if (expectedDigest !== null && digest(bytes) !== expectedDigest) fail(`${label} digest mismatch`);
   return { bytes, path: resolved };
+}
+
+async function boundedEvidenceDirectory(evidenceDirectory, relativePath, label) {
+  atom(relativePath, `${label} path`);
+  if (path.isAbsolute(relativePath)) fail(`${label} path must be relative`);
+  const rootDirectory = await realpath(evidenceDirectory);
+  const source = path.resolve(rootDirectory, relativePath);
+  const sourceInfo = await lstat(source).catch(() => null);
+  const resolved = sourceInfo?.isDirectory() && !sourceInfo.isSymbolicLink()
+    ? await realpath(source).catch(() => "") : "";
+  const relative = resolved ? path.relative(rootDirectory, resolved) : "";
+  if (!resolved || !relative || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    fail(`${label} is missing or unsafe`);
+  }
+  return resolved;
 }
 
 export function nodeSupportsSigstore(version = process.versions.node) {
@@ -723,7 +744,7 @@ async function verifySigstoreBundleFile(bundlePath, bundleSha256, expected, runt
   exactKeys(expected, ["subject_name", "subject_sha256", "repository_slug", "source_commit", "workflow"], "Sigstore expectation");
   if (!shaPattern.test(bundleSha256) || !shaPattern.test(expected.subject_sha256) ||
       !/^[a-f0-9]{40}$/.test(expected.source_commit) || !/^[^/]+\/[^/]+$/.test(expected.repository_slug) ||
-      expected.workflow !== installCampaignWorkflow || path.basename(expected.subject_name) !== expected.subject_name) {
+      !campaignWorkflowNames.has(expected.workflow) || path.basename(expected.subject_name) !== expected.subject_name) {
     fail("Sigstore expectation is invalid");
   }
   const bundleBytes = await readFile(bundlePath);
@@ -756,7 +777,7 @@ async function verifySigstoreBundleFile(bundlePath, bundleSha256, expected, runt
   const rawOIDClaims = new Map([
     ["1.3.6.1.4.1.57264.1.2", "workflow_dispatch"],
     ["1.3.6.1.4.1.57264.1.3", expected.source_commit],
-    ["1.3.6.1.4.1.57264.1.4", "observe-install-capability"],
+    ["1.3.6.1.4.1.57264.1.4", campaignWorkflowNames.get(expected.workflow)],
     ["1.3.6.1.4.1.57264.1.5", expected.repository_slug],
     ["1.3.6.1.4.1.57264.1.6", "refs/heads/main"],
   ]);
@@ -982,7 +1003,7 @@ async function validateInstallCampaignIdentity(payload, candidate) {
   return sourceCommit;
 }
 
-async function verifyInstallCampaign(entry, evidenceDirectory, candidate) {
+async function loadAttestedCampaign(entry, evidenceDirectory) {
   exactKeys(entry, ["campaign_path", "campaign_sha256", "bundle_path", "bundle_sha256"], "attested campaign");
   if (!shaPattern.test(entry.campaign_sha256) || !shaPattern.test(entry.bundle_sha256)) {
     fail("attested campaign digests are invalid");
@@ -998,6 +1019,11 @@ async function verifyInstallCampaign(entry, evidenceDirectory, candidate) {
   if (envelope.schema !== "pareto-capability-campaign-envelope/v1" || !shaPattern.test(envelope.content_sha256)) {
     fail("attested campaign envelope is invalid");
   }
+  return { bundleFile, campaignFile, envelope };
+}
+
+async function verifyInstallCampaign(entry, evidenceDirectory, candidate, loaded = null) {
+  const { bundleFile, campaignFile, envelope } = loaded ?? await loadAttestedCampaign(entry, evidenceDirectory);
   const payload = envelope.payload;
   const repeated = payload?.schema === "pareto-capability-campaign/v2";
   exactKeys(payload, repeated
@@ -1092,6 +1118,263 @@ async function verifyInstallCampaign(entry, evidenceDirectory, candidate) {
     : { capability_id: installCampaignCapability, score: singleAttestedCampaignScore, maturity: "dynamic", reason: "single_attested_campaign" };
 }
 
+async function validateScoreCampaignIdentity(payload, candidate) {
+  exactKeys(payload.observer, ["commit", "script_blob", "tree"], "EVAL-02 campaign observer");
+  exactKeys(payload.subject, ["catalog_blob", "commit", "contract_blob", "repository", "scorer_blob", "tree"], "EVAL-02 campaign subject");
+  const sourceCommit = payload.observer.commit;
+  if (!/^[a-f0-9]{40}$/.test(sourceCommit) || payload.subject.commit !== sourceCommit ||
+      payload.subject.tree !== payload.observer.tree ||
+      normalizedRepository(payload.subject.repository) !== normalizedRepository(candidate.repository) ||
+      sourceCommit === candidate.commit) {
+    fail("EVAL-02 campaign source identity is invalid");
+  }
+  const sourceTree = await git(root, ["rev-parse", `${sourceCommit}^{tree}`]).catch(() => "");
+  const sourceLine = await git(root, ["rev-list", "--parents", "-n", "1", sourceCommit]).catch(() => "");
+  const sourceParts = sourceLine.split(" ");
+  const sourceParent = sourceParts.length === 2 && sourceParts[0] === sourceCommit ? sourceParts[1] : "";
+  const ancestry = await execFileAsync(trustedGitPath,
+    [...trustedGitOptions, "-C", root, "merge-base", "--is-ancestor", sourceCommit, candidate.commit], {
+      encoding: "utf8", env: gitEnvironment,
+    }).then(() => true, () => false);
+  const paths = {
+    observer: "scripts/observe-score-capability.mjs",
+    scorer: "scripts/capability-score.mjs",
+    catalog: "evals/capabilities.json",
+    contract: "evals/CONTRACT.md",
+    workflow: scoreCampaignWorkflow,
+    package_json: "package.json",
+    package_lock: "package-lock.json",
+    json_helper: "scripts/json.mjs",
+  };
+  const sourceObjects = Object.fromEntries(await Promise.all(Object.entries(paths).map(async ([key, value]) =>
+    [key, await gitIdentityAt(sourceCommit, value)])));
+  const candidateObjects = Object.fromEntries(await Promise.all(Object.entries(paths).map(async ([key, value]) =>
+    [key, await gitIdentityAt(candidate.commit, value)])));
+  const preexistingConsumerKeys = ["scorer", "catalog", "contract", "package_json", "package_lock", "json_helper"];
+  const parentObjects = Object.fromEntries(await Promise.all(preexistingConsumerKeys.map(async (key) =>
+    [key, sourceParent ? await gitIdentityAt(sourceParent, paths[key]) : ""])));
+  if (!ancestry || !sourceParent || sourceTree !== payload.observer.tree ||
+      sourceObjects.observer !== payload.observer.script_blob ||
+      sourceObjects.scorer !== payload.subject.scorer_blob ||
+      sourceObjects.catalog !== payload.subject.catalog_blob ||
+      sourceObjects.contract !== payload.subject.contract_blob ||
+      Object.values(sourceObjects).some((value) => !value) ||
+      preexistingConsumerKeys.some((key) => parentObjects[key] !== sourceObjects[key]) ||
+      Object.entries(sourceObjects).some(([key, value]) => candidateObjects[key] !== value)) {
+    fail("EVAL-02 campaign is stale for the current scoring consumer");
+  }
+  return { sourceCommit, sourceTree };
+}
+
+function validateScoreObserverReport(report, candidate, mode, catalog, catalogSha256) {
+  exactKeys(report, [
+    "below_target", "candidate", "capabilities", "catalog_sha256", "critical_breaches", "eligible",
+    "evidence_ceiling", "evidence_limit", "minimum_score", "schema_version", "target_score", "weighted_score",
+  ], `EVAL-02 ${mode} report`);
+  const definitions = catalog.capabilities;
+  const ids = definitions.map((row) => row.id).sort();
+  if (JSON.stringify(canonical(report.candidate)) !== JSON.stringify(canonical(candidate)) ||
+      report.schema_version !== 2 || report.catalog_sha256 !== catalogSha256 ||
+      report.target_score !== catalog.target_score || report.evidence_ceiling !== repeatedAttestedCampaignScore ||
+      report.minimum_score !== 0 || report.eligible !== false ||
+      report.evidence_limit !== "repeated_attested_fixed_observer_campaign; independent_observer_process_isolation_and_provider_attempt_inventory_unavailable" ||
+      !Array.isArray(report.capabilities) || report.capabilities.length !== definitions.length ||
+      JSON.stringify(report.capabilities.map((row) => row?.id).sort()) !== JSON.stringify(ids) ||
+      JSON.stringify([...report.below_target].sort()) !== JSON.stringify(ids) ||
+      JSON.stringify([...report.critical_breaches].sort()) !==
+        JSON.stringify(definitions.filter((row) => row.critical).map((row) => row.id).sort())) {
+    fail(`EVAL-02 ${mode} report global gate is invalid`);
+  }
+  const definitionsById = new Map(definitions.map((row) => [row.id, row]));
+  for (const row of report.capabilities) {
+    exactKeys(row, [
+      "attested_campaign_count", "consumer", "critical", "domain", "gap_count", "id", "maturity", "name",
+      "observation_count", "owner", "reason", "score", "unavailable_count", "weight",
+    ], `EVAL-02 ${mode} capability ${row.id}`);
+    const definition = definitionsById.get(row.id);
+    const install = row.id === installCampaignCapability;
+    const expected = install && mode === "positive"
+      ? { score: 8, maturity: "representative", reason: "repeated_attested_fixed_observer_campaign", gap_count: 0 }
+      : install && mode === "negative"
+        ? { score: 0, maturity: "contradicted", reason: "critical_gap", gap_count: 1 }
+        : { score: 0, maturity: "absent", reason: "no_passing_evidence", gap_count: 0 };
+    if (!definition || ["domain", "name", "owner", "consumer", "weight", "critical"].some((key) => row[key] !== definition[key]) ||
+        row.score !== expected.score || row.maturity !== expected.maturity || row.reason !== expected.reason ||
+        row.observation_count !== 0 || row.attested_campaign_count !== (install ? 1 : 0) ||
+        row.unavailable_count !== 0 || row.gap_count !== expected.gap_count) {
+      fail(`EVAL-02 ${mode} capability ${row.id} is invalid`);
+    }
+  }
+  const totalWeight = definitions.reduce((sum, row) => sum + row.weight, 0);
+  const installWeight = definitionsById.get(installCampaignCapability).weight;
+  const expectedWeightedScore = mode === "positive"
+    ? Number((repeatedAttestedCampaignScore * installWeight / totalWeight).toFixed(3)) : 0;
+  if (report.weighted_score !== expectedWeightedScore) fail(`EVAL-02 ${mode} weighted score is invalid`);
+}
+
+function validateScoreObservation(envelope, campaign, environment) {
+  exactKeys(envelope, ["content_sha256", "payload", "schema"], "EVAL-02 observation envelope");
+  const payload = envelope.payload;
+  exactKeys(payload, [
+    "admission", "authority", "capability_id", "environment", "input", "observer", "reports", "result", "schema", "subject", "trial_id",
+  ], "EVAL-02 observation");
+  exactKeys(payload.environment, ["arch", "node", "platform"], "EVAL-02 observation environment");
+  exactKeys(payload.input, ["bundle_sha256", "campaign_sha256"], "EVAL-02 observation input");
+  exactKeys(payload.observer, ["commit", "script_blob", "tree"], "EVAL-02 observation observer");
+  exactKeys(payload.reports, ["negative", "positive", "recovery", "unknown_score"], "EVAL-02 observation reports");
+  exactKeys(payload.subject, ["catalog_blob", "commit", "contract_blob", "repository", "scorer_blob", "tree"], "EVAL-02 observation subject");
+  const expectedPaths = {
+    negative: "reports/negative.json",
+    positive: "reports/positive.json",
+    recovery: "reports/recovery.json",
+    unknown_score: "reports/unknown-score.stderr",
+  };
+  for (const [name, report] of Object.entries(payload.reports)) {
+    exactKeys(report, ["path", "sha256"], `EVAL-02 observation report ${name}`);
+    if (report.path !== expectedPaths[name] || !shaPattern.test(report.sha256)) {
+      fail("EVAL-02 observation report binding is invalid");
+    }
+  }
+  if (envelope.schema !== "pareto-capability-observation-envelope/v1" ||
+      envelope.content_sha256 !== digest(Buffer.from(JSON.stringify(canonical(payload)))) ||
+      payload.schema !== "pareto-score-capability-observation/v1" ||
+      payload.admission !== "strict_descendant_only" ||
+      payload.authority !== "fixed_observer_real_consumer" || payload.capability_id !== scoreCampaignCapability ||
+      payload.result !== "pass" || payload.trial_id !== 1 || payload.environment.platform !== environment ||
+      !["linux", "win32"].includes(payload.environment.platform) ||
+      !shaPattern.test(payload.input.campaign_sha256) || !shaPattern.test(payload.input.bundle_sha256) ||
+      JSON.stringify(canonical(payload.observer)) !== JSON.stringify(canonical(campaign.observer)) ||
+      JSON.stringify(canonical(payload.subject)) !== JSON.stringify(canonical(campaign.subject))) {
+    fail("EVAL-02 observation semantics are invalid");
+  }
+  for (const key of ["arch", "node"]) atom(payload.environment[key], `EVAL-02 observation environment ${key}`);
+  return payload;
+}
+
+async function verifyScoreCampaign(entry, evidenceDirectory, candidate, loaded) {
+  const { bundleFile, campaignFile, envelope } = loaded;
+  const payload = envelope.payload;
+  exactKeys(payload, ["admission", "authority", "capability_id", "observations", "observer", "result", "schema", "subject"], "EVAL-02 campaign payload");
+  if (envelope.content_sha256 !== digest(Buffer.from(JSON.stringify(canonical(payload)))) ||
+      payload.schema !== "pareto-score-capability-campaign/v1" ||
+      payload.admission !== "strict_descendant_only" || payload.authority !== "github_attestation_subject" ||
+      payload.capability_id !== scoreCampaignCapability || payload.result !== "pass" ||
+      !Array.isArray(payload.observations) || payload.observations.length !== 2) {
+    fail("EVAL-02 campaign semantics are invalid");
+  }
+  const { sourceCommit, sourceTree } = await validateScoreCampaignIdentity(payload, candidate);
+  const sourceCandidate = { repository: candidate.repository, commit: sourceCommit, tree: sourceTree };
+  const sourceCatalogBytes = await gitBytes(root, ["show", `${sourceCommit}:evals/capabilities.json`]);
+  const sourceCatalog = parseUniqueJson(sourceCatalogBytes, "EVAL-02 source catalog").value;
+  validateCatalog(sourceCatalog);
+  const sourceCatalogSha256 = digest(sourceCatalogBytes);
+  const sourceDirectory = await boundedEvidenceDirectory(evidenceDirectory, "source-campaign", "EVAL-02 source campaign");
+  const sourceCampaign = await boundedEvidenceFile(sourceDirectory, "ins-01-campaign.json", null, "EVAL-02 source campaign");
+  const sourceBundle = await boundedEvidenceFile(sourceDirectory, "ins-01-campaign-attestation.json", null, "EVAL-02 source campaign attestation");
+  const sourceInput = { campaign_sha256: digest(sourceCampaign.bytes), bundle_sha256: digest(sourceBundle.bytes) };
+  const sourceEntry = {
+    campaign_path: "ins-01-campaign.json",
+    campaign_sha256: sourceInput.campaign_sha256,
+    bundle_path: "ins-01-campaign-attestation.json",
+    bundle_sha256: sourceInput.bundle_sha256,
+  };
+  const sourceLoaded = await loadAttestedCampaign(sourceEntry, sourceDirectory);
+  await validateInstallCampaignIdentity(sourceLoaded.envelope.payload, candidate);
+
+  const expectedSlots = ["linux:1", "win32:1"];
+  const actualSlots = [];
+  const verificationPlan = [];
+  let reportDigests = null;
+  for (const [index, row] of payload.observations.entries()) {
+    exactKeys(row, ["bundle_path", "bundle_sha256", "content_sha256", "environment", "trial_id"],
+      `EVAL-02 campaign observation ${index + 1}`);
+    if (!expectedSlots.includes(`${row.environment}:${row.trial_id}`) || !shaPattern.test(row.bundle_sha256) ||
+        !shaPattern.test(row.content_sha256)) fail("EVAL-02 campaign observation is invalid");
+    actualSlots.push(`${row.environment}:${row.trial_id}`);
+    const runner = row.environment === "linux" ? "Linux" : "Windows";
+    const directory = `observations/eval-02-${runner}-1`;
+    if (row.bundle_path !== `${directory}/attestation.json`) fail("EVAL-02 campaign observation path is invalid");
+    const observationFile = await boundedEvidenceFile(
+      evidenceDirectory, `${directory}/observation-${runner}-1.json`, null, "EVAL-02 observation",
+    );
+    const observationEnvelope = parseUniqueJson(observationFile.bytes, "EVAL-02 observation").value;
+    const observation = validateScoreObservation(observationEnvelope, payload, row.environment);
+    if (observationEnvelope.content_sha256 !== row.content_sha256 ||
+        JSON.stringify(canonical(observation.input)) !== JSON.stringify(canonical(sourceInput))) {
+      fail("EVAL-02 observation does not match its campaign or source input");
+    }
+    const reports = Object.fromEntries(await Promise.all(Object.entries(observation.reports).map(async ([name, report]) => [
+      name, await boundedEvidenceFile(evidenceDirectory, `${directory}/${report.path}`, report.sha256, `EVAL-02 ${name} report`),
+    ])));
+    if (!reports.positive.bytes.equals(reports.recovery.bytes) ||
+        reports.unknown_score.bytes.toString("utf8") !== "evidence has unknown or missing fields\n") {
+      fail("EVAL-02 recovery or unknown-field control is invalid");
+    }
+    validateScoreObserverReport(parseUniqueJson(reports.positive.bytes, "EVAL-02 positive report").value,
+      sourceCandidate, "positive", sourceCatalog, sourceCatalogSha256);
+    validateScoreObserverReport(parseUniqueJson(reports.negative.bytes, "EVAL-02 negative report").value,
+      sourceCandidate, "negative", sourceCatalog, sourceCatalogSha256);
+    validateScoreObserverReport(parseUniqueJson(reports.recovery.bytes, "EVAL-02 recovery report").value,
+      sourceCandidate, "positive", sourceCatalog, sourceCatalogSha256);
+    const currentDigests = Object.fromEntries(Object.entries(reports).map(([name, file]) => [name, digest(file.bytes)]));
+    if (reportDigests && JSON.stringify(currentDigests) !== JSON.stringify(reportDigests)) {
+      fail("EVAL-02 environments did not reproduce identical reports");
+    }
+    reportDigests = currentDigests;
+    const observationBundle = await boundedEvidenceFile(
+      evidenceDirectory, row.bundle_path, row.bundle_sha256, "EVAL-02 observation attestation",
+    );
+    verificationPlan.push({
+      bundle_path: observationBundle.path,
+      bundle_sha256: row.bundle_sha256,
+      expected: {
+        subject_name: path.basename(observationFile.path),
+        subject_sha256: digest(observationFile.bytes),
+        repository_slug: githubRepositorySlug(candidate.repository),
+        source_commit: sourceCommit,
+        workflow: scoreCampaignWorkflow,
+      },
+    });
+  }
+  if (JSON.stringify(actualSlots) !== JSON.stringify(expectedSlots)) fail("EVAL-02 campaign coverage is invalid");
+  verificationPlan.push({
+    bundle_path: bundleFile.path,
+    bundle_sha256: entry.bundle_sha256,
+    expected: {
+      subject_name: path.basename(campaignFile.path),
+      subject_sha256: entry.campaign_sha256,
+      repository_slug: githubRepositorySlug(candidate.repository),
+      source_commit: sourceCommit,
+      workflow: scoreCampaignWorkflow,
+    },
+  });
+  try {
+    await verifySigstoreBatchInChild(verificationPlan);
+  } catch (error) {
+    fail(`EVAL-02 campaign attestation verification failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  let sourceResult;
+  try {
+    sourceResult = await verifyInstallCampaign(sourceEntry, sourceDirectory, candidate, sourceLoaded);
+  } catch (error) {
+    fail(`EVAL-02 source INS campaign verification failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (sourceResult.score !== repeatedAttestedCampaignScore) fail("EVAL-02 source campaign is not the canonical repeated control");
+  return { capability_id: scoreCampaignCapability, score: singleAttestedCampaignScore, maturity: "dynamic", reason: "single_attested_score_observer_campaign" };
+}
+
+async function verifyAttestedCampaign(entry, evidenceDirectory, candidate) {
+  const loaded = await loadAttestedCampaign(entry, evidenceDirectory);
+  const capabilityId = loaded.envelope.payload?.capability_id;
+  if (capabilityId === installCampaignCapability) {
+    return verifyInstallCampaign(entry, evidenceDirectory, candidate, loaded);
+  }
+  if (capabilityId === scoreCampaignCapability) {
+    return verifyScoreCampaign(entry, evidenceDirectory, candidate, loaded);
+  }
+  fail("attested campaign capability is unsupported");
+}
+
 function validateObservation(observation, capabilities, requirements) {
   exactKeys(observation, ["capability_id", "scenario", "case_id", "trial_id", "environment_id", "subject_id", "producer_id", "observer_id", "source_kind", "result", "artifact_path", "content_sha256"], "observation");
   if (!capabilities.has(observation.capability_id)) fail(`observation capability is unknown: ${observation.capability_id}`);
@@ -1177,7 +1460,7 @@ export async function scoreEvidence({ evidencePath }) {
   const attestedCampaigns = [];
   const attestedCapabilities = new Set();
   for (const entry of attestedCampaignEntries) {
-    const campaign = await verifyInstallCampaign(entry, evidenceDirectory, evidence.candidate);
+    const campaign = await verifyAttestedCampaign(entry, evidenceDirectory, evidence.candidate);
     if (attestedCapabilities.has(campaign.capability_id)) fail("evidence repeats one attested capability campaign");
     attestedCapabilities.add(campaign.capability_id);
     attestedCampaigns.push(campaign);

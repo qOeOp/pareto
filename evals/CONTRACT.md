@@ -242,11 +242,15 @@ the observation and aggregate jobs have no OIDC authority, while signing jobs do
 checking out or executing candidate code. The observer independently replays the exact 39-row catalog,
 per-row scores and counts, weighted score, below-target set, critical-breach set, and global gate rather
 than trusting a report summary. The signed input campaign is retained with the output so the reports and
-controls remain replayable. Every observation and campaign is machine-marked `bootstrap_only`; this first
-campaign is permanently non-authorizing and cannot raise a score. EVAL-02 may reach at most 6 only after
-its campaign consumer is canonical, a later unchanged scorer is observed, and a subsequent scorer
-verifies both observation bundles, the aggregate bundle, the exact scorer/catalog/contract blobs, the
-fixed source-campaign files and digests, and the positive, negative, and recovery reports. Manual dispatch
+controls remain replayable. The first campaign generated before a campaign consumer existed is permanently
+`bootstrap_only`, non-authorizing, and cannot raise a score. Later observations retain the exact positive,
+negative, recovery, and unknown-field diagnostic bytes under their signed digests and are marked
+`strict_descendant_only` under a separate EVAL schema.
+EVAL-02 may reach at most 6 only after its campaign consumer is canonical, a later unchanged scorer is
+observed, and a strict subsequent scorer verifies both observation bundles, the aggregate bundle, the exact
+scorer/catalog/contract/observer blobs, the fixed source-campaign files and digests, the three reports,
+and the diagnostic.
+The observed commit itself can never consume its campaign. Manual dispatch
 does not prove a complete attempt inventory, representative repetition, independent observation, or the
 8/9.5 anchors; failures and replacement runs remain unavailable rather than being selected away.
 

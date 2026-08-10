@@ -48,14 +48,17 @@ for (const packageName of ["bundle", "core", "protobuf-specs", "tuf", "verify"])
     path.join(repository, "node_modules", "@sigstore", packageName), { recursive: true });
 }
 await writeFile(path.join(repository, "evals", "capabilities.json"), catalogBytes);
+await copyFile(path.resolve("evals/CONTRACT.md"), path.join(repository, "evals", "CONTRACT.md"));
 await copyFile(path.resolve("scripts/capability-score.mjs"), path.join(repository, "scripts", "capability-score.mjs"));
 await copyFile(path.resolve("scripts/eval.mjs"), path.join(repository, "scripts", "eval.mjs"));
 await copyFile(path.resolve("scripts/json.mjs"), path.join(repository, "scripts", "json.mjs"));
 await copyFile(path.resolve("scripts/observe-install-capability.mjs"), path.join(repository, "scripts", "observe-install-capability.mjs"));
+await copyFile(path.resolve("scripts/observe-score-capability.mjs"), path.join(repository, "scripts", "observe-score-capability.mjs"));
 await copyFile(path.resolve("scripts/install-codex.mjs"), path.join(repository, "scripts", "install-codex.mjs"));
 await copyFile(path.resolve("package.json"), path.join(repository, "package.json"));
 await copyFile(path.resolve("package-lock.json"), path.join(repository, "package-lock.json"));
 await copyFile(path.resolve(".github/workflows/observe-install-capability.yml"), path.join(repository, ".github", "workflows", "observe-install-capability.yml"));
+await copyFile(path.resolve(".github/workflows/observe-score-capability.yml"), path.join(repository, ".github", "workflows", "observe-score-capability.yml"));
 await copyFile(path.resolve("codex/hooks/qoeop-trade-session-start.mjs"), path.join(repository, "codex", "hooks", "qoeop-trade-session-start.mjs"));
 await cp(path.resolve("codex/agents"), path.join(repository, "codex", "agents"), { recursive: true });
 await cp(path.resolve("skills/run-bounded-mission"), path.join(repository, "skills", "run-bounded-mission"), { recursive: true });
@@ -485,6 +488,149 @@ async function repeatedAttestedFixture(name) {
   return fixture;
 }
 
+function observedScoreReport(sourceCandidate, mode) {
+  const rows = catalog.capabilities.map((definition) => {
+    const install = definition.id === "INS-01";
+    const negative = install && mode === "negative";
+    return {
+      ...definition,
+      score: install && !negative ? 8 : 0,
+      maturity: install && !negative ? "representative" : negative ? "contradicted" : "absent",
+      reason: install && !negative ? "repeated_attested_fixed_observer_campaign" : negative ? "critical_gap" : "no_passing_evidence",
+      observation_count: 0,
+      attested_campaign_count: install ? 1 : 0,
+      unavailable_count: 0,
+      gap_count: negative ? 1 : 0,
+    };
+  });
+  const totalWeight = catalog.capabilities.reduce((sum, row) => sum + row.weight, 0);
+  const installWeight = catalog.capabilities.find((row) => row.id === "INS-01").weight;
+  return canonical({
+    schema_version: 2,
+    catalog_sha256: sha(committedCatalogBytes),
+    candidate: sourceCandidate,
+    target_score: catalog.target_score,
+    evidence_ceiling: 8,
+    evidence_limit: "repeated_attested_fixed_observer_campaign; independent_observer_process_isolation_and_provider_attempt_inventory_unavailable",
+    weighted_score: mode === "positive" ? Number((8 * installWeight / totalWeight).toFixed(3)) : 0,
+    minimum_score: 0,
+    eligible: false,
+    below_target: catalog.capabilities.map((row) => row.id),
+    critical_breaches: catalog.capabilities.filter((row) => row.critical).map((row) => row.id),
+    capabilities: rows,
+  });
+}
+
+async function scoreCampaignFixture(name, sourceInstall, sourceCandidate) {
+  const directory = path.join(temporaryRoot, name);
+  const sourceDirectory = path.join(directory, "source-campaign");
+  await mkdir(sourceDirectory, { recursive: true });
+  await copyFile(path.join(sourceInstall.directory, "ins-01-campaign.json"), path.join(sourceDirectory, "ins-01-campaign.json"));
+  await copyFile(path.join(sourceInstall.directory, "attestation.json"), path.join(sourceDirectory, "ins-01-campaign-attestation.json"));
+  await cp(path.join(sourceInstall.directory, "observations"), path.join(sourceDirectory, "observations"), { recursive: true });
+  const sourceCampaignBytes = await readFile(path.join(sourceDirectory, "ins-01-campaign.json"));
+  const sourceBundleBytes = await readFile(path.join(sourceDirectory, "ins-01-campaign-attestation.json"));
+  const object = async (objectPath) => git(["rev-parse", `${sourceCandidate.commit}:${objectPath}`]);
+  const observer = {
+    commit: sourceCandidate.commit,
+    script_blob: await object("scripts/observe-score-capability.mjs"),
+    tree: sourceCandidate.tree,
+  };
+  const subject = {
+    repository: repositoryUrl,
+    commit: sourceCandidate.commit,
+    tree: sourceCandidate.tree,
+    scorer_blob: await object("scripts/capability-score.mjs"),
+    catalog_blob: await object("evals/capabilities.json"),
+    contract_blob: await object("evals/CONTRACT.md"),
+  };
+  const reportBytes = {
+    negative: Buffer.from(`${JSON.stringify(observedScoreReport(sourceCandidate, "negative"))}\n`),
+    positive: Buffer.from(`${JSON.stringify(observedScoreReport(sourceCandidate, "positive"))}\n`),
+  };
+  reportBytes.recovery = reportBytes.positive;
+  reportBytes.unknown_score = Buffer.from("evidence has unknown or missing fields\n");
+  const input = { campaign_sha256: sha(sourceCampaignBytes), bundle_sha256: sha(sourceBundleBytes) };
+  const observations = [];
+  for (const environment of ["linux", "win32"]) {
+    const runner = environment === "linux" ? "Linux" : "Windows";
+    const relativeDirectory = `observations/eval-02-${runner}-1`;
+    const observationDirectory = path.join(directory, relativeDirectory);
+    await mkdir(path.join(observationDirectory, "reports"), { recursive: true });
+    const reports = {
+      negative: { path: "reports/negative.json", sha256: sha(reportBytes.negative) },
+      positive: { path: "reports/positive.json", sha256: sha(reportBytes.positive) },
+      recovery: { path: "reports/recovery.json", sha256: sha(reportBytes.recovery) },
+      unknown_score: { path: "reports/unknown-score.stderr", sha256: sha(reportBytes.unknown_score) },
+    };
+    await Promise.all(Object.entries(reports).map(([key, report]) =>
+      writeFile(path.join(observationDirectory, report.path), reportBytes[key])));
+    const payload = canonical({
+      schema: "pareto-score-capability-observation/v1",
+      admission: "strict_descendant_only",
+      authority: "fixed_observer_real_consumer",
+      capability_id: "EVAL-02",
+      environment: { arch: "x64", node: "v24.18.0", platform: environment },
+      input,
+      observer,
+      reports,
+      result: "pass",
+      subject,
+      trial_id: 1,
+    });
+    const envelope = canonical({
+      schema: "pareto-capability-observation-envelope/v1",
+      content_sha256: sha(Buffer.from(JSON.stringify(payload))),
+      payload,
+    });
+    const observationBytes = Buffer.from(`${JSON.stringify(envelope)}\n`);
+    await writeFile(path.join(observationDirectory, `observation-${runner}-1.json`), observationBytes);
+    await copyFile(path.join(sourceInstall.directory, "attestation.json"), path.join(observationDirectory, "attestation.json"));
+    observations.push({
+      bundle_path: `${relativeDirectory}/attestation.json`,
+      bundle_sha256: sha(await readFile(path.join(observationDirectory, "attestation.json"))),
+      content_sha256: envelope.content_sha256,
+      environment,
+      trial_id: 1,
+    });
+  }
+  const payload = canonical({
+    schema: "pareto-score-capability-campaign/v1",
+    admission: "strict_descendant_only",
+    authority: "github_attestation_subject",
+    capability_id: "EVAL-02",
+    observations,
+    observer,
+    result: "pass",
+    subject,
+  });
+  const campaign = Buffer.from(`${JSON.stringify(canonical({
+    schema: "pareto-capability-campaign-envelope/v1",
+    content_sha256: sha(Buffer.from(JSON.stringify(payload))),
+    payload,
+  }))}\n`);
+  const bundle = await readFile(path.join(sourceInstall.directory, "attestation.json"));
+  await writeFile(path.join(directory, "eval-02-campaign.json"), campaign);
+  await writeFile(path.join(directory, "eval-02-campaign-attestation.json"), bundle);
+  const evidence = {
+    schema_version: 2,
+    catalog_sha256: sha(committedCatalogBytes),
+    candidate: { ...candidate },
+    attempt_inventory: { status: "unavailable", locator: "provider attestation unavailable" },
+    observations: [],
+    attested_campaigns: [{
+      campaign_path: "eval-02-campaign.json",
+      campaign_sha256: sha(campaign),
+      bundle_path: "eval-02-campaign-attestation.json",
+      bundle_sha256: sha(bundle),
+    }],
+    open_gaps: [],
+  };
+  const evidencePath = path.join(directory, "evidence.json");
+  await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+  return { campaign, directory, evidence, evidencePath };
+}
+
 try {
   assert.equal(nodeSupportsSigstore("22.22.1"), false);
   assert.equal(nodeSupportsSigstore("22.22.2"), true);
@@ -842,6 +988,114 @@ try {
   }).catch((error) => error);
   assert.equal(cli.code, 1, "an ineligible capability report must fail the CLI gate");
   assert.match(cli.stdout, /"eligible": false/);
+
+  const scoreObserverFile = path.join(repository, "scripts", "observe-score-capability.mjs");
+  const scoreWorkflowFile = path.join(repository, ".github", "workflows", "observe-score-capability.yml");
+  await writeFile(scoreObserverFile, Buffer.concat([await readFile(scoreObserverFile), Buffer.from("\n// retained report protocol fixture\n")]));
+  await writeFile(scoreWorkflowFile, Buffer.concat([await readFile(scoreWorkflowFile), Buffer.from("\n# retain report bytes fixture\n")]));
+  await git(["add", "scripts/observe-score-capability.mjs", ".github/workflows/observe-score-capability.yml"]);
+  await git(["commit", "--quiet", "-m", "retain score campaign reports"]);
+  candidate.commit = await git(["rev-parse", "HEAD"]);
+  candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
+  const scoreSourceCandidate = { ...candidate };
+  const scoreSourceInstall = await repeatedAttestedFixture("eval-02-source-install");
+  const sameCommitScore = await scoreCampaignFixture("eval-02-same-commit", scoreSourceInstall, scoreSourceCandidate);
+  await assert.rejects(
+    () => scoreEvidence(sameCommitScore),
+    /EVAL-02 campaign source identity is invalid/,
+    "the observed scorer must never consume its own campaign",
+  );
+
+  await writeFile(path.join(repository, "meaningful-descendant.txt"), "natural descendant fixture\n");
+  await git(["add", "meaningful-descendant.txt"]);
+  await git(["commit", "--quiet", "-m", "add unrelated descendant consumer"]);
+  candidate.commit = await git(["rev-parse", "HEAD"]);
+  candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
+
+  const acceptedShape = await scoreCampaignFixture("eval-02-accepted-shape", scoreSourceInstall, scoreSourceCandidate);
+  await assert.rejects(
+    () => scoreEvidence(acceptedShape),
+    /EVAL-02 campaign attestation verification failed: isolated Sigstore batch verification failed/,
+    "a complete strict-descendant shape must reach the EVAL-02 attestation boundary",
+  );
+
+  const installerFile = path.join(repository, "scripts", "install-codex.mjs");
+  const installerBeforeDrift = await readFile(installerFile);
+  await writeFile(installerFile, Buffer.concat([installerBeforeDrift, Buffer.from("\n// stale install consumer fixture\n")]));
+  await git(["add", "scripts/install-codex.mjs"]);
+  await git(["commit", "--quiet", "-m", "drift install consumer"]);
+  candidate.commit = await git(["rev-parse", "HEAD"]);
+  candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
+  const staleInstallConsumer = await scoreCampaignFixture(
+    "eval-02-stale-install-consumer", scoreSourceInstall, scoreSourceCandidate,
+  );
+  await assert.rejects(
+    () => scoreEvidence(staleInstallConsumer),
+    /attested campaign is stale for the current install consumer/,
+    "a descendant install-consumer drift must invalidate the embedded INS control",
+  );
+  await writeFile(installerFile, installerBeforeDrift);
+  await git(["add", "scripts/install-codex.mjs"]);
+  await git(["commit", "--quiet", "-m", "restore install consumer fixture"]);
+  candidate.commit = await git(["rev-parse", "HEAD"]);
+  candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
+
+  const bootstrapScore = await scoreCampaignFixture("eval-02-bootstrap", scoreSourceInstall, scoreSourceCandidate);
+  const bootstrapEnvelope = JSON.parse(bootstrapScore.campaign);
+  bootstrapEnvelope.payload.admission = "bootstrap_only";
+  bootstrapEnvelope.payload.schema = "pareto-capability-campaign/v2";
+  bootstrapEnvelope.content_sha256 = sha(Buffer.from(JSON.stringify(canonical(bootstrapEnvelope.payload))));
+  const bootstrapBytes = Buffer.from(`${JSON.stringify(canonical(bootstrapEnvelope))}\n`);
+  await writeFile(path.join(bootstrapScore.directory, "eval-02-campaign.json"), bootstrapBytes);
+  bootstrapScore.evidence.attested_campaigns[0].campaign_sha256 = sha(bootstrapBytes);
+  await writeFile(bootstrapScore.evidencePath, `${JSON.stringify(bootstrapScore.evidence, null, 2)}\n`);
+  await assert.rejects(
+    () => scoreEvidence(bootstrapScore),
+    /EVAL-02 campaign semantics are invalid/,
+    "the historical bootstrap protocol must remain permanently non-authorizing",
+  );
+
+  const missingReport = await scoreCampaignFixture("eval-02-missing-report", scoreSourceInstall, scoreSourceCandidate);
+  await rm(path.join(missingReport.directory, "observations", "eval-02-Linux-1", "reports", "negative.json"));
+  await assert.rejects(() => scoreEvidence(missingReport), /EVAL-02 negative report is missing or unsafe/);
+
+  const staleScore = await scoreCampaignFixture("eval-02-stale-scorer", scoreSourceInstall, scoreSourceCandidate);
+  const scorerFile = path.join(repository, "scripts", "capability-score.mjs");
+  await writeFile(scorerFile, Buffer.concat([await readFile(scorerFile), Buffer.from("\n")]));
+  await git(["add", "scripts/capability-score.mjs"]);
+  await git(["commit", "--quiet", "-m", "change scoring consumer"]);
+  candidate.commit = await git(["rev-parse", "HEAD"]);
+  candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
+  staleScore.evidence.candidate = { ...candidate };
+  await writeFile(staleScore.evidencePath, `${JSON.stringify(staleScore.evidence, null, 2)}\n`);
+  await assert.rejects(
+    () => scoreEvidence(staleScore),
+    /EVAL-02 campaign is stale for the current scoring consumer/,
+    "any scorer drift must invalidate the campaign",
+  );
+
+  const invalidSourceScorer = path.join(repository, "scripts", "capability-score.mjs");
+  await writeFile(invalidSourceScorer, Buffer.concat([await readFile(invalidSourceScorer), Buffer.from("\n// same-commit consumer fixture\n")]));
+  await writeFile(scoreObserverFile, Buffer.concat([await readFile(scoreObserverFile), Buffer.from("\n// same-commit producer fixture\n")]));
+  await git(["add", "scripts/capability-score.mjs", "scripts/observe-score-capability.mjs"]);
+  await git(["commit", "--quiet", "-m", "change consumer and producer together"]);
+  candidate.commit = await git(["rev-parse", "HEAD"]);
+  candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
+  const invalidSourceCandidate = { ...candidate };
+  const invalidSourceInstall = await repeatedAttestedFixture("eval-02-invalid-source-install");
+  await writeFile(path.join(repository, "invalid-source-descendant.txt"), "descendant\n");
+  await git(["add", "invalid-source-descendant.txt"]);
+  await git(["commit", "--quiet", "-m", "add descendant after mixed source"]);
+  candidate.commit = await git(["rev-parse", "HEAD"]);
+  candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
+  const invalidSourceCampaign = await scoreCampaignFixture(
+    "eval-02-consumer-not-preexisting", invalidSourceInstall, invalidSourceCandidate,
+  );
+  await assert.rejects(
+    () => scoreEvidence(invalidSourceCampaign),
+    /EVAL-02 campaign is stale for the current scoring consumer/,
+    "the scorer consumer must already exist unchanged in the observation commit parent",
+  );
 
   const staleObserverRuntime = await repeatedAttestedFixture("repeated-attested-stale-runtime");
   const oldLock = await readFile(path.join(repository, "package-lock.json"));
