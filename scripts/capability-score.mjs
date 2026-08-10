@@ -371,7 +371,7 @@ function validateObservation(observation, capabilities, requirements) {
   }
 }
 
-function scoreCapability(capability, observations, gaps, requirements, localTraceCeiling) {
+function scoreCapability(observations, gaps, localTraceCeiling) {
   const passed = observations.filter((entry) => entry.result === "pass" && entry.source_verified === true);
   const unverifiedPass = observations.filter((entry) => entry.result === "pass" && entry.source_verified !== true);
   const failed = observations.filter((entry) => entry.result === "fail");
@@ -384,37 +384,7 @@ function scoreCapability(capability, observations, gaps, requirements, localTrac
   }
   if (unavailable.length > 0) return { score: 0, maturity: "unavailable", reason: "unavailable_observation" };
   if (passed.length === 0) return { score: 0, maturity: "absent", reason: "no_passing_evidence" };
-
-  const sources = new Set(passed.map((entry) => entry.source_kind));
-  const scenarios = new Set(passed.map((entry) => entry.scenario));
-  const environments = new Set(passed.map((entry) => entry.environment_id));
-  const independentObservers = new Set(passed.filter((entry) => entry.source_kind === "independent_review").map((entry) => entry.observer_id));
-  const hasDynamic = sources.has("native_trace");
-  const coversRequiredSources = requirements.sources.every((kind) => sources.has(kind));
-  const coversRequiredScenarios = requirements.scenarios.every((scenario) => scenarios.has(scenario));
-  const coversScenarioSources = requirements.scenarios.every((scenario) => requirements.sources.every((sourceKind) =>
-    passed.some((entry) => entry.scenario === scenario && entry.source_kind === sourceKind)));
-
-  let score = sources.has("deterministic_replay") ? 4 : 2;
-  let maturity = score === 4 ? "reachable" : "declared";
-  let reason = score === 4 ? "deterministic_replay_only" : "declaration_only";
-  if (hasDynamic) {
-    score = 6;
-    maturity = "dynamic";
-    reason = "one_or_more_native_traces";
-  }
-  if (hasDynamic && coversRequiredSources && coversRequiredScenarios && coversScenarioSources) {
-    score = 8;
-    maturity = "representative";
-    reason = "positive_negative_recovery_with_independent_review";
-  }
-
-  if (score > localTraceCeiling) {
-    score = localTraceCeiling;
-    maturity = "declared";
-    reason = "local_writable_trace_has_no_provider_attestation";
-  }
-  return { score, maturity, reason };
+  return { score: localTraceCeiling, maturity: "declared", reason: "local_writable_trace_has_no_provider_attestation" };
 }
 
 export async function scoreEvidence({ evidencePath }) {
@@ -463,7 +433,7 @@ export async function scoreEvidence({ evidencePath }) {
     const gaps = gapsByCapability.get(capability.id) ?? [];
     return {
       ...capability,
-      ...scoreCapability(capability, observations, gaps, catalog.default_requirements, catalog.local_trace_ceiling),
+      ...scoreCapability(observations, gaps, catalog.local_trace_ceiling),
       observation_count: observations.length,
       unavailable_count: observations.filter((entry) => entry.result === "unavailable").length,
       gap_count: gaps.length,

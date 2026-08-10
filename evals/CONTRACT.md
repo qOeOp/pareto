@@ -152,6 +152,9 @@ consistent; the assessor does not publish a higher "observed" score from author-
 The 9.5 anchor remains unavailable until Codex exposes a provider-attested complete attempt
 inventory with a repository verifier; the scorer rejects manifests that pretend this authority exists.
 
+The local assessor does not derive representative coverage from writable trial, environment, or
+reviewer labels. Those requirements remain unavailable until an external attempt authority can enforce them.
+
 The CLI is an explicit operator gate, not a host Goal integration: it exits nonzero for every report
 whose minimum leaf is below 9.5. The candidate repository must match the scorer checkout's exact origin;
 its commit must be the clean checkout `HEAD`, its tree must resolve exactly, and its committed catalog
