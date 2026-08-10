@@ -6,7 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { assertions } from "promptfoo";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
   CANONICAL_PROVIDER_ID,
   guardPromptfooFetch,
@@ -623,7 +623,72 @@ try {
     { encoding: "utf8", ...options },
   );
   const baseValidation = await runProductionValidator();
-  assert.match(baseValidation.stdout, /Validated 1 Skill and 25 executable cases; committed baselines are disabled/);
+  assert.match(baseValidation.stdout,
+    /Validated 1 Skill, 25 executable cases, and 117 scenario designs \(0 implemented authorities, 117 unavailable\); committed baselines are disabled/);
+
+  const scenarioDesignPath = path.join(validatorFixture, "evals", "scenarios.json");
+  const scenarioDesignSource = await readFile(scenarioDesignPath, "utf8");
+  const challengeScenarioDesign = async (mutate, pattern, label) => {
+    const challenged = JSON.parse(scenarioDesignSource);
+    mutate(challenged);
+    await writeFile(scenarioDesignPath, `${JSON.stringify(challenged, null, 2)}\n`, "utf8");
+    await expectReject(runProductionValidator, pattern, label);
+    await writeFile(scenarioDesignPath, scenarioDesignSource, "utf8");
+  };
+  await challengeScenarioDesign((design) => design.scenarios.pop(),
+    /scenario design must contain exactly 117 unique leaf\/scenario slots/,
+    "missing scenario design slot must fail closed");
+  await challengeScenarioDesign((design) => {
+    design.scenarios[1].case_id = design.scenarios[0].case_id;
+  }, /scenario design contains a duplicate slot or case ID/,
+  "duplicate scenario case identity must fail closed");
+  await challengeScenarioDesign((design) => {
+    design.scenarios[0].case_id = "unbound-case-design";
+  }, /case binding does not match the canonical scenario design/,
+  "executable case must bind the canonical scenario design");
+  await challengeScenarioDesign((design) => {
+    design.scenarios[0].authority_status = "implemented";
+    design.scenarios[0].missing_authority = null;
+  }, /scenario design authority cannot be self-declared/,
+  "scenario design cannot self-declare implemented authority");
+  await challengeScenarioDesign((design) => {
+    const unavailable = design.scenarios.find((row) => row.authority_status === "authority_unavailable");
+    unavailable.missing_authority = null;
+  }, /unavailable scenario design requires one known missing authority/,
+  "unavailable authority requires one bounded reason");
+  await challengeScenarioDesign((design) => {
+    design.scenarios[0].observer_kind = "external_authority";
+  }, /scenario observer does not match its missing authority/,
+  "observer kind must match its missing authority");
+  await challengeScenarioDesign((design) => {
+    const executable = design.scenarios.find((row) => row.executable_suite === "golden");
+    executable.executable_suite = "holdout";
+  }, /executable case suite does not match the scenario design/,
+  "executable case suite must match its design slot");
+  await writeFile(scenarioDesignPath,
+    scenarioDesignSource.replace('"schema_version": 1', '"schema_version": 1, "schema_version": 1'), "utf8");
+  await expectReject(runProductionValidator, /duplicate JSON object member schema_version/,
+    "duplicate scenario design member must fail closed");
+  await writeFile(scenarioDesignPath, scenarioDesignSource, "utf8");
+
+  const fixtureGoldenCases = parseYaml(await readFile(path.join(validatorFixture, "evals", "cases", "golden.yaml"), "utf8"));
+  const fixtureHoldoutPath = path.join(validatorFixture, "evals", "cases", "holdout.yaml");
+  const fixtureHoldoutSource = await readFile(fixtureHoldoutPath, "utf8");
+  const fixtureHoldoutCases = parseYaml(fixtureHoldoutSource);
+  fixtureHoldoutCases[0].metadata.observations.capability =
+    structuredClone(fixtureGoldenCases[0].metadata.observations.capability);
+  await writeFile(fixtureHoldoutPath, stringifyYaml(fixtureHoldoutCases), "utf8");
+  await expectReject(runProductionValidator, /scenario design has more than one executable case/,
+    "one scenario design slot cannot bind duplicate executable cases");
+  await writeFile(fixtureHoldoutPath, fixtureHoldoutSource, "utf8");
+
+  const fixtureGoldenPath = path.join(validatorFixture, "evals", "cases", "golden.yaml");
+  const fixtureGoldenSource = await readFile(fixtureGoldenPath, "utf8");
+  fixtureGoldenCases.splice(fixtureGoldenCases.findIndex((testCase) => testCase.description.startsWith("[full]")), 1);
+  await writeFile(fixtureGoldenPath, stringifyYaml(fixtureGoldenCases), "utf8");
+  await expectReject(runProductionValidator, /scenario design requires one exact executable case/,
+    "declared executable case cannot be selectively deleted");
+  await writeFile(fixtureGoldenPath, fixtureGoldenSource, "utf8");
 
   const baselineRoot = path.join(validatorFixture, "evals", "baselines");
   await mkdir(baselineRoot);

@@ -13,8 +13,8 @@ locators, business repositories, credentials, and provider receipts remain exter
 ## Suites
 
 - `smoke`: the two `[smoke]` cases in `cases/golden.yaml`, one trial each.
-- `full`: all 21 public golden cases in `cases/golden.yaml`, two trials each.
-- `holdout`: the four public withheld-regression cases in the separate `cases/holdout.yaml`, three
+- `full`: all public golden cases in `cases/golden.yaml`, two trials each.
+- `holdout`: all public withheld-regression cases in the separate `cases/holdout.yaml`, three
   trials each. The runner never loads this file for smoke/full and requires a clean Git
   commit, binds the exact commit, tree, `skills/` tree, and matrix digest into Promptfoo output, and
   rejects identity drift before accepting the result. Because this file is committed and readable by
@@ -28,11 +28,27 @@ after its candidate or matrix changes.
 
 ## Case design
 
-`cases/golden.yaml` and `cases/holdout.yaml` are the only corpus authority. Descriptions carry the
+`capabilities.json` is the only leaf inventory. `scenarios.json` gives every leaf exactly one positive,
+negative, and recovery design slot and fixes the required observer class. It contains no score, result,
+run, artifact, attempt, owner, weight, consumer, or campaign state. A complete design matrix proves only
+that no leaf/scenario was omitted; `authority_unavailable` remains non-evidence and cannot raise a score.
+Schema v1 accepts only `authority_unavailable`; a later schema may admit an implemented authority only
+when the validator also consumes that observer's exact case binding instead of trusting the matrix field.
+The missing-authority class fixes the observer kind rather than letting a case author downgrade it.
+`executable_suite`, when present, creates a two-way binding to exactly one golden or holdout case; omitting
+or moving that case fails validation. It is corpus structure only, not evidence that the required observer ran.
+These candidate-owned checks establish internal consistency only. Schema v1 is bootstrap-only and
+non-authorizing: coordinated edits to both the matrix and corpus are not anti-omission evidence. A later
+canonical-base consumer must reject deletion, suite movement, or authority-class downgrade before any such
+claim can be admitted.
+
+`cases/golden.yaml` and `cases/holdout.yaml` are the executable text corpus authority. Descriptions carry the
 suite selector; prompts express generalized consumer tasks without private repositories, task
 locators, transcripts, or business content. Every case binds exactly one primary capability, scenario,
 stable case ID, deterministic text behavior, and an out-of-prompt observation contract in
-`metadata.observations`. One case never upgrades unrelated leaves. Model-graded rubrics may be added only when semantic
+`metadata.observations`. Its binding must resolve to the corresponding `scenarios.json` slot. A case may
+exercise supporting behavior for a stronger observer class, but it cannot substitute for that observer
+or turn an unavailable authority into evidence. One case never upgrades unrelated leaves. Model-graded rubrics may be added only when semantic
 quality cannot be reduced to a stable check and every provider-capable grading route is preflighted
 against the exact admitted provider/model/effort authority.
 
