@@ -32,4 +32,5 @@ jobs:
           cache: false
       - run: npm ci --ignore-scripts
       - run: npm run check
+      - run: node --check scripts/observe-score-capability.mjs && node scripts/observe-score-capability.test.mjs
       - run: go test skills/run-bounded-mission/scripts/delivery-receipt.go skills/run-bounded-mission/scripts/delivery-receipt_test.go
