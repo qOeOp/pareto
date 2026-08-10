@@ -98,7 +98,10 @@ function observedNativeTurn(items) {
 function responseResult(messages, id, label) {
   const matches = messages.filter((entry) => entry.id === id);
   if (matches.length !== 1) fail(`app-server returned ${matches.length} ${label} responses`);
-  if (matches[0].error) fail(`${label} failed`);
+  if (matches[0].error) {
+    const code = Number.isSafeInteger(matches[0].error.code) ? `: code=${matches[0].error.code}` : "";
+    fail(`${label} failed${code}`);
+  }
   if (!matches[0].result || typeof matches[0].result !== "object") fail(`${label} response is malformed`);
   return matches[0].result;
 }
@@ -216,7 +219,10 @@ export async function collectNativeEvidence({
   send({
     method: "initialize",
     id: 0,
-    params: { clientInfo: { name: "rbm_native_evidence", title: "RBM Native Evidence", version: "1.0.0" } },
+    params: {
+      capabilities: { experimentalApi: true },
+      clientInfo: { name: "rbm_native_evidence", title: "RBM Native Evidence", version: "1.0.0" },
+    },
   });
 
   try {
@@ -250,10 +256,11 @@ export async function collectNativeEvidence({
   }
   const userMessages = turn.items.filter((item) => item.type === "userMessage");
   const finalMessages = turn.items.filter((item) => item.type === "agentMessage" && item.phase === "final_answer");
-  if (userMessages.length !== 1 || finalMessages.length !== 1 || turn.items.at(-1) !== finalMessages[0]) fail("requested turn lacks one exact prompt and terminal final answer");
+  if (userMessages.length !== 1) fail("requested turn lacks one exact prompt");
+  if (finalMessages.length !== 1 || turn.items.at(-1) !== finalMessages[0]) fail("requested turn lacks one terminal final answer");
   const userContent = userMessages[0].content;
   if (!Array.isArray(userContent) || userContent.length !== 1 || userContent[0]?.type !== "text" || typeof userContent[0].text !== "string") fail("requested turn prompt is not one exact text input");
-const observation = observedNativeTurn(turn.items);
+  const observation = observedNativeTurn(turn.items);
   const { candidate, committedCase, result: capabilityResult } = await verifyCommittedNativeTurn({
     repositoryRoot,
     prompt: userContent[0].text,

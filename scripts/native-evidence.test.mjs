@@ -60,11 +60,11 @@ const capabilityResult = {
 };
 const binding = { expectedServerVersion: "0.147.0", appServerCwd: temporaryRoot, repositoryRoot: repository, turnId };
 
-function turnFixture({ prompt = casePrompt, finalText = caseOutput, status = "completed", phase = "final_answer", itemsView = "full", skillUsed = true } = {}) {
+function turnFixture({ prompt = casePrompt, finalText = caseOutput, status = "completed", phase = "final_answer", itemsView = "full", skillUsed = true, userMessage = true } = {}) {
   return {
     id: turnId,
     items: [
-      { type: "userMessage", id: "user-1", clientId: null, content: [{ type: "text", text: prompt, text_elements: [] }] },
+      ...(userMessage ? [{ type: "userMessage", id: "user-1", clientId: null, content: [{ type: "text", text: prompt, text_elements: [] }] }] : []),
       ...(skillUsed ? [{ type: "commandExecution", id: "command-1", command: "sed -n 1,220p /fixture/home/.agents/skills/run-bounded-mission/SKILL.md", cwd: "/fixture", processId: "1", source: "agent", status: "completed", commandActions: [{ type: "read", command: "sed -n 1,220p /fixture/home/.agents/skills/run-bounded-mission/SKILL.md", name: "sed", path: "/fixture/home/.agents/skills/run-bounded-mission/SKILL.md" }], aggregatedOutput: "", exitCode: 0, durationMs: 1 }] : []),
       { type: "agentMessage", id: "agent-1", text: finalText, phase, memoryCitation: null },
     ],
@@ -77,9 +77,9 @@ function turnFixture({ prompt = casePrompt, finalText = caseOutput, status = "co
   };
 }
 
-async function fakeServer({ goal = { threadId, objective, status: "active" }, duplicate = false, initializeError = false, readError = false, silent = false, source = "cli", sessionId = threadId, parentThreadId = null, ignoreTerm = false, pidFile = null, turns = [turnFixture()] } = {}) {
+async function fakeServer({ goal = { threadId, objective, status: "active" }, duplicate = false, initializeError = false, readError = false, turnsError = false, silent = false, source = "cli", sessionId = threadId, parentThreadId = null, ignoreTerm = false, pidFile = null, turns = [turnFixture()] } = {}) {
   const executable = path.join(temporaryRoot, "app-server");
-  const fixture = { threadId, goal, duplicate, initializeError, readError, silent, source, sessionId, parentThreadId, ignoreTerm, pidFile, turns };
+  const fixture = { threadId, goal, duplicate, initializeError, readError, turnsError, silent, source, sessionId, parentThreadId, ignoreTerm, pidFile, turns };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fs = require("node:fs");
@@ -93,6 +93,7 @@ rl.on("line", (line) => {
   if (message.id === 0) {
     if (fixture.duplicate) process.stdout.write("{\\"id\\":0,\\"id\\":0,\\"result\\":{}}\\n");
     else if (fixture.initializeError) process.stdout.write(JSON.stringify({ id: 0, error: { message: "/private/secret" } }) + "\\n");
+    else if (message.params?.capabilities?.experimentalApi !== true) process.stdout.write(JSON.stringify({ id: 0, error: { code: -32600, message: "experimental API required" } }) + "\\n");
     else process.stdout.write(JSON.stringify({ id: 0, result: { userAgent: "Codex Desktop/0.147.0 (fixture)", platformFamily: "unix", platformOs: "fixture" } }) + "\\n");
   }
   if (message.id === 1) {
@@ -100,7 +101,7 @@ rl.on("line", (line) => {
     process.stdout.write(JSON.stringify(response) + "\\n");
   }
   if (message.id === 2) process.stdout.write(JSON.stringify({ id: 2, result: { goal: fixture.goal } }) + "\\n");
-  if (message.id >= 3) process.stdout.write(JSON.stringify({ id: message.id, result: { data: fixture.turns, nextCursor: null, backwardsCursor: null } }) + "\\n");
+  if (message.id >= 3) process.stdout.write(JSON.stringify(fixture.turnsError ? { id: message.id, error: { code: -32600, message: "/private/secret" } } : { id: message.id, result: { data: fixture.turns, nextCursor: null, backwardsCursor: null } }) + "\\n");
 });
 `;
   await writeFile(executable, program);
@@ -144,6 +145,7 @@ try {
 
   await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [turnFixture({ prompt: "not the committed prompt" })] }) }), /prompt does not match/);
   await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [turnFixture({ status: "inProgress" })] }) }), /not one complete full turn/);
+  await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [turnFixture({ userMessage: false })] }) }), /lacks one exact prompt/);
   const priorTurn = { ...turnFixture(), id: "019fb8b4-ebd0-7c20-8ba1-041ed6836208" };
   await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [priorTurn, turnFixture()] }) }), /exactly one turn/);
   await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [turnFixture({ finalText: JSON.stringify(capabilityResult), skillUsed: false })] }) }), /fails a committed equals assertion/);
@@ -176,6 +178,9 @@ try {
   assert.equal(readError.message, "thread/read failed");
   const initializeError = await collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ initializeError: true }) }).catch((error) => error);
   assert.equal(initializeError.message, "initialize failed");
+  const turnsError = await collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turnsError: true }) }).catch((error) => error);
+  assert.equal(turnsError.message, "thread/turns/list failed: code=-32600");
+  assert.equal(turnsError.message.includes("/private/secret"), false);
   await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, timeoutMs: 20, codexExecutable: await fakeServer({ silent: true }) }), /timed out/);
   console.log("native evidence tests passed");
 } finally {
