@@ -736,6 +736,214 @@
         - "merge_ready_is_merge: false"
         - "merge_authority: external"
 
+- description: "[full] counts delay and preference alone are no QA signal"
+  metadata:
+    observations: { capability: { id: QUA-01, scenario: negative, case_id: qua-01-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A user asks QA to act only because a task has many messages, a long delay,
+      wording they dislike, and a preferred model; no lifecycle relationship failed and no required
+      evidence is missing. Return the QA disposition without creating an artifact or task.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        failed_relationship: none
+        required_evidence_missing: false
+        counts_delay_wording_preference: insufficient
+        qa_outcome: no-signal
+        qa_artifact: none
+        task_or_message_effect: none
+        recurrence_claim: forbidden
+
+- description: "[full] QA closure reruns the routed relationship without owning repair"
+  metadata:
+    observations: { capability: { id: QUA-01, scenario: recovery, case_id: qua-01-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. An exact complaint shows a stale candidate identity reached acceptance.
+      The verifier is the native owner and later reports its repair. Classify the QA route and the only
+      valid closure observation; do not perform the repair or dispatch a task.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        qa_outcome: block
+        affected_boundary: candidate-acceptance-frozen
+        routed_predicate: candidate-evidence-identity
+        native_owner: verifier
+        qa_repairs: false
+        qa_dispatches_task: false
+        owner_repair: external-to-qa
+        closure: rerun-same-relationship
+        closure_result: required-before-closed
+        persistent_recurrence_record: none
+
+- description: "[full] anti-entropy routing requires comparable repeated evidence"
+  metadata:
+    observations: { capability: { id: QUA-02, scenario: positive, case_id: qua-02-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission to classify the anti-entropy evidence contract. Comparable independent
+      Mission observations and cross-Mission recurrence authority are unavailable. Return what evidence
+      would be required before an Optimization route; issue no route.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        recurrence_authority: unavailable
+        comparable_independent_observations: required
+        qualifying_signal: repeated-patching-or-duplicated-authority-or-unconsumed-owner-or-documentation-implementation-drift-or-repeated-rework-communication-changing-no-decision
+        counts_or_file_size: insufficient
+        recurrence: unproved
+        optimization_route: not-issued
+        persistent_qa_ledger: forbidden
+
+- description: "[full] one untidy large file does not prove recurrence"
+  metadata:
+    observations: { capability: { id: QUA-02, scenario: negative, case_id: qua-02-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. One current file is large and untidy, one Mission had a wording complaint,
+      and no repeated patch, duplicate authority, missing consumer, drift, or unchanged-decision rework is
+      evidenced. Return the anti-entropy decision.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        anti_entropy_signal: none
+        file_size_and_aesthetics: no-signal
+        single_complaint: not-recurrence
+        optimization_activation: false
+        cleanup_or_refactor_effect: none
+
+- description: "[full] recurrence recovery waits for exact external authority"
+  metadata:
+    observations: { capability: { id: QUA-02, scenario: recovery, case_id: qua-02-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A current-Mission patch-pressure signal is exact, but the claimed matching
+      prior Missions cannot be verified. Later recovery would require content-bound independent locators
+      from an existing authority. Return the current and next legal disposition without a new ledger.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        current_mission_signal: retain-locally
+        cross_mission_recurrence: unavailable
+        optimization_route: frozen
+        recovery_evidence: exact-independent-locators-required
+        new_ledger_or_history_scan: forbidden
+        route_after_recovery: existing-optimizer-only-if-recurrence-proved
+
+- description: "[full] necessity counterfactual orders subtraction without issuing deletion"
+  metadata:
+    observations: { capability: { id: OPT-01, scenario: positive, case_id: opt-01-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission to classify a proposed structural subtraction. The hypothetical deletion
+      preserves clean success, known-defect prevention, critical floors, and every unique owner/consumer
+      edge, but no fixed consumer observation or deletion authority is available. Return the decision
+      contract without editing.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        necessity_counterfactual: required-through-real-consumers
+        hypothetical_preserved_behavior: stated-not-observed
+        fixed_consumer_observation: unavailable
+        subtraction_recommendation: unproved
+        deletion_effect: not-issued
+        authority_transfer: none
+
+- description: "[full] counts scores and aesthetics cannot authorize subtraction"
+  metadata:
+    observations: { capability: { id: OPT-01, scenario: negative, case_id: opt-01-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A refactor proposal cites only line count, file count, churn, a high aggregate
+      score, and aesthetic preference. It has no deletion counterfactual for one low-frequency fail-close
+      path. Return the subtraction decision.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        structural_cause: unproved
+        counts_scores_aesthetics: insufficient
+        low_frequency_fail_close: critical-not-low-value
+        necessity_test: failed
+        deletion_or_convergence: forbidden
+        next_action: obtain-real-consumer-counterfactual
+
+- description: "[full] scored comparison keeps quality cost and critical floors separate"
+  metadata:
+    observations: { capability: { id: OPT-02, scenario: positive, case_id: opt-02-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission to classify an explicitly requested system comparison. No fixed consumer
+      observations or comparable telemetry are available. Return the assessment contract and current
+      score boundary without constructing scores or changing routes.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        assessment_object_and_controls: freeze
+        weights_total: 100
+        quality_and_cost: separate
+        critical_floors: independent-of-weighted-score
+        comparable_telemetry: unavailable
+        concentration: unavailable
+        capability_scores: not-computed
+        route_or_acceptance_effect: none
+
+- description: "[full] aggregate score cannot cover a critical floor breach"
+  metadata:
+    observations: { capability: { id: OPT-02, scenario: negative, case_id: opt-02-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A comparison reports aggregate 9.7 from counts and estimates, but a unique
+      fail-close consumer regressed and model/token/cost telemetry is missing. Return the assessment and
+      candidate decision.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        aggregate_score: non-authorizing
+        critical_floor_breach: blocking
+        missing_telemetry_dimensions: unavailable
+        concentration_claim: unsupported
+        candidate_acceptance: forbidden
+        score_repair_by-reweighting: forbidden
+
+- description: "[full] changed controls make assessment delta non-comparable"
+  metadata:
+    observations: { capability: { id: OPT-02, scenario: recovery, case_id: opt-02-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. After a baseline assessment, the scenario mix and one control changed before
+      integrated-candidate reassessment. Return the recovery for score comparison, critical floors, and
+      baseline custody.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        prior_delta: non-comparable
+        changed_controls: bind-explicitly
+        same_rubric_and_controls: required-for-delta
+        baseline_edit_to-fit: forbidden
+        critical_floor_regressions: report-independently
+        score_increase: forbidden-until-stronger-consumer-evidence
+
 - description: "[full] coordination churn is a QA signal"
   metadata:
     observations: { capability: { id: QUA-01, scenario: positive, case_id: coordination-churn-routing }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
