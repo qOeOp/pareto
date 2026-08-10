@@ -12,7 +12,9 @@ const execFileAsync = promisify(execFile);
 const gitEnvironment = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name)));
 const sourceKinds = new Set(["deterministic_replay", "native_trace", "independent_review"]);
 const results = new Set(["pass", "fail", "unavailable"]);
+const goalStatuses = new Set(["active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"]);
 const shaPattern = /^sha256:[a-f0-9]{64}$/;
+const threadPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const expectedCapabilityIds = new Set([
   "KRN-01", "KRN-02", "PLN-01", "PLN-02", "PLN-03", "PLN-04", "PLN-05", "ORC-01", "ORC-02",
   "ORC-03", "ORC-04", "ORC-05", "ORC-06", "EXE-01", "EXE-02", "VER-01", "VER-02", "VER-03",
@@ -43,6 +45,12 @@ function atom(value, label) {
 
 function digest(bytes) {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+}
+
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object") return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+  return value;
 }
 
 function normalizedRepository(value) {
@@ -191,12 +199,45 @@ function parseRolloutTrace(bytes, observation, candidate) {
   return true;
 }
 
+function parseNativeTrace(bytes, observation, candidate) {
+  const { value: envelope } = parseUniqueJson(bytes, "native evidence");
+  exactKeys(envelope, ["schema", "content_sha256", "payload"], "native evidence envelope");
+  if (envelope.schema !== "rbm-native-evidence-envelope/v2" || !shaPattern.test(envelope.content_sha256)) fail("native evidence envelope is invalid");
+  const payload = envelope.payload;
+  exactKeys(payload, ["schema", "authority", "executable", "host", "thread", "goal", "expectation", "binding", "result"], "native evidence payload");
+  if (payload.schema !== "rbm-native-evidence/v2" || payload.authority !== "local_interface_observation" || payload.result !== "matched") fail("native evidence authority or result is invalid");
+  if (envelope.content_sha256 !== digest(Buffer.from(JSON.stringify(canonical(payload))))) fail("native evidence content digest is invalid");
+  exactKeys(payload.executable, ["sha256", "server_version"], "native executable");
+  if (!shaPattern.test(payload.executable.sha256) || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(payload.executable.server_version)) fail("native executable identity is invalid");
+  exactKeys(payload.host, ["platform_family", "platform_os", "user_agent"], "native host");
+  for (const key of ["platform_family", "platform_os", "user_agent"]) atom(payload.host[key], `native host ${key}`);
+  exactKeys(payload.thread, ["cli_version", "cwd_sha256", "id", "parent_thread_id", "source", "status"], "native thread");
+  exactKeys(payload.thread.source, ["kind", "sha256"], "native thread source");
+  if (!threadPattern.test(payload.thread.id) || (payload.thread.parent_thread_id !== null && !threadPattern.test(payload.thread.parent_thread_id)) || !shaPattern.test(payload.thread.cwd_sha256) || !shaPattern.test(payload.thread.source.sha256)) fail("native thread identity is invalid");
+  for (const key of ["cli_version", "status"]) atom(payload.thread[key], `native thread ${key}`);
+  exactKeys(payload.expectation, ["goal_status", "objective_sha256"], "native expectation");
+  if (![...goalStatuses, "absent"].includes(payload.expectation.goal_status) || (payload.expectation.objective_sha256 !== null && !shaPattern.test(payload.expectation.objective_sha256))) fail("native expectation is invalid");
+  if (payload.goal !== null) {
+    exactKeys(payload.goal, ["objective_sha256", "status", "thread_id"], "native goal");
+    if (!shaPattern.test(payload.goal.objective_sha256) || !goalStatuses.has(payload.goal.status) || payload.goal.thread_id !== payload.thread.id) fail("native goal is invalid");
+  }
+  exactKeys(payload.binding, ["capability_id", "scenario", "case_id", "candidate", "result"], "native binding");
+  exactKeys(payload.binding.candidate, ["commit", "tree"], "native binding candidate");
+  if (payload.binding.capability_id !== observation.capability_id || payload.binding.scenario !== observation.scenario || payload.binding.case_id !== observation.case_id || payload.binding.result !== observation.result) fail("native binding does not match observation");
+  if (payload.binding.candidate.commit !== candidate.commit || payload.binding.candidate.tree !== candidate.tree) fail("native binding does not match candidate");
+  const environment = `codex-app-server:${payload.host.user_agent}:${payload.host.platform_family}:${payload.host.platform_os}:${payload.executable.sha256}`;
+  const producer = payload.thread.parent_thread_id ?? payload.thread.id;
+  if (observation.environment_id !== environment || observation.observer_id !== payload.thread.id || observation.producer_id !== producer || observation.subject_id !== candidate.commit) fail("native principals do not match observation");
+  return true;
+}
+
 async function validateArtifact(observation, evidenceDirectory, candidate) {
   const artifactPath = path.resolve(evidenceDirectory, observation.artifact_path);
   const info = await lstat(artifactPath).catch(() => null);
   if (!info?.isFile() || info.isSymbolicLink()) fail(`evidence artifact is missing or unsafe: ${observation.artifact_path}`);
   const bytes = await readFile(artifactPath);
   if (digest(bytes) !== observation.content_sha256) fail(`evidence artifact digest mismatch: ${observation.artifact_path}`);
+  if (observation.source_kind === "native_trace" && observation.result === "pass") return parseNativeTrace(bytes, observation, candidate);
   return parseRolloutTrace(bytes, observation, candidate);
 }
 

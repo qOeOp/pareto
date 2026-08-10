@@ -48,10 +48,11 @@ case metadata remains the activation oracle and the remaining deterministic asse
 Promptfoo. This evidence is classified only as `dynamic_heuristic`; it is not a host-native route receipt and can miss activation that does not emit
 such a command, and cannot by itself prove stable activation. Current Codex app-server exposes
 version-bound read-only thread and Goal snapshots. The `scripts/native-evidence.mjs` probe consumes
-`initialize`, `thread/read`, and `thread/goal/get` over fixed stdio, verifies an exact thread plus a
-caller-frozen Goal status and objective digest, and emits a canonical receipt without raw objectives,
-paths, or transcripts. It can establish one live native observation, but a local operator can still
-alter or omit receipts, so it cannot prove a complete attempt inventory or unlock 9.5. Current Codex
+`initialize`, `thread/read`, and `thread/goal/get` over fixed stdio, and binds the exact thread, Goal
+expectation, candidate, capability case, executable digest, and server version. It emits no raw
+objective, path, source detail, or transcript; the scorer accepts a passing `native_trace` only through
+this receipt. This is a local-interface observation, not host attestation: an operator can still alter
+or omit it, so it cannot prove a complete attempt inventory or unlock 9.5. Current Codex
 SDK output still does not expose trustworthy compaction, GitHub, evaluator, reference-read, or
 complete-attempt state. Each affected case records that mechanism axis as `unavailable`; deterministic answer text remains a
 `deterministic_text` behavioral oracle and cannot upgrade an unavailable runtime observation.

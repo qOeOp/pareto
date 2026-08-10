@@ -14,6 +14,11 @@ const catalogPath = path.resolve("evals/capabilities.json");
 const catalogBytes = await readFile(catalogPath);
 const catalog = JSON.parse(catalogBytes);
 const sha = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
+const uuid = (value) => {
+  const hex = createHash("sha256").update(value).digest("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+};
 const gitEnvironment = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name)));
 const repository = path.join(temporaryRoot, "repository");
 const repositoryUrl = "https://example.invalid/qoeop/skills";
@@ -47,8 +52,8 @@ const { stdout: committedCatalogBytes } = await execFileAsync("git", ["-C", repo
 const { scoreEvidence } = await import(pathToFileURL(path.join(repository, "scripts", "capability-score.mjs")).href);
 
 function rollout({ capabilityId, scenario, trial, sourceKind, result = "pass", unverified = false }) {
-  const sessionId = `session-${capabilityId}-${scenario}-${trial}-${sourceKind}-${result}`;
-  const parentId = `parent-${capabilityId}-${scenario}-${trial}-${sourceKind}-${result}`;
+  const sessionId = sourceKind === "native_trace" ? uuid(`session-${capabilityId}-${scenario}-${trial}-${result}`) : `session-${capabilityId}-${scenario}-${trial}-${sourceKind}-${result}`;
+  const parentId = sourceKind === "native_trace" ? uuid(`parent-${capabilityId}-${scenario}-${trial}-${result}`) : `parent-${capabilityId}-${scenario}-${trial}-${sourceKind}-${result}`;
   const cliVersion = trial === 1 ? "1.0.0" : "2.0.0";
   const environmentId = `codex:Codex CLI:${cliVersion}:openai`;
   const capabilityResult = {
@@ -80,7 +85,25 @@ function rollout({ capabilityId, scenario, trial, sourceKind, result = "pass", u
     { type: "response_item", payload: { type: "message", role: "assistant", content: [{ type: "output_text", text: finalMessage }] } },
     { type: "event_msg", payload: { type: "task_complete", turn_id: `turn-${trial}`, last_agent_message: finalMessage } },
   ];
-  const artifact = Buffer.from(`${trace.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+  let artifact = Buffer.from(`${trace.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+  let nativeEnvironment = environmentId;
+  if (sourceKind === "native_trace" && result === "pass") {
+    const userAgent = "Codex Desktop/0.147.0 (fixture)";
+    const executableSha256 = `sha256:${"d".repeat(64)}`;
+    nativeEnvironment = `codex-app-server:${userAgent}:unix:fixture:${executableSha256}`;
+    const payload = canonical({
+      schema: "rbm-native-evidence/v2",
+      authority: "local_interface_observation",
+      executable: { sha256: executableSha256, server_version: "0.147.0" },
+      host: { platform_family: "unix", platform_os: "fixture", user_agent: userAgent },
+      thread: { cli_version: "0.146.0", cwd_sha256: `sha256:${"e".repeat(64)}`, id: sessionId, parent_thread_id: null, source: { kind: "cli", sha256: `sha256:${"f".repeat(64)}` }, status: "notLoaded" },
+      goal: null,
+      expectation: { goal_status: "absent", objective_sha256: null },
+      binding: { capability_id: capabilityId, scenario, case_id: `${capabilityId}-${scenario}`, candidate: { commit: candidate.commit, tree: candidate.tree }, result },
+      result: "matched",
+    });
+    artifact = Buffer.from(`${JSON.stringify(canonical({ schema: "rbm-native-evidence-envelope/v2", content_sha256: sha(Buffer.from(JSON.stringify(payload))), payload }))}\n`);
+  }
   return {
     sessionId,
     parentId,
@@ -91,7 +114,7 @@ function rollout({ capabilityId, scenario, trial, sourceKind, result = "pass", u
       scenario,
       case_id: `${capabilityId}-${scenario}`,
       trial_id: String(trial),
-      environment_id: environmentId,
+      environment_id: nativeEnvironment,
       subject_id: candidate.commit,
       producer_id: subagent ? parentId : sessionId,
       observer_id: sessionId,
