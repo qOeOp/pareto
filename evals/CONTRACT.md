@@ -41,6 +41,16 @@ These candidate-owned checks establish internal consistency only. Schema v1 is b
 non-authorizing: coordinated edits to both the matrix and corpus are not anti-omission evidence. A later
 canonical-base consumer must reject deletion, suite movement, or authority-class downgrade before any such
 claim can be admitted.
+For pull requests, the base-owned `scenario-authority` workflow is that consumer: it never checks out or
+executes candidate code, reads candidate matrix/corpus blobs by exact event head, preserves every canonical
+catalog field, slot, case definition, suite, observer, and missing-authority binding, and permits only a new
+executable case on a previously unbound slot. Schema, catalog, case, or authority-state migration therefore
+requires a separate base-first change.
+The workflow, checker, JSON parser, and package manifest/lock are exact protected control-plane blobs. Their
+migration requires explicit repository-owner bypass; a scenario candidate cannot authorize its own checker.
+The PR that first introduces this workflow is bootstrap-only because its base cannot run a workflow it does
+not yet contain. Authority begins only after merge and a subsequent exact-head PR dynamically passes the
+base-owned check; until then no anti-omission claim is admitted.
 
 `cases/golden.yaml` and `cases/holdout.yaml` are the executable text corpus authority. Descriptions carry the
 suite selector; prompts express generalized consumer tasks without private repositories, task
