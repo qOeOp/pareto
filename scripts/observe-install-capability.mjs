@@ -13,12 +13,46 @@ import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const observerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const expectedRepository = "https://github.com/qOeOp/pareto";
-const capabilityId = "INS-01";
 const ownedProfiles = ["fast-builder.toml", "mission-evaluator.toml", "mission-planner.toml", "mission-researcher.toml"];
-const cases = Object.freeze({
-  positive: "portable-skill-install-and-loader-discovery",
-  negative: "stale-lock-rejected-without-install-drift",
-  recovery: "installed-skill-drift-repaired-and-discovered",
+const capabilities = Object.freeze({
+  "INS-01": Object.freeze({
+    cases: Object.freeze({
+      positive: "portable-skill-install-and-loader-discovery",
+      negative: "stale-lock-rejected-without-install-drift",
+      recovery: "installed-skill-drift-repaired-and-discovered",
+    }),
+    kind: "skill",
+    observation: "observation",
+    slug: "ins-01",
+  }),
+  "INS-03": Object.freeze({
+    cases: Object.freeze({ positive: "ins-03-positive", negative: "ins-03-negative", recovery: "ins-03-recovery" }),
+    kind: "profile",
+    observation: "observation-ins-03",
+    profile: "mission-planner.toml",
+    slug: "ins-03",
+  }),
+  "INS-05": Object.freeze({
+    cases: Object.freeze({ positive: "ins-05-positive", negative: "ins-05-negative", recovery: "ins-05-recovery" }),
+    kind: "profile",
+    observation: "observation-ins-05",
+    profile: "mission-evaluator.toml",
+    slug: "ins-05",
+  }),
+  "INS-07": Object.freeze({
+    cases: Object.freeze({ positive: "ins-07-positive", negative: "ins-07-negative", recovery: "ins-07-recovery" }),
+    kind: "profile",
+    observation: "observation-ins-07",
+    profile: "mission-researcher.toml",
+    slug: "ins-07",
+  }),
+  "INS-09": Object.freeze({
+    cases: Object.freeze({ positive: "ins-09-positive", negative: "ins-09-negative", recovery: "ins-09-recovery" }),
+    kind: "profile",
+    observation: "observation-ins-09",
+    profile: "fast-builder.toml",
+    slug: "ins-09",
+  }),
 });
 const sha256Pattern = /^sha256:[a-f0-9]{64}$/;
 const oidPattern = /^[a-f0-9]{40}$/;
@@ -185,7 +219,7 @@ async function seedForeignState(roots) {
     const content = name === "foreign_skill"
       ? "---\nname: foreign-skill\ndescription: \"Unrelated observer sentinel.\"\n---\n\n# Foreign Skill\n"
       : name === "foreign_profile"
-        ? "name = \"foreign\"\ndescription = \"Unrelated observer sentinel.\"\nsandbox_mode = \"read-only\"\n"
+        ? "name = \"foreign\"\ndescription = \"Unrelated observer sentinel.\"\nsandbox_mode = \"read-only\"\ndeveloper_instructions = \"Foreign sentinel.\"\n"
         : `${name}\n`;
     await writeFile(file, content);
   }
@@ -200,6 +234,26 @@ async function foreignStateDigest(files) {
     state[name] = { mode: info.mode & 0o777, sha256: digest(await readFile(file)) };
   }
   return digest(JSON.stringify(canonical(state)));
+}
+
+async function ownedProfileDigest(codexRoot) {
+  const profiles = [];
+  for (const name of ownedProfiles) {
+    const file = path.join(codexRoot, "agents", name);
+    const info = await lstat(file).catch(() => null);
+    if (!info?.isFile() || info.isSymbolicLink()) fail("installed Codex agent profile is missing or unsafe");
+    const bytes = await readFile(file);
+    profiles.push({ bytes: bytes.length, name, sha256: digest(bytes) });
+  }
+  return digest(Buffer.from(JSON.stringify(canonical(profiles))));
+}
+
+async function profileInstallationDigest(skillRoot, codexRoot, foreignFiles) {
+  return digest(Buffer.from(JSON.stringify(canonical({
+    foreign: await foreignStateDigest(foreignFiles),
+    owned_profiles: await ownedProfileDigest(codexRoot),
+    skill: await treeDigest(skillRoot),
+  }))));
 }
 
 async function claimWindowsAgentsRoot(root) {
@@ -450,20 +504,145 @@ async function listInstalledSkill({ codexEntry, cwd, roots, expectedDescription 
   };
 }
 
+async function probeAgentProfileLoader({ codexEntry, cwd, roots, profile, expectMalformed }) {
+  const executable = await fileIdentity(codexEntry);
+  const profilePath = (await realpath(path.join(roots.codex, "agents", profile))).replaceAll("\\", "/");
+  const child = spawn(process.execPath, [executable.path, "app-server"], {
+    cwd,
+    env: roots.env,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  if (!child.stdin || !child.stdout || !child.stderr) fail("app-server profile transport is unavailable");
+  const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
+  const responses = new Map();
+  const warnings = [];
+  const notifications = [];
+  let fault = null;
+  let outputBytes = 0;
+  let errorBytes = 0;
+  let configResponseSeen = false;
+  let closed;
+  const completion = new Promise((resolve) => {
+    closed = resolve;
+  });
+  const abort = (error) => {
+    fault ??= error;
+  };
+  child.stdout.on("data", (chunk) => {
+    outputBytes += chunk.length;
+    if (outputBytes > 4 * 1024 * 1024) abort(new Error("app-server profile stdout exceeded 4 MiB"));
+  });
+  child.stderr.on("data", (chunk) => {
+    errorBytes += chunk.length;
+    if (errorBytes > 1024 * 1024) abort(new Error("app-server profile stderr exceeded 1 MiB"));
+  });
+  child.once("error", () => abort(new Error("app-server profile probe failed")));
+  child.once("close", (code, signal) => closed({ code, signal }));
+  lines.on("line", (line) => {
+    try {
+      rejectDuplicateJsonObjectMembers(line, "app-server profile response");
+      const message = JSON.parse(line);
+      if (Number.isInteger(message?.id)) {
+        exactKeys(message, message.error === undefined ? ["id", "result"] : ["error", "id"], "app-server profile response");
+        if (![0, 1].includes(message.id) || responses.has(message.id) || message.error !== undefined) {
+          fail("app-server returned an unexpected profile response");
+        }
+        responses.set(message.id, message.result);
+        if (message.id === 0) {
+          child.stdin.write(`${JSON.stringify({ method: "initialized", params: {} })}\n`);
+          child.stdin.write(`${JSON.stringify({
+            id: 1,
+            method: "config/read",
+            params: { cwd, includeLayers: true },
+          })}\n`);
+        } else {
+          configResponseSeen = true;
+          child.stdin.end();
+        }
+      } else {
+        exactKeys(message, ["method", "params"], "app-server profile notification");
+        if (message.method === "configWarning") {
+          exactKeys(message.params, ["details", "summary"], "profile warning params");
+          if (configResponseSeen || message.params.details !== null || typeof message.params.summary !== "string") {
+            fail("app-server profile warning is malformed or late");
+          }
+          const normalized = message.params.summary.replaceAll("\\", "/");
+          const expectedSummary = `Ignoring malformed agent role definition: failed to parse agent role file at ${profilePath}: TOML parse error at line 1, column 34\n  |\n1 | name = [pareto_observer_malformed\n  |                                  ^\nunclosed array, expected \`]\`\n`;
+          if (normalized !== expectedSummary) {
+            fail("app-server returned an unrelated profile warning");
+          }
+          warnings.push("malformed_target_profile");
+        } else if (message.method === "remoteControl/status/changed") {
+          exactOptionalKeys(
+            message.params,
+            ["installationId", "serverName", "status"],
+            ["environmentId"],
+            "profile remote-control notification params",
+          );
+          notifications.push({ method: message.method, params: Object.keys(message.params).sort() });
+        } else {
+          fail("app-server returned an unknown profile notification");
+        }
+      }
+    } catch (error) {
+      abort(error);
+      child.stdin.end();
+    }
+  });
+  child.stdin.write(`${JSON.stringify({
+    id: 0,
+    method: "initialize",
+    params: { clientInfo: { name: "pareto_profile_observer", title: "Pareto Profile Observer", version: "1.0.0" } },
+  })}\n`);
+  const outcome = await Promise.race([completion, delay(10_000).then(() => null)]);
+  if (!outcome) {
+    child.kill("SIGTERM");
+    await Promise.race([completion, delay(2_000)]);
+    fail("app-server profile probe timed out");
+  }
+  lines.close();
+  if (fault) throw fault;
+  if (outcome.code !== 0 || outcome.signal || responses.size !== 2) fail("app-server profile probe did not close cleanly");
+  const initialized = responses.get(0);
+  const config = responses.get(1);
+  if (typeof initialized?.userAgent !== "string" || typeof initialized.platformFamily !== "string" ||
+      typeof initialized.platformOs !== "string" || !config?.config || !config?.origins) {
+    fail("app-server profile probe omitted host or config identity");
+  }
+  if ((expectMalformed && JSON.stringify(warnings) !== JSON.stringify(["malformed_target_profile"])) ||
+      (!expectMalformed && warnings.length !== 0)) {
+    fail("app-server profile loader produced the wrong warning disposition");
+  }
+  return {
+    codex_entry_sha256: executable.sha256,
+    host: {
+      platform_family: initialized.platformFamily,
+      platform_os: initialized.platformOs,
+      user_agent: initialized.userAgent,
+    },
+    loader_sha256: digest(Buffer.from(JSON.stringify(canonical({
+      notifications,
+      profile,
+      result: expectMalformed ? "malformed_rejected" : "loaded_without_warning",
+      warnings,
+    })))),
+  };
+}
+
 function skillDescription(source) {
   const match = /^---\r?\n[\s\S]*?^description:\s*"([^"]+)"\s*$[\s\S]*?^---\r?\n/m.exec(source);
   if (!match) fail("subject Skill description is unavailable");
   return match[1];
 }
 
-async function readEnvelope(file) {
+async function readEnvelope(file, capabilityId) {
   const bytes = await readFile(file);
-  rejectDuplicateJsonObjectMembers(bytes.toString("utf8"), "INS-01 observation");
+  rejectDuplicateJsonObjectMembers(bytes.toString("utf8"), `${capabilityId} observation`);
   const envelope = JSON.parse(bytes);
-  exactKeys(envelope, ["schema", "content_sha256", "payload"], "INS-01 observation envelope");
+  exactKeys(envelope, ["schema", "content_sha256", "payload"], `${capabilityId} observation envelope`);
   if (envelope.schema !== "pareto-capability-observation-envelope/v1" || !sha256Pattern.test(envelope.content_sha256) ||
       envelope.content_sha256 !== digest(Buffer.from(JSON.stringify(canonical(envelope.payload))))) {
-    fail("INS-01 observation envelope digest is invalid");
+    fail(`${capabilityId} observation envelope digest is invalid`);
   }
   return { bytes, envelope };
 }
@@ -478,52 +657,70 @@ function requireAtom(value, label) {
   }
 }
 
-function validateAggregatedObservation(payload, observer) {
+function validateAggregatedObservation(payload, observer, capabilityId, capability) {
   exactKeys(payload, [
     "schema", "authority", "capability_id", "environment", "observer", "result", "scenarios", "subject", "trial_id",
-  ], "INS-01 observation payload");
+  ], `${capabilityId} observation payload`);
   if (payload.schema !== "pareto-capability-observation/v2" ||
       payload.authority !== "fixed_observer_real_consumer" || payload.capability_id !== capabilityId ||
       payload.result !== "pass" || !canonicalEqual(payload.observer, observer) ||
       !Number.isInteger(payload.trial_id) || payload.trial_id < 1 || payload.trial_id > 3) {
-    fail("INS-01 campaign contains an invalid observation");
+    fail(`${capabilityId} campaign contains an invalid observation`);
   }
   exactKeys(payload.environment, ["arch", "codex_entry_sha256", "codex_user_agent", "node", "platform"],
-    "INS-01 observation environment");
+    `${capabilityId} observation environment`);
   if (!new Set(["linux", "win32"]).has(payload.environment.platform)) {
-    fail("INS-01 observation environment is unsupported");
+    fail(`${capabilityId} observation environment is unsupported`);
   }
-  requireSha(payload.environment.codex_entry_sha256, "INS-01 Codex entry");
-  for (const key of ["arch", "codex_user_agent", "node"]) requireAtom(payload.environment[key], `INS-01 environment ${key}`);
-  exactKeys(payload.observer, ["commit", "script_blob", "tree"], "INS-01 observer identity");
+  requireSha(payload.environment.codex_entry_sha256, `${capabilityId} Codex entry`);
+  for (const key of ["arch", "codex_user_agent", "node"]) requireAtom(payload.environment[key], `${capabilityId} environment ${key}`);
+  exactKeys(payload.observer, ["commit", "script_blob", "tree"], `${capabilityId} observer identity`);
   exactKeys(payload.subject, [
     "repository", "commit", "tree", "skill_tree", "codex_agents_tree", "codex_session_hook_blob", "installer_blob",
-  ], "INS-01 subject identity");
+  ], `${capabilityId} subject identity`);
   if (payload.subject.repository !== expectedRepository ||
       [payload.subject.commit, payload.subject.tree, payload.subject.skill_tree, payload.subject.codex_agents_tree,
         payload.subject.codex_session_hook_blob, payload.subject.installer_blob].some((value) => !oidPattern.test(value))) {
-    fail("INS-01 subject identity is invalid");
+    fail(`${capabilityId} subject identity is invalid`);
   }
-  exactKeys(payload.scenarios, ["negative", "positive", "recovery"], "INS-01 scenarios");
-  const scenarioKeys = {
+  exactKeys(payload.scenarios, ["negative", "positive", "recovery"], `${capabilityId} scenarios`);
+  const scenarioKeys = capability.kind === "skill" ? {
     positive: ["case_id", "installed_manifest_sha256", "loader_sha256", "protocol_notifications_sha256", "result"],
     negative: ["case_id", "diagnostic_sha256", "installation_after_sha256", "installation_before_sha256", "result"],
     recovery: ["case_id", "drift_diagnostic_sha256", "installed_manifest_sha256", "loader_sha256", "protocol_notifications_sha256", "result"],
+  } : {
+    positive: ["case_id", "installed_profile_sha256", "loader_sha256", "owned_profiles_sha256", "profile", "result", "source_profile_sha256"],
+    negative: ["case_id", "diagnostic_sha256", "installation_after_sha256", "installation_before_sha256", "loader_sha256", "profile", "result"],
+    recovery: ["case_id", "drift_diagnostic_sha256", "installed_profile_sha256", "loader_sha256", "owned_profiles_sha256", "profile", "result"],
   };
-  for (const [scenario, caseId] of Object.entries(cases)) {
+  for (const [scenario, caseId] of Object.entries(capability.cases)) {
     const value = payload.scenarios[scenario];
-    exactKeys(value, scenarioKeys[scenario], `INS-01 ${scenario} observation`);
-    if (value.case_id !== caseId || value.result !== "pass") fail(`INS-01 ${scenario} observation is invalid`);
+    exactKeys(value, scenarioKeys[scenario], `${capabilityId} ${scenario} observation`);
+    if (value.case_id !== caseId || value.result !== "pass" ||
+        (capability.kind === "profile" && value.profile !== capability.profile)) {
+      fail(`${capabilityId} ${scenario} observation is invalid`);
+    }
     for (const [key, digestValue] of Object.entries(value)) {
-      if (key.endsWith("_sha256")) requireSha(digestValue, `INS-01 ${scenario} ${key}`);
+      if (key.endsWith("_sha256")) requireSha(digestValue, `${capabilityId} ${scenario} ${key}`);
+    }
+  }
+  if (capability.kind === "profile") {
+    if (payload.scenarios.negative.installation_before_sha256 !== payload.scenarios.negative.installation_after_sha256 ||
+        payload.scenarios.positive.installed_profile_sha256 !== payload.scenarios.positive.source_profile_sha256 ||
+        payload.scenarios.recovery.installed_profile_sha256 !== payload.scenarios.positive.source_profile_sha256 ||
+        payload.scenarios.recovery.owned_profiles_sha256 !== payload.scenarios.positive.owned_profiles_sha256 ||
+        payload.scenarios.recovery.loader_sha256 !== payload.scenarios.positive.loader_sha256) {
+      fail(`${capabilityId} recovery does not restore the positive profile consumer state`);
     }
   }
 }
 
-async function observe({ subjectRoot, codexEntry, output, trial }) {
+async function observe({ capabilityId, subjectRoot, codexEntry, output, trial }) {
+  const capability = capabilities[capabilityId];
+  if (!capability) fail("unsupported installation capability");
   const subject = subjectIdentity(subjectRoot);
   const observer = observerIdentity();
-  const temporary = await mkdtemp(path.join(tmpdir(), "pareto-ins01-observer-"));
+  const temporary = await mkdtemp(path.join(tmpdir(), `pareto-${capability.slug}-observer-`));
   const windowsAgentsRoot = platform() === "win32" ? path.join(homedir(), ".agents") : null;
   let windowsAgentsIdentity = null;
   try {
@@ -564,6 +761,105 @@ async function observe({ subjectRoot, codexEntry, output, trial }) {
   if (await foreignStateDigest(foreignState) !== expectedForeignState) fail("positive install changed unrelated user state");
   const installedState = await installationDigest(roots.agents, roots.codex);
   if (installedState !== expectedInstalledState) fail("positive install created an unexpected installation tree");
+
+  if (capability.kind === "profile") {
+    const sourceProfile = path.join(subjectRoot, "codex", "agents", capability.profile);
+    const destinationProfile = path.join(roots.codex, "agents", capability.profile);
+    const sourceProfileBytes = await readFile(sourceProfile);
+    const installedProfileBytes = await readFile(destinationProfile);
+    if (!installedProfileBytes.equals(sourceProfileBytes)) fail("positive profile install does not match the committed source");
+    const positiveOwnedProfiles = await ownedProfileDigest(roots.codex);
+    const positiveProfileState = await profileInstallationDigest(destinationSkill, roots.codex, foreignState);
+    const positiveLoader = await probeAgentProfileLoader({
+      codexEntry, cwd: workspace, roots, profile: capability.profile, expectMalformed: false,
+    });
+
+    await writeFile(destinationProfile, "name = [pareto_observer_malformed");
+    const driftedState = await profileInstallationDigest(destinationSkill, roots.codex, foreignState);
+    const driftCheck = installer(subjectRoot, roots, lock, true);
+    requireExpectedFailure(
+      driftCheck,
+      `Codex install mismatch: agent:${capability.profile}`,
+      "profile recovery precondition",
+    );
+    const negativeLoader = await probeAgentProfileLoader({
+      codexEntry, cwd: workspace, roots, profile: capability.profile, expectMalformed: true,
+    });
+    if (await profileInstallationDigest(destinationSkill, roots.codex, foreignState) !== driftedState ||
+        await foreignStateDigest(foreignState) !== expectedForeignState) {
+      fail("profile mismatch check or loader changed the installation");
+    }
+
+    requireCompleted(installer(subjectRoot, roots, lock), "profile recovery installer consumer");
+    requireCompleted(installer(subjectRoot, roots, lock, true), "profile recovery installer verification");
+    const recoveryLoader = await probeAgentProfileLoader({
+      codexEntry, cwd: workspace, roots, profile: capability.profile, expectMalformed: false,
+    });
+    const recoveredProfileBytes = await readFile(destinationProfile);
+    const recoveredOwnedProfiles = await ownedProfileDigest(roots.codex);
+    if (!recoveredProfileBytes.equals(sourceProfileBytes) || recoveredOwnedProfiles !== positiveOwnedProfiles ||
+        recoveryLoader.loader_sha256 !== positiveLoader.loader_sha256 ||
+        await profileInstallationDigest(destinationSkill, roots.codex, foreignState) !== positiveProfileState ||
+        await foreignStateDigest(foreignState) !== expectedForeignState) {
+      fail("profile recovery did not restore the exact positive consumer state");
+    }
+
+    if (observerIdentity().commit !== observer.commit || subjectIdentity(subjectRoot).commit !== subject.commit) {
+      fail("observer or subject identity drifted during the profile capability observation");
+    }
+    const payload = canonical({
+      schema: "pareto-capability-observation/v2",
+      authority: "fixed_observer_real_consumer",
+      capability_id: capabilityId,
+      environment: {
+        arch: arch(),
+        codex_entry_sha256: positiveLoader.codex_entry_sha256,
+        codex_user_agent: positiveLoader.host.user_agent,
+        node: process.version,
+        platform: platform(),
+      },
+      observer,
+      result: "pass",
+      scenarios: {
+        positive: {
+          case_id: capability.cases.positive,
+          installed_profile_sha256: digest(installedProfileBytes),
+          loader_sha256: positiveLoader.loader_sha256,
+          owned_profiles_sha256: positiveOwnedProfiles,
+          profile: capability.profile,
+          result: "pass",
+          source_profile_sha256: digest(sourceProfileBytes),
+        },
+        negative: {
+          case_id: capability.cases.negative,
+          diagnostic_sha256: diagnosticDigest(driftCheck),
+          installation_after_sha256: driftedState,
+          installation_before_sha256: driftedState,
+          loader_sha256: negativeLoader.loader_sha256,
+          profile: capability.profile,
+          result: "pass",
+        },
+        recovery: {
+          case_id: capability.cases.recovery,
+          drift_diagnostic_sha256: diagnosticDigest(driftCheck),
+          installed_profile_sha256: digest(recoveredProfileBytes),
+          loader_sha256: recoveryLoader.loader_sha256,
+          owned_profiles_sha256: recoveredOwnedProfiles,
+          profile: capability.profile,
+          result: "pass",
+        },
+      },
+      subject,
+      trial_id: trial,
+    });
+    const envelope = canonical({
+      schema: "pareto-capability-observation-envelope/v1",
+      content_sha256: digest(Buffer.from(JSON.stringify(payload))),
+      payload,
+    });
+    await writeFile(output, `${JSON.stringify(envelope)}\n`, { flag: "wx" });
+    return;
+  }
 
   const positiveLoader = await listInstalledSkill({
     codexEntry, cwd: workspace, roots: loaderRoots, expectedDescription: description,
@@ -608,21 +904,21 @@ async function observe({ subjectRoot, codexEntry, output, trial }) {
     result: "pass",
     scenarios: {
       positive: {
-        case_id: cases.positive,
+        case_id: capability.cases.positive,
         installed_manifest_sha256: installedManifest,
         loader_sha256: digest(Buffer.from(JSON.stringify(canonical(positiveLoader.skill)))),
         protocol_notifications_sha256: positiveLoader.protocol_notifications_sha256,
         result: "pass",
       },
       negative: {
-        case_id: cases.negative,
+        case_id: capability.cases.negative,
         diagnostic_sha256: diagnosticDigest(negative),
         installation_before_sha256: installedState,
         installation_after_sha256: installedState,
         result: "pass",
       },
       recovery: {
-        case_id: cases.recovery,
+        case_id: capability.cases.recovery,
         drift_diagnostic_sha256: diagnosticDigest(driftCheck),
         installed_manifest_sha256: await treeDigest(destinationSkill),
         loader_sha256: digest(Buffer.from(JSON.stringify(canonical(recoveryLoader.skill)))),
@@ -649,36 +945,39 @@ async function observe({ subjectRoot, codexEntry, output, trial }) {
   }
 }
 
-async function aggregate({ inputDir, output }) {
+async function aggregate({ capabilityId, inputDir, output }) {
+  const capability = capabilities[capabilityId];
+  if (!capability) fail("unsupported installation capability");
   const observer = observerIdentity();
   const directories = (await readdir(inputDir, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
     .sort((left, right) => left.name.localeCompare(right.name));
-  if (directories.length !== 6) fail("INS-01 campaign requires exactly six attested environment-trial observations");
+  if (directories.length !== 6) fail(`${capabilityId} campaign requires exactly six attested environment-trial observations`);
+  const observationPattern = new RegExp(`^${capability.observation}-(?:Linux|Windows)-[123]\\.json$`);
   const rows = [];
   for (const directory of directories) {
     const directoryPath = path.join(inputDir, directory.name);
     const files = (await readdir(directoryPath)).sort();
-    const observationFiles = files.filter((name) => /^observation-(?:Linux|Windows)-[123]\.json$/.test(name));
+    const observationFiles = files.filter((name) => observationPattern.test(name));
     if (files.length !== 2 || observationFiles.length !== 1 || !files.includes("attestation.json")) {
-      fail("INS-01 campaign input does not contain one observation and one attestation");
+      fail(`${capabilityId} campaign input does not contain one observation and one attestation`);
     }
     const observationName = observationFiles[0];
-    const row = await readEnvelope(path.join(directoryPath, observationName));
+    const row = await readEnvelope(path.join(directoryPath, observationName), capabilityId);
     const bundlePath = path.join(directoryPath, "attestation.json");
     const bundleInfo = await lstat(bundlePath).catch(() => null);
     if (!bundleInfo?.isFile() || bundleInfo.isSymbolicLink() || bundleInfo.size === 0 || bundleInfo.size > 4 * 1024 * 1024) {
-      fail("INS-01 observation attestation is missing or unsafe");
+      fail(`${capabilityId} observation attestation is missing or unsafe`);
     }
     const bundle = await readFile(bundlePath);
-    rejectDuplicateJsonObjectMembers(bundle.toString("utf8"), "INS-01 observation attestation");
+    rejectDuplicateJsonObjectMembers(bundle.toString("utf8"), `${capabilityId} observation attestation`);
     const parsedBundle = JSON.parse(bundle);
-    exactKeys(parsedBundle, ["dsseEnvelope", "mediaType", "verificationMaterial"], "INS-01 observation attestation");
+    exactKeys(parsedBundle, ["dsseEnvelope", "mediaType", "verificationMaterial"], `${capabilityId} observation attestation`);
     if (parsedBundle.mediaType !== "application/vnd.dev.sigstore.bundle.v0.3+json") {
-      fail("INS-01 observation attestation media type is invalid");
+      fail(`${capabilityId} observation attestation media type is invalid`);
     }
     const payload = row.envelope.payload;
-    validateAggregatedObservation(payload, observer);
+    validateAggregatedObservation(payload, observer, capabilityId, capability);
     rows.push({
       bundle_path: path.posix.join(path.basename(inputDir), directory.name, "attestation.json"),
       bundle_sha256: digest(bundle),
@@ -693,7 +992,7 @@ async function aggregate({ inputDir, output }) {
   if (!canonicalEqual(actualSlots, expectedSlots) ||
       rows.some((row) => !canonicalEqual(row.subject, rows[0].subject)) ||
       rows[0].subject.commit !== observer.commit) {
-    fail("INS-01 campaign lacks exact Linux and Windows coverage for one subject");
+    fail(`${capabilityId} campaign lacks exact Linux and Windows coverage for one subject`);
   }
   const payload = canonical({
     schema: "pareto-capability-campaign/v2",
@@ -710,7 +1009,7 @@ async function aggregate({ inputDir, output }) {
       .sort((left, right) => left.environment.localeCompare(right.environment) || left.trial_id - right.trial_id),
     observer,
     result: "pass",
-    scenarios: cases,
+    scenarios: capability.cases,
     subject: rows[0].subject,
   });
   const envelope = canonical({
@@ -726,12 +1025,14 @@ function parseArguments(argv) {
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index];
     const value = argv[index + 1];
-    if (!value || !["--subject-root", "--codex-entry", "--input-dir", "--output", "--trial"].includes(flag) || flag in options) {
+    if (!value || !["--capability", "--subject-root", "--codex-entry", "--input-dir", "--output", "--trial"].includes(flag) || flag in options) {
       fail(`unsupported, duplicate, or incomplete argument: ${flag ?? "<missing>"}`);
     }
     options[flag] = value;
   }
-  if (!options["--output"]) fail("--output is required");
+  if (!options["--output"] || !capabilities[options["--capability"]]) {
+    fail("--output and one supported --capability are required");
+  }
   const observing = options["--subject-root"] || options["--codex-entry"];
   const aggregating = options["--input-dir"];
   if (Boolean(observing) === Boolean(aggregating) ||
@@ -744,6 +1045,7 @@ function parseArguments(argv) {
     fail("--trial must be one integer from 1 through 3");
   }
   return {
+    capabilityId: options["--capability"],
     subjectRoot: options["--subject-root"] ? path.resolve(options["--subject-root"]) : undefined,
     codexEntry: options["--codex-entry"] ? path.resolve(options["--codex-entry"]) : undefined,
     inputDir: options["--input-dir"] ? path.resolve(options["--input-dir"]) : undefined,
