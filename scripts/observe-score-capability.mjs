@@ -2,7 +2,7 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,11 +14,6 @@ const catalogPath = path.join(root, "evals", "capabilities.json");
 const capabilityId = "EVAL-02";
 const expectedRepository = "https://github.com/qOeOp/pareto";
 const trustedGit = process.platform === "win32" ? "C:\\Program Files\\Git\\cmd\\git.exe" : "/usr/bin/git";
-const cases = Object.freeze({
-  negative: "score-cannot-hide-failed-floor",
-  positive: "signed-campaign-produces-bounded-report",
-  recovery: "score-recovers-after-gap-removal",
-});
 const oidPattern = /^[a-f0-9]{40}$/;
 const shaPattern = /^sha256:[a-f0-9]{64}$/;
 const cleanEnvironment = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
@@ -173,14 +168,6 @@ async function safeFile(directory, name, label, maximum = 32 * 1024 * 1024) {
   return { bytes: await readFile(resolved), path: resolved };
 }
 
-function capability(report, id) {
-  const rows = report.capabilities;
-  if (!Array.isArray(rows)) fail("scorer report capabilities are invalid");
-  const matches = rows.filter((row) => row?.id === id);
-  if (matches.length !== 1) fail(`scorer report lacks exact ${id} capability`);
-  return matches[0];
-}
-
 export function validateObservedScoreReport(report, candidate, mode, catalog, catalogSha256) {
   exactKeys(report, [
     "below_target", "candidate", "capabilities", "catalog_sha256", "critical_breaches", "eligible",
@@ -244,13 +231,15 @@ async function runScorer(inputDir, evidence) {
   }
 }
 
-function parsedReport(result, candidate, mode, catalog, catalogSha256) {
+function observedReport(result, candidate, mode, catalog, catalogSha256) {
   if (result.status !== 1 || result.error || result.signal || result.stderr !== "" || result.stdout.length === 0) {
     fail(`scorer ${mode} process result is invalid`);
   }
-  return validateObservedScoreReport(
-    parseJson(Buffer.from(result.stdout), `scorer ${mode} report`), candidate, mode, catalog, catalogSha256,
+  const bytes = Buffer.from(result.stdout);
+  validateObservedScoreReport(
+    parseJson(bytes, `scorer ${mode} report`), candidate, mode, catalog, catalogSha256,
   );
+  return bytes;
 }
 
 async function observe({ sourceCampaignDir, output }) {
@@ -278,7 +267,7 @@ async function observe({ sourceCampaignDir, output }) {
     }],
     open_gaps: [],
   };
-  const positive = parsedReport(
+  const positive = observedReport(
     await runScorer(sourceCampaignDir, baseEvidence), candidate, "positive", catalogValue, catalogSha256,
   );
   const negativeEvidence = structuredClone(baseEvidence);
@@ -288,7 +277,7 @@ async function observe({ sourceCampaignDir, output }) {
     description: "EVAL-02 synthetic critical-floor control",
     locator: "observe-score-capability:critical-floor-control",
   });
-  const negative = parsedReport(
+  const negative = observedReport(
     await runScorer(sourceCampaignDir, negativeEvidence), candidate, "negative", catalogValue, catalogSha256,
   );
   const unknownFieldEvidence = { ...structuredClone(baseEvidence), score: 9.5 };
@@ -297,47 +286,42 @@ async function observe({ sourceCampaignDir, output }) {
       unknown.stderr !== "evidence has unknown or missing fields\n") {
     fail("scorer unknown-score-field control did not fail closed");
   }
-  const recovery = parsedReport(
+  const recovery = observedReport(
     await runScorer(sourceCampaignDir, baseEvidence), candidate, "positive", catalogValue, catalogSha256,
   );
-  if (JSON.stringify(canonical(recovery)) !== JSON.stringify(canonical(positive))) {
+  if (!recovery.equals(positive)) {
     fail("scorer recovery did not reproduce the original report");
   }
+  const reportDirectory = path.join(path.dirname(output), "reports");
+  await mkdir(reportDirectory);
+  const reportBytes = {
+    negative,
+    positive,
+    recovery,
+    unknown_score: Buffer.from(unknown.stderr),
+  };
+  const reports = {
+    negative: { path: "reports/negative.json", sha256: digest(reportBytes.negative) },
+    positive: { path: "reports/positive.json", sha256: digest(reportBytes.positive) },
+    recovery: { path: "reports/recovery.json", sha256: digest(reportBytes.recovery) },
+    unknown_score: { path: "reports/unknown-score.stderr", sha256: digest(reportBytes.unknown_score) },
+  };
+  await Promise.all(Object.entries(reports).map(([name, report]) =>
+    writeFile(path.join(path.dirname(output), report.path), reportBytes[name], { flag: "wx" })));
   const input = {
     campaign_sha256: digest(campaign.bytes),
     bundle_sha256: digest(bundle.bytes),
   };
   const payload = canonical({
-    schema: "pareto-capability-observation/v3",
-    admission: "bootstrap_only",
+    schema: "pareto-score-capability-observation/v1",
+    admission: "strict_descendant_only",
     authority: "fixed_observer_real_consumer",
     capability_id: capabilityId,
     environment: { arch: os.arch(), node: process.version, platform: process.platform },
     input,
     observer,
+    reports,
     result: "pass",
-    scenarios: {
-      negative: {
-        case_id: cases.negative,
-        critical_floor_report_sha256: digest(Buffer.from(JSON.stringify(canonical(negative)))),
-        result: "pass",
-        unknown_score_diagnostic_sha256: digest(Buffer.from(unknown.stderr)),
-      },
-      positive: {
-        case_id: cases.positive,
-        eligible: positive.eligible,
-        evidence_ceiling: positive.evidence_ceiling,
-        ins_01_score: capability(positive, "INS-01").score,
-        minimum_score: positive.minimum_score,
-        report_sha256: digest(Buffer.from(JSON.stringify(canonical(positive)))),
-        result: "pass",
-      },
-      recovery: {
-        case_id: cases.recovery,
-        report_sha256: digest(Buffer.from(JSON.stringify(canonical(recovery)))),
-        result: "pass",
-      },
-    },
     subject,
     trial_id: 1,
   });
@@ -357,21 +341,26 @@ function validateObservation(envelope, observer) {
     fail("EVAL-02 observation envelope is invalid");
   }
   exactKeys(payload, [
-    "admission", "authority", "capability_id", "environment", "input", "observer", "result", "scenarios", "schema", "subject", "trial_id",
+    "admission", "authority", "capability_id", "environment", "input", "observer", "reports", "result", "schema", "subject", "trial_id",
   ], "EVAL-02 observation");
   exactKeys(payload.environment, ["arch", "node", "platform"], "EVAL-02 observation environment");
   exactKeys(payload.input, ["bundle_sha256", "campaign_sha256"], "EVAL-02 observation input");
   exactKeys(payload.observer, ["commit", "script_blob", "tree"], "EVAL-02 observation observer");
+  exactKeys(payload.reports, ["negative", "positive", "recovery", "unknown_score"], "EVAL-02 observation reports");
   exactKeys(payload.subject, ["catalog_blob", "commit", "contract_blob", "repository", "scorer_blob", "tree"], "EVAL-02 observation subject");
-  exactKeys(payload.scenarios, ["negative", "positive", "recovery"], "EVAL-02 observation scenarios");
-  exactKeys(payload.scenarios.negative,
-    ["case_id", "critical_floor_report_sha256", "result", "unknown_score_diagnostic_sha256"],
-    "EVAL-02 negative scenario");
-  exactKeys(payload.scenarios.positive,
-    ["case_id", "eligible", "evidence_ceiling", "ins_01_score", "minimum_score", "report_sha256", "result"],
-    "EVAL-02 positive scenario");
-  exactKeys(payload.scenarios.recovery, ["case_id", "report_sha256", "result"], "EVAL-02 recovery scenario");
-  if (payload.schema !== "pareto-capability-observation/v3" || payload.admission !== "bootstrap_only" ||
+  const reportPaths = {
+    negative: "reports/negative.json",
+    positive: "reports/positive.json",
+    recovery: "reports/recovery.json",
+    unknown_score: "reports/unknown-score.stderr",
+  };
+  for (const [name, report] of Object.entries(payload.reports)) {
+    exactKeys(report, ["path", "sha256"], `EVAL-02 observation report ${name}`);
+    if (report.path !== reportPaths[name] || !shaPattern.test(report.sha256)) {
+      fail("EVAL-02 observation report binding is invalid");
+    }
+  }
+  if (payload.schema !== "pareto-score-capability-observation/v1" || payload.admission !== "strict_descendant_only" ||
       payload.authority !== "fixed_observer_real_consumer" ||
       payload.capability_id !== capabilityId || payload.result !== "pass" ||
       JSON.stringify(payload.observer) !== JSON.stringify(observer) || payload.subject.commit !== observer.commit ||
@@ -380,16 +369,7 @@ function validateObservation(envelope, observer) {
       payload.subject.repository !== expectedRepository ||
       !Object.values(payload.observer).every((value) => oidPattern.test(value)) ||
       !["catalog_blob", "commit", "contract_blob", "scorer_blob", "tree"]
-        .every((key) => oidPattern.test(payload.subject[key])) ||
-      payload.scenarios.negative.case_id !== cases.negative ||
-      !shaPattern.test(payload.scenarios.negative.critical_floor_report_sha256) ||
-      !shaPattern.test(payload.scenarios.negative.unknown_score_diagnostic_sha256) ||
-      payload.scenarios.positive.case_id !== cases.positive || payload.scenarios.positive.eligible !== false ||
-      payload.scenarios.positive.evidence_ceiling !== 8 || payload.scenarios.positive.ins_01_score !== 8 ||
-      payload.scenarios.positive.minimum_score !== 0 || !shaPattern.test(payload.scenarios.positive.report_sha256) ||
-      payload.scenarios.recovery.case_id !== cases.recovery ||
-      payload.scenarios.recovery.report_sha256 !== payload.scenarios.positive.report_sha256 ||
-      Object.values(payload.scenarios).some((scenario) => scenario.result !== "pass")) {
+        .every((key) => oidPattern.test(payload.subject[key]))) {
     fail("EVAL-02 observation semantics are invalid");
   }
   return payload;
@@ -397,6 +377,9 @@ function validateObservation(envelope, observer) {
 
 async function aggregate({ inputDir, output }) {
   const observer = observerIdentity();
+  const catalogBytes = committedCatalogBytes(observer.commit);
+  const catalog = parseJson(catalogBytes, "capability catalog");
+  const catalogSha256 = digest(catalogBytes);
   const directories = (await readdir(inputDir, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
     .sort((left, right) => left.name.localeCompare(right.name));
@@ -404,14 +387,33 @@ async function aggregate({ inputDir, output }) {
   const rows = [];
   for (const directory of directories) {
     const directoryPath = path.join(inputDir, directory.name);
-    const files = (await readdir(directoryPath)).sort();
+    const entries = await readdir(directoryPath, { withFileTypes: true });
+    const files = entries.filter((entry) => entry.isFile() && !entry.isSymbolicLink()).map((entry) => entry.name).sort();
+    const reportDirectories = entries.filter((entry) => entry.isDirectory() && !entry.isSymbolicLink()).map((entry) => entry.name);
     const observationNames = files.filter((name) => /^observation-(?:Linux|Windows)-1\.json$/.test(name));
-    if (files.length !== 2 || observationNames.length !== 1 || !files.includes("attestation.json")) {
+    if (entries.length !== 3 || files.length !== 2 || observationNames.length !== 1 ||
+        !files.includes("attestation.json") || JSON.stringify(reportDirectories) !== JSON.stringify(["reports"])) {
       fail("EVAL-02 campaign input is incomplete");
     }
     const observationFile = await safeFile(directoryPath, observationNames[0], "EVAL-02 observation", 4 * 1024 * 1024);
     const envelope = parseJson(observationFile.bytes, "EVAL-02 observation");
     const payload = validateObservation(envelope, observer);
+    const reports = Object.fromEntries(await Promise.all(Object.entries(payload.reports).map(async ([name, report]) => [
+      name, await safeFile(directoryPath, report.path, `EVAL-02 ${name} report`, 4 * 1024 * 1024),
+    ])));
+    if (Object.entries(reports).some(([name, file]) => digest(file.bytes) !== payload.reports[name].sha256) ||
+        !reports.positive.bytes.equals(reports.recovery.bytes) ||
+        reports.unknown_score.bytes.toString("utf8") !== "evidence has unknown or missing fields\n") {
+      fail("EVAL-02 report content is invalid");
+    }
+    const candidate = { repository: expectedRepository, commit: payload.subject.commit, tree: payload.subject.tree };
+    validateObservedScoreReport(parseJson(reports.positive.bytes, "EVAL-02 positive report"),
+      candidate, "positive", catalog, catalogSha256);
+    validateObservedScoreReport(parseJson(reports.negative.bytes, "EVAL-02 negative report"),
+      candidate, "negative", catalog, catalogSha256);
+    validateObservedScoreReport(parseJson(reports.recovery.bytes, "EVAL-02 recovery report"),
+      candidate, "positive", catalog, catalogSha256);
+    const reportDigests = Object.fromEntries(Object.entries(reports).map(([name, file]) => [name, digest(file.bytes)]));
     const attestation = await safeFile(directoryPath, "attestation.json", "EVAL-02 observation attestation", 4 * 1024 * 1024);
     const bundle = parseJson(attestation.bytes, "EVAL-02 observation attestation");
     exactKeys(bundle, ["dsseEnvelope", "mediaType", "verificationMaterial"], "EVAL-02 observation attestation");
@@ -422,6 +424,7 @@ async function aggregate({ inputDir, output }) {
       content_sha256: envelope.content_sha256,
       environment: payload.environment.platform,
       input: payload.input,
+      reportDigests,
       subject: payload.subject,
       trial_id: payload.trial_id,
     });
@@ -430,22 +433,20 @@ async function aggregate({ inputDir, output }) {
   const expected = ["linux:1", "win32:1"];
   if (JSON.stringify(slots) !== JSON.stringify(expected) ||
       rows.some((row) => JSON.stringify(row.subject) !== JSON.stringify(rows[0].subject) ||
-        JSON.stringify(row.input) !== JSON.stringify(rows[0].input))) {
-    fail("EVAL-02 campaign lacks exact coverage for one subject and input");
+        JSON.stringify(row.input) !== JSON.stringify(rows[0].input) ||
+        JSON.stringify(row.reportDigests) !== JSON.stringify(rows[0].reportDigests))) {
+    fail("EVAL-02 campaign lacks exact coverage for one subject, input, and report set");
   }
   const payload = canonical({
-    schema: "pareto-capability-campaign/v2",
-    admission: "bootstrap_only",
+    schema: "pareto-score-capability-campaign/v1",
+    admission: "strict_descendant_only",
     authority: "github_attestation_subject",
     capability_id: capabilityId,
-    coverage: { environments: ["linux", "win32"], trials_per_environment: 1 },
-    environments: ["linux", "win32"],
     observations: rows.map(({ bundle_path, bundle_sha256, content_sha256, environment, trial_id }) => ({
       bundle_path, bundle_sha256, content_sha256, environment, trial_id,
     })).sort((left, right) => left.environment.localeCompare(right.environment) || left.trial_id - right.trial_id),
     observer,
     result: "pass",
-    scenarios: cases,
     subject: rows[0].subject,
   });
   const envelope = canonical({
