@@ -1059,6 +1059,36 @@ try {
   await rm(path.join(missingReport.directory, "observations", "eval-02-Linux-1", "reports", "negative.json"));
   await assert.rejects(() => scoreEvidence(missingReport), /EVAL-02 negative report is missing or unsafe/);
 
+  const divergentPlatform = await scoreCampaignFixture(
+    "eval-02-divergent-platform-report", scoreSourceInstall, scoreSourceCandidate,
+  );
+  const divergentCampaignPath = path.join(divergentPlatform.directory, "eval-02-campaign.json");
+  const divergentCampaignEnvelope = JSON.parse(await readFile(divergentCampaignPath));
+  const windowsDirectory = path.join(divergentPlatform.directory, "observations", "eval-02-Windows-1");
+  const windowsObservationPath = path.join(windowsDirectory, "observation-Windows-1.json");
+  const windowsObservationEnvelope = JSON.parse(await readFile(windowsObservationPath));
+  for (const reportName of ["positive", "recovery"]) {
+    const reportPath = path.join(windowsDirectory, "reports", `${reportName}.json`);
+    const report = JSON.parse(await readFile(reportPath));
+    const divergentBytes = Buffer.from(`${JSON.stringify(report, null, 2)}\n`);
+    await writeFile(reportPath, divergentBytes);
+    windowsObservationEnvelope.payload.reports[reportName].sha256 = sha(divergentBytes);
+  }
+  windowsObservationEnvelope.content_sha256 = sha(Buffer.from(JSON.stringify(canonical(windowsObservationEnvelope.payload))));
+  const windowsObservationBytes = Buffer.from(`${JSON.stringify(canonical(windowsObservationEnvelope))}\n`);
+  await writeFile(windowsObservationPath, windowsObservationBytes);
+  divergentCampaignEnvelope.payload.observations[1].content_sha256 = windowsObservationEnvelope.content_sha256;
+  divergentCampaignEnvelope.content_sha256 = sha(Buffer.from(JSON.stringify(canonical(divergentCampaignEnvelope.payload))));
+  const divergentCampaignBytes = Buffer.from(`${JSON.stringify(canonical(divergentCampaignEnvelope))}\n`);
+  await writeFile(divergentCampaignPath, divergentCampaignBytes);
+  divergentPlatform.evidence.attested_campaigns[0].campaign_sha256 = sha(divergentCampaignBytes);
+  await writeFile(divergentPlatform.evidencePath, `${JSON.stringify(divergentPlatform.evidence, null, 2)}\n`);
+  await assert.rejects(
+    () => scoreEvidence(divergentPlatform),
+    /EVAL-02 environments did not reproduce identical reports/,
+    "semantically equal platform reports with different bytes must fail closed before attestation",
+  );
+
   const staleScore = await scoreCampaignFixture("eval-02-stale-scorer", scoreSourceInstall, scoreSourceCandidate);
   const scorerFile = path.join(repository, "scripts", "capability-score.mjs");
   await writeFile(scorerFile, Buffer.concat([await readFile(scorerFile), Buffer.from("\n")]));
