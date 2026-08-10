@@ -2,7 +2,7 @@
 
 Load this owner for an independent outcome, an existing child, or Hub orchestration. It owns native
 Task identity, admission, DAG relations, active-task custody, bounded observation, fan-in, and
-endpoints. It does not own a second lifecycle, leaf work, review, CI, or merge.
+endpoints. It does not own a second lifecycle, leaf work, review, CI, or the merge procedure.
 
 ## Admit outcomes and authority
 
@@ -11,6 +11,10 @@ falsifiable acceptance, one write owner, and an independently closable endpoint.
 documentation sync, review correction, and support work for one outcome stay inside its Mission.
 Creation requires explicit user approval of the exact ready packet.
 
+Before creation, apply the parent-cancellation counterfactual. If cancelling the parent outcome leaves
+no independently valuable real consumer and no meaningful closable endpoint, the work remains inside
+the parent lifecycle instead of becoming a Mission.
+
 Before a Goal-driven effect, observe Goal capability and reconcile the matching Goal. The Goal stores
 only the overall outcome and completion boundary. No Goal, missing capability, or a nonmatching Goal
 freezes Goal/DAG effects; a Goal continuation is never a work clock.
@@ -18,6 +22,10 @@ freezes Goal/DAG effects; a Goal continuation is never a work clock.
 Classify task metadata through [canonical task types](orchestration-task-types.md) only when proposing a
 new independent Mission. A packet owns one stable label and exact title. Native identity is always the
 exact threadId/hostId, never a title, list resemblance, or serial.
+
+Only an existing Hub creates or reuses a native Task. A child or single-Mission Main that discovers a
+further independent outcome returns one exact ready proposal to its Hub or user; it does not create a
+nested active-task set or native Task.
 
 ## Keep one compact DAG
 
@@ -44,6 +52,10 @@ window, and next observation action. A child owns its Frame through Finalize, im
 verification, CI, review, waiting, and terminal evidence. Hub work is limited to admission, custody,
 DAG/authority reconciliation, fan-in, and guarded merge.
 
+Any support lane remains local to its one dispatching Mission under
+[agent routing](orchestration-agent-routing.md). It never enters the Hub active-task set, carries an
+independent outcome, replaces a native Task, or supplies another node's endpoint.
+
 ## Admit one native Task message
 
 Freeze the complete packet before effect: current Frame and Plan, Origin, owner and paths, consumer
@@ -56,14 +68,13 @@ and exact identities. Reconcile any known colliding identity once and make one b
 only when needed for custody. An exact collision reuses the recorded task; ambiguous or possible
 success forbids another create.
 
-Create once. A clientThreadId is a consumed pending attempt and cannot be read, renamed, messaged, or
+The existing Hub creates once. A clientThreadId is a consumed pending attempt and cannot be read, renamed, messaged, or
 retried until causally mapped to threadId/hostId. For an exact identity, set and read back the exact
 title once, send the complete packet once, and treat the native send receipt as semantic release.
 Continuation uses the same identity/title/single-send gate and never a supplement. Failure, mismatch,
 or ambiguous effect is host-defect/no-change; do not retry, repacket, or create a replacement.
 
-After release, add the child to the active set. Outside Hub mode, return immediately. In Hub mode,
-monitor only through the custody contract below.
+After release, add the child to the Hub active set and monitor only through the custody contract below.
 
 ## Observe events without polling
 
@@ -109,12 +120,14 @@ serializes them. A predecessor that changes the canonical source freezes only th
 dependency-consuming and final identity-bound slices. After exact merged evidence, recover the same
 child, integrate once, and revalidate changed inputs; never replace it.
 
-One child owns at most one candidate branch and one PR. PR endpoints are:
+One child owns at most one candidate branch and one PR. GitHub Delivery owns publication,
+merge-readiness, and guarded-merge procedure. PR endpoints are:
 
 - open: exact candidate published in the authorized Draft/Ready state;
 - merge-ready: exact candidate satisfies [GitHub delivery](../delivery/delivery-pullrequest-workflow.md)
   without merging;
-- merged: child stops at merge-ready; Hub alone performs the separately authorized guarded merge;
+- merged: child stops at merge-ready; Hub alone performs the separately authorized merge effect under
+  Delivery's procedure and closes the node after exact readback;
 - no-PR: closes on its admitted consumer evidence.
 
 Hub accepts a terminal handoff only when identity, candidate, base, endpoint, conversations, checks,
@@ -129,5 +142,6 @@ authorized cancellation. A child never updates the Goal.
 
 Unavailable Goal capability freezes Goal/DAG effects but permits an explicitly Goal-unbound single
 Mission. Unavailable native Task capability preserves the approved packet and reports the missing
-effect; it authorizes no hidden sub-agent, branch, retry, or replacement. Never serialize Hub state
-into repository files or add an automation, reminder, daemon, heartbeat, queue, or scheduler.
+effect; it authorizes no support-lane substitute, hidden sub-agent, branch, retry, or replacement.
+Never serialize Hub state into repository files or add an automation, reminder, daemon, heartbeat,
+queue, or scheduler.

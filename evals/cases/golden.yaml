@@ -192,15 +192,19 @@
   vars:
     prompt: >-
       Use $run-bounded-mission. A Hub has runnable and attention-needed children plus pending
-      dependency release and fan-in work. A material leaf implementation is tempting the Hub to work
-      in its foreground. Return the commander decision, the bounded-control near miss, and recovery.
+      dependency release and fan-in work. A material leaf implementation belongs to one approved
+      child Mission but is tempting the Hub to work or dispatch it in the Hub foreground. Return the
+      commander decision, the bounded-control near miss, and recovery.
   assert:
     - type: skill-used
       value: run-bounded-mission
     - type: contains-all
       value:
         - "hub_executes_material_leaf: false"
-        - "dispatch_leaf: true"
+        - "hub_dispatches_node_lane: false"
+        - "node_local_owner: exact_child"
+        - "native_task_action: release_or_continue_existing_child"
+        - "child_creates_nested_task: false"
         - "observe_current_wave: true"
         - "release_dependencies: true"
         - "fan_in_once: true"
