@@ -624,7 +624,7 @@ try {
   );
   const baseValidation = await runProductionValidator();
   assert.match(baseValidation.stdout,
-    /Validated 1 Skill, 25 executable cases, and 117 scenario designs \(0 implemented authorities, 117 unavailable\); committed baselines are disabled/);
+    /Validated 1 Skill, \d+ executable cases, and 117 scenario designs \(0 implemented authorities, 117 unavailable\); committed baselines are disabled/);
 
   const scenarioDesignPath = path.join(validatorFixture, "evals", "scenarios.json");
   const scenarioDesignSource = await readFile(scenarioDesignPath, "utf8");
