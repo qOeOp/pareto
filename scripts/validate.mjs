@@ -231,8 +231,17 @@ async function scanPublicEvidence(files) {
 }
 
 const packageJson = JSON.parse(await readFile(path.join(root, "package.json"), "utf8"));
+const packageLock = JSON.parse(await readFile(path.join(root, "package-lock.json"), "utf8"));
 if (packageJson.devDependencies?.promptfoo !== "0.122.0") fail("promptfoo must be pinned to 0.122.0");
-if (packageJson.engines?.node !== ">=22.22.0") fail("Node engine must be >=22.22.0");
+const sigstorePins = { "@sigstore/bundle": "5.0.0", "@sigstore/tuf": "5.0.0", "@sigstore/verify": "4.1.2" };
+const exactPins = (value) => value && Object.keys(value).length === Object.keys(sigstorePins).length &&
+  Object.entries(sigstorePins).every(([name, version]) => value[name] === version);
+if (!exactPins(packageJson.dependencies) || !exactPins(packageLock.packages?.[""]?.dependencies)) {
+  fail("Sigstore verifier dependencies must remain exact and lock-bound");
+}
+if (packageJson.engines?.node !== "^22.22.2 || ^24.15.0 || >=26.0.0") {
+  fail("Node engine must match the pinned Sigstore runtime support range");
+}
 
 const skills = await validateSkills();
 const goldenCases = parseYaml(await readFile(path.join(root, "evals/cases/golden.yaml"), "utf8"));

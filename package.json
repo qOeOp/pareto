@@ -5,7 +5,7 @@
   "description": "Portable Agent Skills with deterministic validation and reproducible evaluations",
   "type": "module",
   "engines": {
-    "node": ">=22.22.0"
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "scripts": {
     "audit:consumer": "npm audit --omit=dev",
@@ -22,5 +22,10 @@
   "devDependencies": {
     "promptfoo": "0.122.0",
     "yaml": "2.9.0"
+  },
+  "dependencies": {
+    "@sigstore/bundle": "5.0.0",
+    "@sigstore/tuf": "5.0.0",
+    "@sigstore/verify": "4.1.2"
   }
 }
