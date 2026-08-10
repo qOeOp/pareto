@@ -9,9 +9,11 @@ import { assertions } from "promptfoo";
 import { parse as parseYaml } from "yaml";
 import {
   CANONICAL_PROVIDER_ID,
+  guardPromptfooFetch,
   materializeSkillsFromGit,
   preparePromptfooConfig,
   readHoldoutIdentity,
+  runtimeCasesForInstalledSkill,
   validateResultArtifact,
 } from "./eval.mjs";
 
@@ -55,16 +57,30 @@ try {
   "a globally installed Skill must resolve its receipt helper outside the target project");
 
   const sourceConfig = parseYaml(await readFile(path.join(root, "evals", "promptfooconfig.yaml"), "utf8"));
+  const forwarded = [];
+  const guardedFetch = guardPromptfooFetch(async (input) => {
+    forwarded.push(String(input));
+    return new Response("ok");
+  });
+  await assert.rejects(() => guardedFetch("https://r.promptfoo.app/"), /vendor network is disabled/);
+  await assert.rejects(() => guardedFetch(new Request("https://api.promptfoo.app/v1/test")), /vendor network is disabled/);
+  await guardedFetch("https://api.openai.com/v1/responses");
+  assert.deepEqual(forwarded, ["https://api.openai.com/v1/responses"]);
+  const evaluationHome = path.join(temporaryRoot, "home");
+  const evaluationCodexHome = path.join(temporaryRoot, "codex-home");
   const preparedConfig = preparePromptfooConfig(sourceConfig, {
     model: "synthetic-model",
     effort: "low",
     workingDirectory: temporaryRoot,
+    homeDirectory: evaluationHome,
+    codexHome: evaluationCodexHome,
   }).config;
   assert.equal(preparedConfig.providers[0].id, CANONICAL_PROVIDER_ID);
   assert.deepEqual(preparedConfig.providers[0].config, {
     model: "synthetic-model",
     model_reasoning_effort: "low",
     working_dir: temporaryRoot,
+    cli_env: { HOME: evaluationHome, CODEX_HOME: evaluationCodexHome },
     sandbox_mode: "read-only",
     approval_policy: "never",
     network_access_enabled: false,
@@ -104,17 +120,23 @@ try {
       model: "synthetic-model",
       effort: "low",
       workingDirectory: temporaryRoot,
+      homeDirectory: evaluationHome,
+      codexHome: evaluationCodexHome,
     }), pattern, name);
   }
   assert.throws(() => preparePromptfooConfig(sourceConfig, {
     model: "",
     effort: "low",
     workingDirectory: temporaryRoot,
+    homeDirectory: evaluationHome,
+    codexHome: evaluationCodexHome,
   }), /model must be one exact non-empty value/, "empty invoked model");
   assert.throws(() => preparePromptfooConfig(sourceConfig, {
     model: "synthetic-model",
     effort: "low\n",
     workingDirectory: temporaryRoot,
+    homeDirectory: evaluationHome,
+    codexHome: evaluationCodexHome,
   }), /reasoning effort must be one exact non-empty value/, "malformed invoked effort");
 
   const goldenCases = parseYaml(await readFile(path.join(root, "evals", "cases", "golden.yaml"), "utf8"));
@@ -135,7 +157,7 @@ try {
     assert.equal(refutation.pass, false, `${testCase.description}: representative wrong behavior must fail`);
   }
 
-  const syntheticCases = [
+  const syntheticCases = runtimeCasesForInstalledSkill([
     {
       description: "[smoke] harness positive control",
       metadata: {
@@ -156,18 +178,13 @@ try {
         {
           id: "command-positive",
           type: "command_execution",
-          command: "sed -n 1,20p .agents/skills/run-bounded-mission/SKILL.md",
+          command: `sed -n 1,20p ${path.join(evaluationHome, ".agents", "skills", "run-bounded-mission", "SKILL.md")}`,
           aggregated_output: "---\nname: run-bounded-mission\n",
           exit_code: 0,
           status: "completed",
         },
         { id: "message-positive", type: "agent_message", text: "receipt: bounded" },
       ],
-      skillCalls: [{
-        name: "run-bounded-mission",
-        path: ".agents/skills/run-bounded-mission/SKILL.md",
-        source: "heuristic",
-      }],
     },
     {
       description: "[smoke] harness negative control",
@@ -196,9 +213,10 @@ try {
         },
         { id: "message-negative", type: "agent_message", text: "receipt: answer-only" },
       ],
-      skillCalls: [],
     },
-  ];
+  ]);
+  assert.ok(syntheticCases.every((testCase) => testCase.assert.every((assertion) =>
+    assertion.type !== "skill-used" && assertion.type !== "not-skill-used")));
   const rawTurnFor = (testCase) => JSON.stringify({
     finalResponse: testCase.output,
     items: testCase.items,
@@ -220,7 +238,6 @@ try {
     provider: { id: CANONICAL_PROVIDER_ID },
     response: {
       output: testCase.output,
-      metadata: { skillCalls: structuredClone(testCase.skillCalls) },
       raw: rawTurnFor(testCase),
     },
     testCase: {
@@ -238,6 +255,7 @@ try {
     },
   }));
   const validResultArtifact = {
+    author: null,
     results: {
       results: resultRows,
       stats: { successes: resultRows.length, failures: 0, errors: 0 },
@@ -249,6 +267,7 @@ try {
     runtimeOptions: { repeat: 1 },
   };
   validResultArtifact.config.providers[0].config.working_dir = "[REDACTED]";
+  validResultArtifact.config.providers[0].config.cli_env = { HOME: "[REDACTED]", CODEX_HOME: "[REDACTED]" };
   const validateSyntheticResult = () => validateResultArtifact({
     resultPath,
     suite: "smoke",
@@ -258,6 +277,8 @@ try {
     model: "synthetic-model",
     effort: "low",
     workingDirectory: temporaryRoot,
+    homeDirectory: evaluationHome,
+    codexHome: evaluationCodexHome,
   });
   await writeFile(resultPath, JSON.stringify(validResultArtifact), "utf8");
   await validateSyntheticResult();
@@ -268,6 +289,11 @@ try {
   await expectReject(validateSyntheticResult, /duplicate JSON object member success/,
     "duplicate Promptfoo result member");
   const resultFixtures = [
+    ["ambient author identity", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      fixture.author = "ambient@example.invalid";
+      return fixture;
+    })(), /must not inherit an ambient author identity/],
     ["missing provider identity", (() => {
       const fixture = structuredClone(validResultArtifact);
       delete fixture.config.providers[0].id;
@@ -321,11 +347,13 @@ try {
       row.response.raw = JSON.stringify(turn);
       return fixture;
     })(), /deterministic assertions fail production replay/],
-    ["contradictory heuristic activation", (() => {
+    ["contradictory positive activation", (() => {
       const fixture = structuredClone(validResultArtifact);
-      fixture.results.results[0].response.metadata.skillCalls = [];
+      const turn = JSON.parse(fixture.results.results[0].response.raw);
+      turn.items[0].command = "pwd";
+      fixture.results.results[0].response.raw = JSON.stringify(turn);
       return fixture;
-    })(), /skillCalls inconsistent with raw command evidence/],
+    })(), /contradictory raw Skill activation evidence/],
     ["missing raw turn", (() => {
       const fixture = structuredClone(validResultArtifact);
       delete fixture.results.results[0].response.raw;
@@ -393,7 +421,6 @@ try {
       const turn = JSON.parse(fixture.results.results[0].response.raw);
       turn.items = [turn.items.at(-1)];
       fixture.results.results[0].response.raw = JSON.stringify(turn);
-      fixture.results.results[0].response.metadata.skillCalls = [];
       return fixture;
     })(), /missing a required raw item observation/],
     ["negative raw Skill contradiction", (() => {
@@ -403,7 +430,7 @@ try {
       negativeTurn.items[0] = positiveTurn.items[0];
       fixture.results.results[1].response.raw = JSON.stringify(negativeTurn);
       return fixture;
-    })(), /skillCalls inconsistent with raw command evidence/],
+    })(), /contradictory raw Skill activation evidence/],
   ];
   for (const [name, fixture, pattern] of resultFixtures) {
     await writeFile(resultPath, JSON.stringify(fixture), "utf8");
@@ -434,6 +461,8 @@ try {
     model: "synthetic-model",
     effort: "low",
     workingDirectory: temporaryRoot,
+    homeDirectory: evaluationHome,
+    codexHome: evaluationCodexHome,
   });
   await writeFile(resultPath, JSON.stringify(repeatedArtifact), "utf8");
   await validateRepeatedSyntheticResult();

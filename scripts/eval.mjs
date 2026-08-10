@@ -5,8 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { isDeepStrictEqual, promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { assertions } from "promptfoo";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { parse as parseYaml } from "yaml";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -35,6 +34,7 @@ export const CANONICAL_PROVIDER_ID = "openai:codex-sdk";
 const providerFields = ["config", "id", "label"];
 const providerConfigFields = [
   "approval_policy",
+  "cli_env",
   "enable_streaming",
   "inherit_process_env",
   "model",
@@ -97,7 +97,7 @@ function exactInvocationValue(value, label) {
   return value;
 }
 
-export function preparePromptfooConfig(config, { model, effort, workingDirectory }) {
+export function preparePromptfooConfig(config, { model, effort, workingDirectory, homeDirectory, codexHome }) {
   if (!Array.isArray(config?.providers) || config.providers.length !== 1) {
     throw new Error("Promptfoo config must contain exactly one provider before evaluation");
   }
@@ -120,6 +120,11 @@ export function preparePromptfooConfig(config, { model, effort, workingDirectory
       path.resolve(workingDirectory) !== workingDirectory) {
     throw new Error("Promptfoo working directory must be one canonical absolute path");
   }
+  for (const [label, value] of [["home directory", homeDirectory], ["Codex home", codexHome]]) {
+    if (typeof value !== "string" || !path.isAbsolute(value) || path.resolve(value) !== value) {
+      throw new Error(`Promptfoo ${label} must be one canonical absolute path`);
+    }
+  }
 
   const prepared = structuredClone(config);
   const provider = prepared.providers[0];
@@ -128,6 +133,7 @@ export function preparePromptfooConfig(config, { model, effort, workingDirectory
     model: exactModel,
     model_reasoning_effort: exactEffort,
     working_dir: workingDirectory,
+    cli_env: { HOME: homeDirectory, CODEX_HOME: codexHome },
     ...providerSafetyConfig,
   };
   if (!hasExactFields(provider, providerFields) || !hasExactFields(provider.config, providerConfigFields) ||
@@ -135,6 +141,32 @@ export function preparePromptfooConfig(config, { model, effort, workingDirectory
     throw new Error("Prepared Promptfoo provider configuration is not exact");
   }
   return { config: prepared, providerId: CANONICAL_PROVIDER_ID };
+}
+
+export function runtimeCasesForInstalledSkill(cases) {
+  if (!Array.isArray(cases)) throw new Error("Promptfoo cases must be an array");
+  return cases.map((testCase) => ({
+    ...structuredClone(testCase),
+    assert: (testCase.assert ?? []).filter((assertion) =>
+      assertion.type !== "skill-used" && assertion.type !== "not-skill-used"),
+  }));
+}
+
+export function guardPromptfooFetch(fetchImplementation) {
+  if (typeof fetchImplementation !== "function") throw new Error("Promptfoo fetch guard requires a fetch implementation");
+  return (input, init) => {
+    const target = input instanceof Request ? input.url : String(input);
+    let hostname;
+    try {
+      hostname = new URL(target).hostname.toLowerCase();
+    } catch {
+      return fetchImplementation(input, init);
+    }
+    if (hostname === "promptfoo.app" || hostname.endsWith(".promptfoo.app")) {
+      return Promise.reject(new Error("Promptfoo vendor network is disabled for Skill evaluation"));
+    }
+    return fetchImplementation(input, init);
+  };
 }
 
 export async function materializeSkillsFromGit(repositoryRoot, commit, destination) {
@@ -345,8 +377,8 @@ function parseCodexRawItems(raw, output, expectedPrompt, rowIndex) {
   return turn.items;
 }
 
-function extractWorkspaceSkillCalls(items, workingDirectory) {
-  const workspacePrefix = `${workingDirectory.replace(/\\/g, "/").replace(/\/+$/g, "")}/.agents/skills/`;
+function extractInstalledSkillCalls(items, skillRoots) {
+  const prefixes = skillRoots.map((root) => `${root.replace(/\\/g, "/").replace(/\/+$/g, "")}/`);
   const calls = new Map();
   for (const item of items) {
     if (item.type !== "command_execution" ||
@@ -356,10 +388,11 @@ function extractWorkspaceSkillCalls(items, workingDirectory) {
     for (const rawToken of item.command.split(/\s+/)) {
       const token = rawToken.replace(/^[`"'([{<]+|[`"',;:)\]}>]+$/g, "").trim().replace(/\\/g, "/");
       let name;
-      if (token.startsWith(".agents/skills/")) {
-        name = /^\.agents\/skills\/([^/\s]+)\/SKILL\.md$/.exec(token)?.[1];
-      } else if (token.startsWith(workspacePrefix)) {
-        name = /^([^/\s]+)\/SKILL\.md$/.exec(token.slice(workspacePrefix.length))?.[1];
+      for (const prefix of prefixes) {
+        if (token.startsWith(prefix)) {
+          name = /^([^/\s]+)\/SKILL\.md$/.exec(token.slice(prefix.length))?.[1];
+          if (name) break;
+        }
       }
       if (name && /^[A-Za-z0-9._:-]+$/.test(name)) {
         calls.set(token, { name, path: token, source: "heuristic" });
@@ -378,6 +411,8 @@ export async function validateResultArtifact({
   model,
   effort,
   workingDirectory,
+  homeDirectory,
+  codexHome,
   holdoutIdentity = null,
 }) {
   const info = await lstat(resultPath);
@@ -389,6 +424,9 @@ export async function validateResultArtifact({
     artifact = JSON.parse(source);
   } catch {
     throw new Error("Promptfoo output must be parseable JSON");
+  }
+  if (artifact.author !== null) {
+    throw new Error("Promptfoo output must not inherit an ambient author identity");
   }
 
   const rows = artifact?.results?.results;
@@ -447,38 +485,25 @@ export async function validateResultArtifact({
         throw new Error(`Promptfoo result row ${index} assertion ${assertionIndex} did not pass exactly`);
       }
     }
-    const heuristicSkillAssertions = expectedAssertions.filter((assertion) =>
-      assertion.type === "skill-used" || assertion.type === "not-skill-used");
-    if (heuristicSkillAssertions.length > 0) {
+    const activation = expectedMetadata?.observations?.skill_activation;
+    if (activation) {
       const observedTypes = new Set(rawItems.map((item) => item.type));
       const requiredTypes = expectedMetadata?.observations?.required_raw_item_types;
       if (!Array.isArray(requiredTypes) || requiredTypes.some((type) =>
         !replayableRawItemTypes.has(type) || !observedTypes.has(type))) {
         throw new Error(`Promptfoo result row ${index} is missing a required raw item observation`);
       }
-      const replayedSkillCalls = extractWorkspaceSkillCalls(rawItems, workingDirectory);
-      const declaredSkillCalls = row.response?.metadata?.skillCalls ?? [];
-      if (!Array.isArray(declaredSkillCalls) || !isDeepStrictEqual(declaredSkillCalls, replayedSkillCalls)) {
-        throw new Error(`Promptfoo result row ${index} has skillCalls inconsistent with raw command evidence`);
-      }
-      const activation = expectedMetadata?.observations?.skill_activation;
-      const expectedUsed = heuristicSkillAssertions[0].type === "skill-used";
+      const replayedSkillCalls = extractInstalledSkillCalls(rawItems, [path.join(homeDirectory, ".agents", "skills")]);
+      const expectedUsed = activation.expected === "used";
       if (activation?.status !== "dynamic_heuristic" ||
-          activation?.expected !== (expectedUsed ? "used" : "not_used")) {
+          !["used", "not_used"].includes(activation.expected)) {
         throw new Error(`Promptfoo result row ${index} has an invalid Skill activation evidence contract`);
       }
-      const heuristicResult = await assertions.runAssertions({
-        providerResponse: row.response,
-        test: { vars: expectedVars, assert: heuristicSkillAssertions },
-      });
-      if (heuristicResult.pass !== true || !Array.isArray(heuristicResult.componentResults) ||
-          heuristicResult.componentResults.length !== heuristicSkillAssertions.length ||
-          heuristicResult.componentResults.some((component, heuristicIndex) =>
-            component?.pass !== true ||
-            !isDeepStrictEqual(component.assertion, heuristicSkillAssertions[heuristicIndex]))) {
-        throw new Error(`Promptfoo result row ${index} has contradictory heuristic Skill-use evidence`);
+      if ((replayedSkillCalls.length > 0) !== expectedUsed) {
+        throw new Error(`Promptfoo result row ${index} has contradictory raw Skill activation evidence`);
       }
     }
+    const { assertions } = await import("promptfoo");
     const replayedAssertions = await assertions.runAssertions({
       providerResponse: row.response,
       test: { vars: expectedVars, assert: expectedAssertions },
@@ -504,6 +529,7 @@ export async function validateResultArtifact({
   if (!hasExactFields(provider, providerFields) || !hasExactFields(provider.config, providerConfigFields) ||
       provider.id !== providerId || provider.config.model !== model ||
       provider.config.model_reasoning_effort !== effort || provider.config.working_dir !== "[REDACTED]" ||
+      !isDeepStrictEqual(provider.config.cli_env, { HOME: "[REDACTED]", CODEX_HOME: "[REDACTED]" }) ||
       Object.entries(providerSafetyConfig).some(([field, value]) => provider.config[field] !== value)) {
     throw new Error("Promptfoo output is not bound to the exact invoked provider/model/effort cell");
   }
@@ -533,65 +559,91 @@ async function main() {
   }
 
   const holdoutBefore = suite === "holdout" ? await readHoldoutIdentity() : null;
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "agent-skill-eval-"));
-  const skillTarget = path.join(workspace, ".agents", "skills");
+  const evaluationRoot = await mkdtemp(path.join(os.tmpdir(), "agent-skill-eval-"));
+  const workspace = path.join(evaluationRoot, "workspace");
+  const homeDirectory = path.join(evaluationRoot, "home");
+  const codexHome = path.join(evaluationRoot, "codex-home");
   const resultsDir = path.join(root, "evals", "results");
   const effort = process.env.SKILL_EVAL_EFFORT ?? "medium";
   const model = process.env.SKILL_EVAL_MODEL ?? "gpt-5.6-terra";
   const safeLabel = `${suite}-${model}-${effort}`.replace(/[^a-zA-Z0-9._-]+/g, "-");
   const resultPath = path.join(resultsDir, `${safeLabel}-${Date.now()}.json`);
-  const configPath = path.join(workspace, "promptfooconfig.yaml");
-  const promptfoo = path.join(root, "node_modules", ".bin", process.platform === "win32" ? "promptfoo.cmd" : "promptfoo");
+  const promptfooConfigDirectory = path.join(evaluationRoot, "promptfoo");
+  const promptfooEnvironmentNames = ["PROMPTFOO_CONFIG_DIR", "PROMPTFOO_DISABLE_TELEMETRY", "PROMPTFOO_DISABLE_UPDATE"];
+  const previousPromptfooEnvironment = Object.fromEntries(
+    promptfooEnvironmentNames.map((name) => [name, process.env[name]]),
+  );
+  const previousFetch = globalThis.fetch;
 
   try {
     const snapshotCommit = holdoutBefore?.commit ?? await gitText(root, ["rev-parse", "HEAD"]);
-    await materializeSkillsFromGit(root, snapshotCommit, skillTarget);
+    const currentCommit = await gitText(root, ["rev-parse", "HEAD"]);
+    if (snapshotCommit !== currentCommit) throw new Error("evaluation installer source must equal exact HEAD");
+    const sourceDrift = await gitText(root, [
+      "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching", "--",
+      "skills/run-bounded-mission", "codex/agents", "scripts/install-codex.mjs",
+    ]);
+    if (sourceDrift) throw new Error("evaluation installer source differs from exact HEAD");
+    const installCode = await run(process.execPath, [
+      path.join(root, "scripts", "install-codex.mjs"),
+      "--agents-root", path.join(homeDirectory, ".agents"),
+      "--codex-root", codexHome,
+    ], { cwd: root, env: gitAuthorityEnvironment });
+    if (installCode !== 0) throw new Error(`Codex installer failed with exit ${installCode}`);
+    const checkCode = await run(process.execPath, [
+      path.join(root, "scripts", "install-codex.mjs"), "--check",
+      "--agents-root", path.join(homeDirectory, ".agents"),
+      "--codex-root", codexHome,
+    ], { cwd: root, env: gitAuthorityEnvironment });
+    if (checkCode !== 0) throw new Error(`Codex installer verification failed with exit ${checkCode}`);
+    await mkdir(workspace, { recursive: true });
     await writeFile(path.join(workspace, "README.md"), "Disposable read-only Skill evaluation workspace.\n", "utf8");
     await writeFile(path.join(workspace, "AGENTS.md"), repositoryInstructions, "utf8");
     const gitCode = await run("git", ["init", "--quiet"], { cwd: workspace, env: gitAuthorityEnvironment });
     if (gitCode !== 0) throw new Error(`git init failed with exit ${gitCode}`);
     await mkdir(resultsDir, { recursive: true });
     const casePath = path.join(root, "evals", "cases", caseFiles[suite]);
-    const cases = parseYaml(await readFile(casePath, "utf8"));
+    const selectedCases = parseYaml(await readFile(casePath, "utf8")).filter((testCase) =>
+      new RegExp(patterns[suite]).test(testCase.description));
+    const cases = runtimeCasesForInstalledSkill(selectedCases);
     const sourceConfig = parseYaml(await readFile(path.join(root, "evals", "promptfooconfig.yaml"), "utf8"));
     const { config, providerId } = preparePromptfooConfig(sourceConfig, {
       model,
       effort,
       workingDirectory: workspace,
+      homeDirectory,
+      codexHome,
     });
-    config.tests = pathToFileURL(casePath).href;
     if (holdoutBefore) {
       config.metadata = { ...config.metadata, holdout_candidate: holdoutBefore };
     }
-    await writeFile(configPath, stringifyYaml(config), "utf8");
-
-    const code = await run(promptfoo, [
-      "eval",
-      "-c",
-      configPath,
-      "--no-cache",
-      "--max-concurrency",
-      "1",
-      "--repeat",
-      String(repeats[suite]),
-      "--filter-pattern",
-      patterns[suite],
-      "--output",
-      resultPath,
-    ], {
-      cwd: root,
-      env: {
-        ...process.env,
-        PROMPTFOO_DISABLE_TELEMETRY: "1",
-        PROMPTFOO_DISABLE_UPDATE: "1",
-        PROMPTFOO_CONFIG_DIR: path.join(workspace, ".promptfoo"),
-        SKILL_EVAL_EFFORT: effort,
-        SKILL_EVAL_MODEL: model,
-        SKILL_EVAL_WORKING_DIR: workspace,
-      },
+    await mkdir(promptfooConfigDirectory, { recursive: true });
+    process.env.PROMPTFOO_CONFIG_DIR = promptfooConfigDirectory;
+    process.env.PROMPTFOO_DISABLE_TELEMETRY = "1";
+    process.env.PROMPTFOO_DISABLE_UPDATE = "1";
+    globalThis.fetch = guardPromptfooFetch(previousFetch);
+    const { evaluate } = await import("promptfoo");
+    const record = await evaluate({
+      prompts: config.prompts,
+      providers: config.providers,
+      tests: cases,
+      metadata: config.metadata,
+      writeLatestResults: false,
+    }, {
+      cache: false,
+      maxConcurrency: 1,
+      repeat: repeats[suite],
+      timeoutMs: sourceConfig.evaluateOptions.timeoutMs,
+      silent: true,
     });
-    if (code !== 0) {
-      process.exitCode = code;
+    const artifact = await record.toResultsFile();
+    artifact.author = null;
+    artifact.config.providers[0].config.working_dir = "[REDACTED]";
+    artifact.config.providers[0].config.cli_env = { HOME: "[REDACTED]", CODEX_HOME: "[REDACTED]" };
+    artifact.runtimeOptions = { repeat: repeats[suite] };
+    await writeFile(resultPath, `${JSON.stringify(artifact, null, 2)}\n`, "utf8");
+    if (artifact.results.stats.failures !== 0 || artifact.results.stats.errors !== 0) {
+      process.exitCode = 100;
       return;
     }
 
@@ -610,11 +662,18 @@ async function main() {
       model,
       effort,
       workingDirectory: workspace,
+      homeDirectory,
+      codexHome,
       holdoutIdentity: holdoutBefore,
     });
     console.log(`Result: ${resultPath}`);
   } finally {
-    await rm(workspace, { recursive: true, force: true });
+    globalThis.fetch = previousFetch;
+    for (const name of promptfooEnvironmentNames) {
+      if (previousPromptfooEnvironment[name] === undefined) delete process.env[name];
+      else process.env[name] = previousPromptfooEnvironment[name];
+    }
+    await rm(evaluationRoot, { recursive: true, force: true });
   }
 }
 
