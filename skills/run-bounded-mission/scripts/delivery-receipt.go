@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	inputSchema    = "delivery-barrier-input/v3"
-	evidenceSchema = "delivery-barrier-evidence/v3"
-	receiptSchema  = "delivery-barrier-receipt/v3"
+	inputSchema    = "delivery-barrier-input/v4"
+	evidenceSchema = "delivery-barrier-evidence/v4"
+	receiptSchema  = "delivery-barrier-receipt/v4"
 	maxSafeInteger = int64(9007199254740991)
 )
 
@@ -491,6 +491,22 @@ func commitTree(oid string) string {
 	return tree
 }
 
+func currentHeadOID() string {
+	oid := gitOutput("rev-parse", "--verify", "--end-of-options", "HEAD^{commit}")
+	if !oidPattern.MatchString(oid) {
+		return ""
+	}
+	return oid
+}
+
+func remoteBaseOID(baseRef string) string {
+	oid := gitOutput("rev-parse", "--verify", "--end-of-options", "refs/remotes/origin/"+baseRef+"^{commit}")
+	if !oidPattern.MatchString(oid) {
+		return ""
+	}
+	return oid
+}
+
 func mergeTree(baseOID, headOID string) string {
 	tree := gitOutput("merge-tree", "--write-tree", baseOID, headOID)
 	if !oidPattern.MatchString(tree) || gitOutput("cat-file", "-t", tree) != "tree" {
@@ -527,13 +543,13 @@ func normalizeEvidence(value any, headOID string) ([]any, error) {
 		if entry["head_oid"] != headOID {
 			return nil, fail("evidence head does not match candidate")
 		}
-		if entry["content_sha256"] != nil && !isSHA256(entry["content_sha256"]) {
+		if !isSHA256(entry["content_sha256"]) {
 			return nil, fail("evidence digest is invalid")
 		}
 		if result != "pass" && !(kind == "audit" && result == "not_required") {
 			return nil, fmt.Errorf("evidence %s result is not accepted", kind)
 		}
-		if result == "not_required" && (!strings.HasPrefix(locator, "predicate:") || entry["content_sha256"] == nil) {
+		if result == "not_required" && !strings.HasPrefix(locator, "predicate:") {
 			return nil, fail("audit not_required must bind a predicate locator and digest")
 		}
 		key := kind + "\x00" + locator
@@ -576,26 +592,28 @@ func normalizeInput(value any) (map[string]any, error) {
 	input, ok := object(value)
 	if !ok || !hasExactKeys(input,
 		"schema", "repository", "pull_request", "head_oid", "head_tree_oid", "base_ref", "base_oid",
-		"potential_merge_commit", "queue_state", "evidence") || input["schema"] != inputSchema {
+		"potential_merge_tree", "queue_state", "evidence") || input["schema"] != inputSchema {
 		return nil, fail("delivery input has an invalid schema or fields")
 	}
 	pullRequest, pullRequestOK := safePositiveInteger(input["pull_request"])
-	potential, potentialOK := object(input["potential_merge_commit"])
-	var potentialTree map[string]any
-	if potentialOK {
-		potentialTree, potentialOK = object(potential["tree"])
-	}
+	potentialTree, potentialTreeOK := object(input["potential_merge_tree"])
 	if !pullRequestOK || !isOID(input["head_oid"]) || !isOID(input["head_tree_oid"]) ||
 		!isBaseRef(input["base_ref"]) || !isOID(input["base_oid"]) || !isBoundedAtom(input["queue_state"], 128) ||
-		!potentialOK || !hasExactKeys(potential, "oid", "tree") || !isOID(potential["oid"]) ||
-		!hasExactKeys(potentialTree, "oid") || !isOID(potentialTree["oid"]) || potential["oid"] == potentialTree["oid"] {
+		!potentialTreeOK || !hasExactKeys(potentialTree, "oid") || !isOID(potentialTree["oid"]) {
 		return nil, fail("delivery identity or merge representation is invalid")
 	}
 	headOID := input["head_oid"].(string)
 	headTreeOID := input["head_tree_oid"].(string)
+	baseRef := input["base_ref"].(string)
 	baseOID := input["base_oid"].(string)
+	if currentHeadOID() != headOID {
+		return nil, fail("candidate commit does not match the current checkout")
+	}
 	if commitTree(headOID) != headTreeOID {
 		return nil, fail("candidate tree does not match the local head commit")
+	}
+	if remoteBaseOID(baseRef) != baseOID {
+		return nil, fail("base commit does not match the local origin ref")
 	}
 	if mergeTree(baseOID, headOID) != potentialTree["oid"] {
 		return nil, fail("merge tree does not match local base and head")
@@ -613,8 +631,8 @@ func normalizeInput(value any) (map[string]any, error) {
 	}
 	return map[string]any{
 		"schema": evidenceSchema, "repository": repository, "pull_request": pullRequest,
-		"head_oid": headOID, "head_tree_oid": headTreeOID, "base_ref": input["base_ref"],
-		"base_oid": baseOID, "merge_commit_oid": potential["oid"], "merge_tree_oid": potentialTree["oid"],
+		"head_oid": headOID, "head_tree_oid": headTreeOID, "base_ref": baseRef,
+		"base_oid": baseOID, "merge_tree_oid": potentialTree["oid"],
 		"queue_state": input["queue_state"], "evidence": evidence,
 	}, nil
 }
@@ -661,18 +679,16 @@ func verifyReceipt(source []byte, expectedSHA256 string) (map[string]any, error)
 	}
 	if !hasExactKeys(receiptValue,
 		"schema", "repository", "pull_request", "head_oid", "head_tree_oid", "base_ref", "base_oid",
-		"merge_commit_oid", "merge_tree_oid", "queue_state", "evidence") ||
-		receiptValue["schema"] != evidenceSchema || !isOID(receiptValue["merge_commit_oid"]) || !isOID(receiptValue["merge_tree_oid"]) {
+		"merge_tree_oid", "queue_state", "evidence") ||
+		receiptValue["schema"] != evidenceSchema || !isOID(receiptValue["merge_tree_oid"]) {
 		return nil, fail("delivery receipt evidence is invalid")
 	}
 	input := map[string]any{
 		"schema": inputSchema, "repository": receiptValue["repository"], "pull_request": receiptValue["pull_request"],
 		"head_oid": receiptValue["head_oid"], "head_tree_oid": receiptValue["head_tree_oid"],
 		"base_ref": receiptValue["base_ref"], "base_oid": receiptValue["base_oid"],
-		"potential_merge_commit": map[string]any{
-			"oid": receiptValue["merge_commit_oid"], "tree": map[string]any{"oid": receiptValue["merge_tree_oid"]},
-		},
-		"queue_state": receiptValue["queue_state"], "evidence": receiptValue["evidence"],
+		"potential_merge_tree": map[string]any{"oid": receiptValue["merge_tree_oid"]},
+		"queue_state":          receiptValue["queue_state"], "evidence": receiptValue["evidence"],
 	}
 	receipt, err := normalizeInput(input)
 	if err != nil {

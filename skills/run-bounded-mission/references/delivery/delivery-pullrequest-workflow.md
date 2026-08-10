@@ -8,8 +8,9 @@ review, CI implementation, or Hub DAG state.
 
 Publication requires current authority for that effect, a committed candidate whose tree and diff
 reproduce the accepted local state, a clean write surface, and the repository's current PR contract.
-Validate the title with `.github/scripts/validate-pr-title.sh` before the create/edit effect. Push one
-task branch, create the authorized Draft or Ready PR, then read back repository, number, URL, base,
+Run the target repository's authoritative PR-title gate when one exists; never require or recreate a
+validator owned by another repository. Push one task branch, create the authorized Draft or Ready PR,
+then read back repository, number, URL, base,
 head ref/OID, title, body, and state. Any mismatch stops delivery; never repair an uncertain effect by
 creating a replacement PR.
 
@@ -30,9 +31,12 @@ A merge-ready handoff binds one exact head and base observation to:
 | `conversation`  | All material review threads/findings on the current candidate are resolved with evidence.                                         |
 | `drift`         | Head, base, mergeability, required-check set, conversations, and candidate evidence have not changed since observation.           |
 
-Potential merge commit and tree must be structured non-null GitHub data and must replay locally from
-the observed base and head. Queue state, mergeability unknown/conflict, branch protection uncertainty,
-or an unbound head stops. CI success for another head never transfers.
+The current checkout must equal the observed head. The potential merge tree must be structured
+non-null GitHub data and must replay locally from the observed `origin/<base>` commit and head. A
+provider's synthetic potential-merge commit OID is mutable
+external observation, not locally replayable receipt authority. Queue state, mergeability
+unknown/conflict, branch protection uncertainty, or an unbound head stops. CI success for another head
+never transfers.
 
 Use the sole receipt owner to turn typed JSON facts into canonical bytes; callers do not sort keys.
 Set `skill_root` to the directory containing the exact `SKILL.md` loaded for this run. Use the
@@ -53,7 +57,7 @@ go build -o "$receipt_bin" "$receipt_source"
 
 `create` rejects duplicate JSON members before semantic parsing; missing/unknown fields or kinds;
 wrong/stale Git identities; invalid merge representations; and duplicated evidence. Every required
-kind accepts only `pass`; `audit` also accepts `not_required` when its locator starts with
+kind accepts only digest-bound `pass`; `audit` also accepts `not_required` when its locator starts with
 `predicate:` and a content digest binds that predicate. The helper owns deterministic normalization
 and serialization.
 `verify` requires canonical JSON-LF byte identity, the supplied digest, exact schema, and a fresh local
