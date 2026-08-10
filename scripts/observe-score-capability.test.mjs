@@ -150,8 +150,12 @@ try {
   const observationSignerJob = workflow.slice(workflow.indexOf("  attest-observation:"), workflow.indexOf("  aggregate:"));
   const aggregateJob = workflow.slice(workflow.indexOf("  aggregate:"), workflow.indexOf("  attest:"));
   const campaignSignerJob = workflow.slice(workflow.indexOf("  attest:"));
-  assert.match(workflow, /run-id: 31386002048/);
-  assert.match(workflow, /name: ins-01-attested-31386002048/);
+  assert.equal((workflow.match(/run-id: 31416162223/g) ?? []).length, 2);
+  assert.equal((workflow.match(/name: ins-01-attested-31416162223/g) ?? []).length, 2);
+  for (const job of [observeJob, aggregateJob]) {
+    assert.match(job, /name: ins-01-attested-31416162223[\s\S]*run-id: 31416162223/);
+    assert.doesNotMatch(job, /name: ins-01-attested-(?!31416162223)\d+|run-id: (?!31416162223)\d+/);
+  }
   assert.equal((workflow.match(/^\s+path: observer$/gm) ?? []).length, 2);
   assert.match(observeJob, /npm ci --ignore-scripts --prefix observer/);
   assert.doesNotMatch(workflow, /matrix\.trial|\n\s+trial:/);
