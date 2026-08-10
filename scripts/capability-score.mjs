@@ -19,6 +19,7 @@ const execFileAsync = promisify(execFile);
 const gitEnvironment = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name)));
 const sourceKinds = new Set(["deterministic_replay", "native_trace", "independent_review"]);
 const results = new Set(["pass", "fail", "unavailable"]);
+const scenarios = new Set(["positive", "negative", "recovery"]);
 const goalStatuses = new Set(["active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"]);
 const shaPattern = /^sha256:[a-f0-9]{64}$/;
 const threadPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -150,7 +151,7 @@ function validateCatalog(catalog) {
   return new Map(catalog.capabilities.map((capability) => [capability.id, capability]));
 }
 
-function parseCapabilityResult(message, label) {
+export function parseCapabilityResult(message, label) {
   rejectDuplicateJsonObjectMembers(message, label);
   let result;
   try {
@@ -167,7 +168,66 @@ function parseCapabilityResult(message, label) {
   return result;
 }
 
-function parseRolloutTrace(bytes, observation, candidate) {
+function capabilityCaseBinding(testCase, label) {
+  const observations = testCase?.metadata?.observations;
+  const binding = observations?.capability;
+  if (!binding || typeof binding !== "object" || Array.isArray(binding) ||
+      !/^[A-Z]{3,4}-\d{2}$/.test(binding.id ?? "") ||
+      !scenarios.has(binding.scenario) ||
+      typeof binding.case_id !== "string" || binding.case_id.length === 0 || binding.case_id.length > 256 ||
+      typeof observations.behavioral_oracle !== "string" || observations.behavioral_oracle.length === 0) {
+    fail(`${label} capability binding is invalid`);
+  }
+  return binding;
+}
+
+async function committedCapabilityCases(repositoryRoot, candidate, capabilities) {
+  const cases = new Map();
+  for (const file of ["evals/cases/golden.yaml", "evals/cases/holdout.yaml"]) {
+    const bytes = await gitBytes(repositoryRoot, ["show", `${candidate.commit}:${file}`]).catch(() => null);
+    if (!bytes) fail(`committed capability cases are unavailable: ${file}`);
+    const parsed = parseYaml(bytes.toString("utf8"));
+    if (!Array.isArray(parsed)) fail(`committed capability cases are malformed: ${file}`);
+    for (const testCase of parsed) {
+      const binding = capabilityCaseBinding(testCase, `committed case ${file}`);
+      if (!capabilities.has(binding.id) || cases.has(binding.case_id)) fail(`committed capability case is unknown or duplicated: ${binding.case_id}`);
+      cases.set(binding.case_id, {
+        binding,
+        control_sha256: digest(Buffer.from(JSON.stringify(canonical(testCase)))),
+        oracle: testCase.metadata.observations.behavioral_oracle,
+        prompt: testCase?.vars?.prompt,
+      });
+    }
+  }
+  return cases;
+}
+
+function verifyResultAgainstCase(result, committedCase, label) {
+  if (result.capability_id !== committedCase.binding.id || result.scenario !== committedCase.binding.scenario ||
+      result.case_id !== committedCase.binding.case_id || result.control_sha256 !== committedCase.control_sha256 ||
+      result.oracle !== committedCase.oracle) {
+    fail(`${label} does not match the committed case control`);
+  }
+}
+
+export async function verifyCommittedCapabilityResult({ repositoryRoot, result }) {
+  const origin = normalizedRepository(await git(repositoryRoot, ["remote", "get-url", "origin"]));
+  const candidate = { repository: origin, commit: result.candidate.commit, tree: result.candidate.tree };
+  const catalogBytes = await verifyCandidate(repositoryRoot, candidate);
+  const { value: catalog } = parseUniqueJson(catalogBytes, "capability catalog");
+  const capabilities = validateCatalog(catalog);
+  const cases = await committedCapabilityCases(repositoryRoot, candidate, capabilities);
+  const committedCase = cases.get(result.case_id);
+  if (!committedCase) fail("native result does not name one committed capability case");
+  verifyResultAgainstCase(result, committedCase, "native capability result");
+  if (result.result !== "pass" || result.unavailable_evidence.length > 0 || result.material_gaps.length > 0 || result.mutation_observation !== "none") {
+    fail("native capability result is not one clean passing observation");
+  }
+  if (typeof committedCase.prompt !== "string" || committedCase.prompt.length === 0) fail("committed capability case has no exact prompt");
+  return { candidate, committedCase };
+}
+
+function parseRolloutTrace(bytes, observation, candidate, committedCase) {
   const source = bytes.toString("utf8");
   const lines = source.endsWith("\n") ? source.slice(0, -1).split("\n") : source.split("\n");
   if (lines.length < 4) fail(`rollout trace is incomplete: ${observation.artifact_path}`);
@@ -189,6 +249,7 @@ function parseRolloutTrace(bytes, observation, candidate) {
   const finalMessage = [...entries].reverse().find((entry) => entry.type === "response_item" && entry.payload?.type === "message" && entry.payload?.role === "assistant")?.payload?.content?.find((item) => item.type === "output_text")?.text;
   if (!started || !completed || !tokenReceipt || typeof finalMessage !== "string" || completed.last_agent_message !== finalMessage) fail("rollout lacks one consistent terminal task and token receipt");
   const result = parseCapabilityResult(finalMessage, "rollout capability result");
+  verifyResultAgainstCase(result, committedCase, "rollout capability result");
   if (result.capability_id !== observation.capability_id || result.scenario !== observation.scenario || result.case_id !== observation.case_id || result.result !== observation.result) fail("rollout result does not match observation binding");
   if (result.candidate.commit !== candidate.commit || result.candidate.tree !== candidate.tree) fail("rollout result does not match candidate identity");
   if (result.unavailable_evidence.length > 0 || result.material_gaps.length > 0 || result.mutation_observation !== "none") return false;
@@ -309,13 +370,13 @@ async function parseDeterministicEvalTrace(bytes, artifactPath, observation, can
   return true;
 }
 
-function parseNativeTrace(bytes, observation, candidate) {
+function parseNativeTrace(bytes, observation, candidate, committedCase) {
   const { value: envelope } = parseUniqueJson(bytes, "native evidence");
   exactKeys(envelope, ["schema", "content_sha256", "payload"], "native evidence envelope");
-  if (envelope.schema !== "rbm-native-evidence-envelope/v2" || !shaPattern.test(envelope.content_sha256)) fail("native evidence envelope is invalid");
+  if (envelope.schema !== "rbm-native-evidence-envelope/v3" || !shaPattern.test(envelope.content_sha256)) fail("native evidence envelope is invalid");
   const payload = envelope.payload;
-  exactKeys(payload, ["schema", "authority", "executable", "host", "thread", "goal", "expectation", "binding", "result"], "native evidence payload");
-  if (payload.schema !== "rbm-native-evidence/v2" || payload.authority !== "local_interface_observation" || payload.result !== "matched") fail("native evidence authority or result is invalid");
+  exactKeys(payload, ["schema", "authority", "executable", "host", "thread", "turn", "goal", "expectation", "binding", "result"], "native evidence payload");
+  if (payload.schema !== "rbm-native-evidence/v3" || payload.authority !== "local_interface_observation" || payload.result !== "matched") fail("native evidence authority or result is invalid");
   if (envelope.content_sha256 !== digest(Buffer.from(JSON.stringify(canonical(payload))))) fail("native evidence content digest is invalid");
   exactKeys(payload.executable, ["sha256", "server_version"], "native executable");
   if (!shaPattern.test(payload.executable.sha256) || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(payload.executable.server_version)) fail("native executable identity is invalid");
@@ -325,6 +386,15 @@ function parseNativeTrace(bytes, observation, candidate) {
   exactKeys(payload.thread.source, ["kind", "sha256"], "native thread source");
   if (!threadPattern.test(payload.thread.id) || (payload.thread.parent_thread_id !== null && !threadPattern.test(payload.thread.parent_thread_id)) || !shaPattern.test(payload.thread.session_id_sha256) || !shaPattern.test(payload.thread.cwd_sha256) || !shaPattern.test(payload.thread.source.sha256)) fail("native thread identity is invalid");
   for (const key of ["cli_version", "status"]) atom(payload.thread[key], `native thread ${key}`);
+  exactKeys(payload.turn, ["id", "status", "items", "prompt_sha256", "capability_result_sha256"], "native turn");
+  if (!threadPattern.test(payload.turn.id) || payload.turn.status !== "completed" || !Array.isArray(payload.turn.items) || payload.turn.items.length < 2 ||
+      !shaPattern.test(payload.turn.prompt_sha256) || !shaPattern.test(payload.turn.capability_result_sha256)) fail("native turn identity is invalid");
+  for (const item of payload.turn.items) {
+    exactKeys(item, ["id_sha256", "type"], "native turn item");
+    if (!shaPattern.test(item.id_sha256)) fail("native turn item identity is invalid");
+    atom(item.type, "native turn item type");
+  }
+  if (payload.turn.items.filter((item) => item.type === "userMessage").length !== 1 || payload.turn.items.at(-1).type !== "agentMessage") fail("native turn item sequence is invalid");
   exactKeys(payload.expectation, ["goal_status", "objective_sha256"], "native expectation");
   if (![...goalStatuses, "absent"].includes(payload.expectation.goal_status) || (payload.expectation.objective_sha256 !== null && !shaPattern.test(payload.expectation.objective_sha256))) fail("native expectation is invalid");
   if (payload.goal !== null) {
@@ -336,17 +406,33 @@ function parseNativeTrace(bytes, observation, candidate) {
   } else if (!payload.goal || payload.goal.status !== payload.expectation.goal_status || payload.goal.objective_sha256 !== payload.expectation.objective_sha256) {
     fail("native goal does not match expectation");
   }
-  exactKeys(payload.binding, ["capability_id", "scenario", "case_id", "candidate", "result"], "native binding");
+  exactKeys(payload.binding, ["capability_id", "scenario", "case_id", "candidate", "result", "oracle", "control_sha256"], "native binding");
   exactKeys(payload.binding.candidate, ["commit", "tree"], "native binding candidate");
   if (payload.binding.capability_id !== observation.capability_id || payload.binding.scenario !== observation.scenario || payload.binding.case_id !== observation.case_id || payload.binding.result !== observation.result) fail("native binding does not match observation");
   if (payload.binding.candidate.commit !== candidate.commit || payload.binding.candidate.tree !== candidate.tree) fail("native binding does not match candidate");
+  if (payload.binding.control_sha256 !== committedCase.control_sha256 || payload.binding.oracle !== committedCase.oracle) fail("native binding does not match committed case control");
+  if (payload.turn.prompt_sha256 !== digest(Buffer.from(committedCase.prompt))) fail("native turn prompt digest does not match committed case");
+  const expectedResult = canonical({
+    schema: "rbm-capability-result/v1",
+    capability_id: payload.binding.capability_id,
+    scenario: payload.binding.scenario,
+    case_id: payload.binding.case_id,
+    candidate: payload.binding.candidate,
+    result: payload.binding.result,
+    oracle: payload.binding.oracle,
+    control_sha256: payload.binding.control_sha256,
+    unavailable_evidence: [],
+    material_gaps: [],
+    mutation_observation: "none",
+  });
+  if (payload.turn.capability_result_sha256 !== digest(Buffer.from(JSON.stringify(expectedResult)))) fail("native terminal result digest is invalid");
   const environment = `codex-app-server:${payload.host.user_agent}:${payload.host.platform_family}:${payload.host.platform_os}:${payload.executable.sha256}`;
   const producer = payload.thread.parent_thread_id ?? payload.thread.id;
   if (observation.environment_id !== environment || observation.observer_id !== payload.thread.id || observation.producer_id !== producer || observation.subject_id !== candidate.commit) fail("native principals do not match observation");
   return true;
 }
 
-async function validateArtifact(observation, evidenceDirectory, candidate) {
+async function validateArtifact(observation, evidenceDirectory, candidate, committedCase) {
   const artifactPath = path.resolve(evidenceDirectory, observation.artifact_path);
   const info = await lstat(artifactPath).catch(() => null);
   if (!info?.isFile() || info.isSymbolicLink()) fail(`evidence artifact is missing or unsafe: ${observation.artifact_path}`);
@@ -355,8 +441,8 @@ async function validateArtifact(observation, evidenceDirectory, candidate) {
   if (observation.source_kind === "deterministic_replay" && observation.result === "pass") {
     return parseDeterministicEvalTrace(bytes, artifactPath, observation, candidate);
   }
-  if (observation.source_kind === "native_trace" && observation.result === "pass") return parseNativeTrace(bytes, observation, candidate);
-  return parseRolloutTrace(bytes, observation, candidate);
+  if (observation.source_kind === "native_trace" && observation.result === "pass") return parseNativeTrace(bytes, observation, candidate, committedCase);
+  return parseRolloutTrace(bytes, observation, candidate, committedCase);
 }
 
 function validateObservation(observation, capabilities, requirements) {
@@ -397,6 +483,7 @@ export async function scoreEvidence({ evidencePath }) {
   const catalogBytes = await verifyCandidate(root, evidence.candidate);
   const { value: catalog } = parseUniqueJson(catalogBytes, "capability catalog");
   const capabilities = validateCatalog(catalog);
+  const committedCases = await committedCapabilityCases(root, evidence.candidate, capabilities);
   if (evidence.schema_version !== 1 || evidence.catalog_sha256 !== digest(catalogBytes)) fail("evidence catalog binding is stale or invalid");
   exactKeys(evidence.attempt_inventory, ["status", "locator"], "attempt inventory");
   if (evidence.attempt_inventory.status !== "unavailable") fail("provider-attested attempt inventory is not supported by this scorer");
@@ -408,6 +495,10 @@ export async function scoreEvidence({ evidencePath }) {
   const evidenceDirectory = path.dirname(path.resolve(evidencePath));
   for (const observation of evidence.observations) {
     validateObservation(observation, capabilities, catalog.default_requirements);
+    const committedCase = committedCases.get(observation.case_id);
+    if (!committedCase || committedCase.binding.id !== observation.capability_id || committedCase.binding.scenario !== observation.scenario) {
+      fail("observation does not match one committed capability case");
+    }
     const key = [observation.capability_id, observation.scenario, observation.case_id, observation.trial_id, observation.environment_id, observation.source_kind, observation.observer_id].join("\u0000");
     if (keys.has(key)) fail("evidence repeats one observation identity");
     keys.add(key);
@@ -416,7 +507,7 @@ export async function scoreEvidence({ evidencePath }) {
         ? observation.trial_id : observation.content_sha256].join("\u0000");
     if (trialArtifacts.has(trialArtifact)) fail("evidence reuses one artifact as multiple trials");
     trialArtifacts.add(trialArtifact);
-    observation.source_verified = await validateArtifact(observation, evidenceDirectory, evidence.candidate);
+    observation.source_verified = await validateArtifact(observation, evidenceDirectory, evidence.candidate, committedCase);
   }
 
   const gapsByCapability = new Map();

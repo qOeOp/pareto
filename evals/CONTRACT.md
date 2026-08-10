@@ -48,12 +48,17 @@ evaluated workspace, so the subject receives the prompt but not a colocated orac
 case metadata remains the activation oracle and the remaining deterministic assertions stay owned by
 Promptfoo. This evidence is classified only as `dynamic_heuristic`; it is not a host-native route receipt and can miss activation that does not emit
 such a command, and cannot by itself prove stable activation. Current Codex app-server exposes
-version-bound read-only thread and Goal snapshots. The `scripts/native-evidence.mjs` probe consumes
-`initialize`, `thread/read`, and `thread/goal/get` over fixed stdio, and binds the exact thread, Goal
-expectation, candidate, capability case, executable digest, and server version. It emits no raw
+version-bound read-only thread, turn, and Goal snapshots. The `scripts/native-evidence.mjs` probe consumes
+`initialize`, `thread/read`, `thread/turns/list`, and `thread/goal/get` over fixed stdio. It exhausts turn
+pagination and accepts an exact one-turn task only when the named completed full turn's user prompt matches one
+committed case and its terminal final JSON matches that case's capability, scenario, candidate, oracle,
+and content-addressed control. Capability fields are derived from that result rather than operator
+flags. The scorer recomputes the receipt's prompt and canonical-result summaries from the committed case;
+item identities remain digested. The receipt also binds the exact thread, Goal expectation, executable digest, and server version. It emits no raw
 objective, path, source detail, or transcript; the scorer accepts a passing `native_trace` only through
 this receipt. This is a local-interface observation, not host attestation: an operator can still alter
-or omit it, so it cannot prove a complete attempt inventory or unlock 9.5. Current Codex
+or omit it, and the interface does not prove that a spawned task inherited no parent context. It therefore
+cannot prove a complete attempt inventory, independent context, or unlock 9.5. Current Codex
 SDK output still does not expose trustworthy compaction, GitHub, evaluator, reference-read, or
 complete-attempt state. Each affected case records that mechanism axis as `unavailable`; deterministic answer text remains a
 `deterministic_text` behavioral oracle and cannot upgrade an unavailable runtime observation.
@@ -142,7 +147,8 @@ hide a weaker capability.
 The scorer consumes content-addressed raw evidence, not agent-authored numeric scores. Deterministic
 replay accepts only a complete Promptfoo artifact that passes the production row, assertion, raw-turn,
 activation, candidate, suite, provider, model, and effort validator; the committed case supplies its
-sole capability/scenario identity. Native state uses the app-server receipt. Independent review uses a
+sole capability/scenario identity. Every evidence source must name one committed case with the same
+capability and scenario; invented case labels cannot populate uncovered leaves. Native state uses the app-server receipt. Independent review uses a
 native subagent rollout and Main-authored final JSON cannot substitute for deterministic replay.
 Duplicate members, stale catalog or candidate identity, duplicate trials, unknown leaves,
 self-described independent review, artifact drift, failed observations, and material or critical gaps
