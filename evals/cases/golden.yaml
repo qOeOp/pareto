@@ -523,6 +523,138 @@
         native_role_routing: unavailable
         capability_evidence: unavailable
 
+- description: "[full] one semantic writer produces one bounded repository candidate"
+  metadata:
+    observations: { capability: { id: EXE-01, scenario: positive, case_id: exe-01-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. An admitted Plan freezes one owner, exact paths, one coherent consumer slice,
+      contract invariants, and safe checks. The worktree also contains unrelated user changes outside the slice.
+      Return exactly the execution boundary below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        semantic_writers: one
+        write_surface: exact_admitted_paths
+        candidate_shape: one_consumer_slice
+        unrelated_user_changes: preserved
+        scope_expansion: forbidden
+        effects_before_authority: none
+        fixed_consumer_observation: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] overlapping writers and opportunistic refactor are rejected"
+  metadata:
+    observations: { capability: { id: EXE-01, scenario: negative, case_id: exe-01-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Two agents are proposed to edit the same owner concurrently, and one wants to
+      refactor an adjacent module merely because it is available. Neither extra change is required by the
+      admitted consumer. Return exactly the execution decision below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        overlapping_writers: rejected
+        semantic_writer_count: one
+        adjacent_refactor_consumer: none
+        opportunistic_refactor: rejected
+        available_capacity_as_scope_authority: false
+        admitted_candidate: unchanged
+        capability_evidence: unavailable
+
+- description: "[full] owner drift freezes mutation and returns to Plan"
+  metadata:
+    observations: { capability: { id: EXE-01, scenario: recovery, case_id: exe-01-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. During implementation, current consumer evidence proves the admitted owner and
+      boundary are wrong; the repository also has unrelated dirty files owned by the user. Return exactly the
+      recovery disposition below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        owner_or_boundary_invalidated: true
+        mutation: frozen
+        current_candidate: preserved_unaccepted
+        unrelated_dirty_files: preserved
+        route: replan
+        successor_branch_or_task: forbidden
+        resume_condition: replacement_plan_admitted
+        capability_evidence: unavailable
+
+- description: "[full] exact mechanical transform admits fast-builder execution"
+  metadata:
+    observations: { capability: { id: EXE-02, scenario: positive, case_id: exe-02-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_provider_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A leaf freezes Origin, paths, one writer, owner, boundary, exact mechanical
+      transform, oracle, supplied safe checks, and Stop. No design, wording, schema, authority, safety,
+      dependency, public-contract, or effect decision remains. Return exactly the execution route below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        execution_leaf: exact_mechanical
+        fast_builder_admission: admitted
+        dispatch_effect: not_requested
+        next_legal_dispatch: one_complete_host_dispatch_after_authority
+        packet_completeness: exact
+        quality_floor: unchanged
+        executed_model: unavailable
+        executed_effort: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] quota and model availability never lower execution quality"
+  metadata:
+    observations: { capability: { id: EXE-02, scenario: negative, case_id: exe-02-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_provider_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A proposed fast route is cheaper, but one schema decision and a safety consequence
+      remain unresolved; the only justification for choosing it is quota pressure. Return exactly the execution
+      routing decision below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        mechanical_leaf_predicate: false
+        unresolved_schema_or_safety: true
+        route_by_quota: forbidden
+        fast_builder_admission: rejected
+        selected_route: authorized_main
+        quality_floor_reduction: forbidden
+        fabricated_model_comparison: forbidden
+        capability_evidence: unavailable
+
+- description: "[full] failed attempted dispatch stops without retry or fallback"
+  metadata:
+    observations: { capability: { id: EXE-02, scenario: recovery, case_id: exe-02-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_provider_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A fully qualified mechanical leaf was dispatched once to fast_builder, but the
+      host returned an ambiguous failure after the attempt. No exact terminal result or diff is available.
+      Return exactly the recovery disposition below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        attempted_dispatch: true
+        result_identity: ambiguous
+        candidate_mutation_assumed: false
+        retry: forbidden
+        repacket: forbidden
+        fallback_after_attempt: forbidden
+        disposition: capability_failure_stop
+        capability_evidence: unavailable
+
 - description: "[full] independent outcomes admit Hub mode under a matching Goal"
   metadata:
     observations: { capability: { id: ORC-01, scenario: positive, case_id: orc-01-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_goal_state, native_task_state] }
