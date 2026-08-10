@@ -33,6 +33,40 @@ function canonical(value) {
   return value;
 }
 
+function scoreReport(candidate, catalog, catalogSha256, mode) {
+  const capabilities = catalog.capabilities.map((definition) => {
+    const install = definition.id === "INS-01";
+    const expected = install && mode === "positive"
+      ? { score: 8, maturity: "representative", reason: "repeated_attested_fixed_observer_campaign", gap_count: 0 }
+      : install && mode === "negative"
+        ? { score: 0, maturity: "contradicted", reason: "critical_gap", gap_count: 1 }
+        : { score: 0, maturity: "absent", reason: "no_passing_evidence", gap_count: 0 };
+    return {
+      ...definition,
+      ...expected,
+      observation_count: 0,
+      attested_campaign_count: install ? 1 : 0,
+      unavailable_count: 0,
+    };
+  });
+  const totalWeight = catalog.capabilities.reduce((sum, row) => sum + row.weight, 0);
+  const installWeight = catalog.capabilities.find((row) => row.id === "INS-01").weight;
+  return {
+    schema_version: 2,
+    catalog_sha256: catalogSha256,
+    candidate,
+    target_score: catalog.target_score,
+    evidence_ceiling: 8,
+    evidence_limit: "repeated_attested_fixed_observer_campaign; independent_observer_process_isolation_and_provider_attempt_inventory_unavailable",
+    weighted_score: mode === "positive" ? Number((8 * installWeight / totalWeight).toFixed(3)) : 0,
+    minimum_score: 0,
+    eligible: false,
+    below_target: catalog.capabilities.map((row) => row.id),
+    critical_breaches: catalog.capabilities.filter((row) => row.critical).map((row) => row.id),
+    capabilities,
+  };
+}
+
 async function git(args) {
   const { stdout } = await execFileAsync("git", ["-C", repository, ...args], {
     encoding: "utf8",
@@ -41,49 +75,35 @@ async function git(args) {
   return stdout.trim();
 }
 
-function payload({ environment, input, observer, subject, trial }) {
-  const report = sha(Buffer.from(`report:${environment}:${trial}`));
+function payload({ environment, input, observer, reports, subject, trial }) {
   return canonical({
-    schema: "pareto-capability-observation/v3",
-    admission: "bootstrap_only",
+    schema: "pareto-score-capability-observation/v1",
+    admission: "strict_descendant_only",
     authority: "fixed_observer_real_consumer",
     capability_id: "EVAL-02",
     environment: { arch: "x64", node: process.version, platform: environment },
     input,
     observer,
+    reports,
     result: "pass",
-    scenarios: {
-      negative: {
-        case_id: "score-cannot-hide-failed-floor",
-        critical_floor_report_sha256: sha(Buffer.from(`negative:${environment}:${trial}`)),
-        result: "pass",
-        unknown_score_diagnostic_sha256: sha(Buffer.from("evidence has unknown or missing fields\n")),
-      },
-      positive: {
-        case_id: "signed-campaign-produces-bounded-report",
-        eligible: false,
-        evidence_ceiling: 8,
-        ins_01_score: 8,
-        minimum_score: 0,
-        report_sha256: report,
-        result: "pass",
-      },
-      recovery: {
-        case_id: "score-recovers-after-gap-removal",
-        report_sha256: report,
-        result: "pass",
-      },
-    },
     subject,
     trial_id: trial,
   });
 }
 
-async function writeSlot({ environment, input, observer, subject, trial }) {
+async function writeSlot({ environment, input, observer, reportBytes, subject, trial }) {
   const runner = environment === "linux" ? "Linux" : "Windows";
   const directory = path.join(observations, `eval-02-${runner}-${trial}`);
-  await mkdir(directory, { recursive: true });
-  const value = payload({ environment, input, observer, subject, trial });
+  await mkdir(path.join(directory, "reports"), { recursive: true });
+  const reports = {
+    negative: { path: "reports/negative.json", sha256: sha(reportBytes.negative) },
+    positive: { path: "reports/positive.json", sha256: sha(reportBytes.positive) },
+    recovery: { path: "reports/recovery.json", sha256: sha(reportBytes.recovery) },
+    unknown_score: { path: "reports/unknown-score.stderr", sha256: sha(reportBytes.unknown_score) },
+  };
+  await Promise.all(Object.entries(reports).map(([name, report]) =>
+    writeFile(path.join(directory, report.path), reportBytes[name])));
+  const value = payload({ environment, input, observer, reports, subject, trial });
   const envelope = canonical({
     schema: "pareto-capability-observation-envelope/v1",
     content_sha256: sha(Buffer.from(JSON.stringify(value))),
@@ -116,33 +136,7 @@ try {
       })),
   };
   const catalogSha256 = sha(Buffer.from("catalog"));
-  const reportRow = (definition) => {
-    const install = definition.id === "INS-01";
-    return {
-      ...definition,
-      score: install ? 8 : 0,
-      maturity: install ? "representative" : "absent",
-      reason: install ? "repeated_attested_fixed_observer_campaign" : "no_passing_evidence",
-      observation_count: 0,
-      attested_campaign_count: install ? 1 : 0,
-      unavailable_count: 0,
-      gap_count: 0,
-    };
-  };
-  const validReport = {
-    schema_version: 2,
-    catalog_sha256: catalogSha256,
-    candidate,
-    target_score: 9.5,
-    evidence_ceiling: 8,
-    evidence_limit: "repeated_attested_fixed_observer_campaign; independent_observer_process_isolation_and_provider_attempt_inventory_unavailable",
-    weighted_score: Number((8 / 39).toFixed(3)),
-    minimum_score: 0,
-    eligible: false,
-    below_target: catalog.capabilities.map((row) => row.id),
-    critical_breaches: ["INS-01", "EVAL-02"],
-    capabilities: catalog.capabilities.map(reportRow),
-  };
+  const validReport = scoreReport(candidate, catalog, catalogSha256, "positive");
   assert.equal(validateObservedScoreReport(validReport, candidate, "positive", catalog, catalogSha256), validReport);
   const spreadReport = structuredClone(validReport);
   spreadReport.capabilities.find((row) => row.id === "FIX-01").score = 8;
@@ -163,13 +157,16 @@ try {
   assert.doesNotMatch(workflow, /matrix\.trial|\n\s+trial:/);
   assert.doesNotMatch(observeJob, /--trial/);
   assert.doesNotMatch(observeJob, /id-token: write|actions\/attest@/);
+  assert.match(observeJob, /reports\/\*\*/);
   assert.match(observationSignerJob, /needs: observe/);
   assert.match(observationSignerJob, /id-token: write/);
+  assert.match(observationSignerJob, /reports\/\*\*/);
   assert.doesNotMatch(aggregateJob, /id-token: write/);
   assert.match(aggregateJob, /observer\/scripts\/observe-score-capability\.mjs/);
   assert.match(campaignSignerJob, /needs: aggregate/);
   assert.match(campaignSignerJob, /id-token: write/);
   assert.doesNotMatch(campaignSignerJob, /actions\/checkout@|observer\/scripts\//);
+  assert.match(campaignSignerJob, /observations\/\*\*\/reports\/\*\*/);
   assert.equal((workflow.match(/uses: actions\/attest@1e69f48acb82d1966a394da916b4c1698aa569d6/g) ?? []).length, 2);
   assert.match(workflow, /eval-02-campaign-attestation\.json/);
 
@@ -233,8 +230,23 @@ try {
     campaign_sha256: sha(Buffer.from("campaign")),
     bundle_sha256: sha(Buffer.from("bundle")),
   };
+  const productionCatalogBytes = committedCatalog;
+  const productionCatalog = JSON.parse(productionCatalogBytes.toString("utf8"));
+  const reportCandidate = { repository: subject.repository, commit: subject.commit, tree: subject.tree };
+  const positiveReportBytes = Buffer.from(`${JSON.stringify(scoreReport(
+    reportCandidate, productionCatalog, sha(productionCatalogBytes), "positive",
+  ))}\n`);
+  const negativeReportBytes = Buffer.from(`${JSON.stringify(scoreReport(
+    reportCandidate, productionCatalog, sha(productionCatalogBytes), "negative",
+  ))}\n`);
+  const reportBytes = {
+    negative: negativeReportBytes,
+    positive: positiveReportBytes,
+    recovery: positiveReportBytes,
+    unknown_score: Buffer.from("evidence has unknown or missing fields\n"),
+  };
   for (const environment of ["linux", "win32"]) {
-    await writeSlot({ environment, input, observer, subject, trial: 1 });
+    await writeSlot({ environment, input, observer, reportBytes, subject, trial: 1 });
   }
 
   const campaignPath = path.join(temporary, "campaign.json");
@@ -242,8 +254,11 @@ try {
   const campaign = JSON.parse(await readFile(campaignPath, "utf8"));
   assert.equal(campaign.schema, "pareto-capability-campaign-envelope/v1");
   assert.equal(campaign.payload.capability_id, "EVAL-02");
-  assert.equal(campaign.payload.admission, "bootstrap_only");
-  assert.deepEqual(campaign.payload.coverage, { environments: ["linux", "win32"], trials_per_environment: 1 });
+  assert.equal(campaign.payload.schema, "pareto-score-capability-campaign/v1");
+  assert.equal(campaign.payload.admission, "strict_descendant_only");
+  assert.deepEqual(Object.keys(campaign.payload).sort(), [
+    "admission", "authority", "capability_id", "observations", "observer", "result", "schema", "subject",
+  ]);
   assert.deepEqual(
     campaign.payload.observations.map(({ environment, trial_id }) => `${environment}:${trial_id}`),
     ["linux:1", "win32:1"],
@@ -262,10 +277,25 @@ try {
     () => aggregate(path.join(temporary, "missing.json")),
     (error) => error.code === 1 && /requires exactly two attested observations/.test(error.stderr),
   );
-  await writeSlot({ environment: "win32", input: { ...input, bundle_sha256: sha(Buffer.from("other")) }, observer, subject, trial: 1 });
+  const reformattedReportBytes = {
+    negative: Buffer.from(`${JSON.stringify(JSON.parse(reportBytes.negative), null, 2)}\n`),
+    positive: Buffer.from(`${JSON.stringify(JSON.parse(reportBytes.positive), null, 2)}\n`),
+    recovery: Buffer.from(`${JSON.stringify(JSON.parse(reportBytes.recovery), null, 2)}\n`),
+    unknown_score: reportBytes.unknown_score,
+  };
+  await writeSlot({ environment: "win32", input, observer, reportBytes: reformattedReportBytes, subject, trial: 1 });
+  await assert.rejects(
+    () => aggregate(path.join(temporary, "report-drift.json")),
+    (error) => error.code === 1 && /one subject, input, and report set/.test(error.stderr),
+  );
+  await rm(windows1, { recursive: true });
+  await writeSlot({
+    environment: "win32", input: { ...input, bundle_sha256: sha(Buffer.from("other")) },
+    observer, reportBytes, subject, trial: 1,
+  });
   await assert.rejects(
     () => aggregate(path.join(temporary, "mismatch.json")),
-    (error) => error.code === 1 && /one subject and input/.test(error.stderr),
+    (error) => error.code === 1 && /one subject, input, and report set/.test(error.stderr),
   );
   console.log("EVAL-02 observer tests passed");
 } finally {

@@ -48,7 +48,9 @@ jobs:
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: raw-eval-02-${{ runner.os }}-1
-          path: observation-${{ runner.os }}-1.json
+          path: |
+            observation-${{ runner.os }}-1.json
+            reports/**
           if-no-files-found: error
           retention-days: 1
 
@@ -88,6 +90,7 @@ jobs:
           path: |
             observation-${{ matrix.runner }}-1.json
             attestation.json
+            reports/**
           if-no-files-found: error
           retention-days: 1
 
@@ -165,6 +168,7 @@ jobs:
             eval-02-campaign.json
             observations/**/observation-*.json
             observations/**/attestation.json
+            observations/**/reports/**
             eval-02-campaign-attestation.json
             source-campaign/**
           if-no-files-found: error
