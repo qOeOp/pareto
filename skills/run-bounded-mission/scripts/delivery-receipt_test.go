@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -24,14 +25,14 @@ func gitTestOutput(t *testing.T, arguments ...string) string {
 func validInput(t *testing.T) []byte {
 	t.Helper()
 	head := gitTestOutput(t, "rev-parse", "HEAD")
-	base := gitTestOutput(t, "rev-parse", "HEAD^")
+	base := gitTestOutput(t, "rev-parse", "refs/remotes/origin/main")
 	headTree := gitTestOutput(t, "rev-parse", "HEAD^{tree}")
 	mergeTree := gitTestOutput(t, "merge-tree", "--write-tree", base, head)
 	evidence := make([]any, 0, len(evidenceKinds))
 	for _, kind := range evidenceKinds {
 		entry := map[string]any{
 			"kind": kind, "locator": "fixture:<>&/" + kind, "head_oid": head,
-			"result": "pass", "content_sha256": nil,
+			"result": "pass", "content_sha256": "sha256:" + string(bytes.Repeat([]byte{'a'}, 64)),
 		}
 		if kind == "audit" {
 			entry["locator"] = "predicate:audit-not-required"
@@ -47,8 +48,8 @@ func validInput(t *testing.T) []byte {
 	input := map[string]any{
 		"schema": inputSchema, "repository": repository, "pull_request": 1,
 		"head_oid": head, "head_tree_oid": headTree, "base_ref": "main", "base_oid": base,
-		"potential_merge_commit": map[string]any{"oid": head, "tree": map[string]any{"oid": mergeTree}},
-		"queue_state":            "none", "evidence": evidence,
+		"potential_merge_tree": map[string]any{"oid": mergeTree},
+		"queue_state":          "none", "evidence": evidence,
 	}
 	encoded, err := json.Marshal(input)
 	if err != nil {
@@ -105,7 +106,7 @@ func TestCanonicalOrderingMatchesJavaScriptUTF16(t *testing.T) {
 	head := input["head_oid"].(string)
 	input["evidence"] = append(entries, map[string]any{
 		"kind": "real_consumer", "locator": "fixture:\ue000", "head_oid": head,
-		"result": "pass", "content_sha256": nil,
+		"result": "pass", "content_sha256": "sha256:" + string(bytes.Repeat([]byte{'b'}, 64)),
 	})
 	inputBytes, err := json.Marshal(input)
 	if err != nil {
@@ -134,8 +135,8 @@ func TestCanonicalOrderingMatchesJavaScriptUTF16(t *testing.T) {
 func TestRejectsMalformedInput(t *testing.T) {
 	cases := map[string][]byte{
 		"empty":             nil,
-		"duplicate":         []byte(`{"schema":"delivery-barrier-input/v3","schema":"delivery-barrier-input/v3"}`),
-		"escaped duplicate": []byte(`{"schema":"delivery-barrier-input/v3","sch\u0065ma":"delivery-barrier-input/v3"}`),
+		"duplicate":         []byte(`{"schema":"delivery-barrier-input/v4","schema":"delivery-barrier-input/v4"}`),
+		"escaped duplicate": []byte(`{"schema":"delivery-barrier-input/v4","sch\u0065ma":"delivery-barrier-input/v4"}`),
 		"bom":               append([]byte{0xef, 0xbb, 0xbf}, validInput(t)...),
 		"invalid utf8":      {0xff},
 		"lone surrogate":    []byte(`{"value":"\ud800"}`),
@@ -171,6 +172,65 @@ func TestVerifyRejectsNonCanonicalBytes(t *testing.T) {
 	}
 }
 
+func TestRejectsUnboundDeliveryAuthority(t *testing.T) {
+	value, err := decodeJSON(validInput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, _ := object(value)
+	encode := func(value map[string]any) []byte {
+		encoded, marshalErr := json.Marshal(value)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		return encoded
+	}
+	clone := func() map[string]any {
+		copied, decodeErr := decodeJSON(encode(input))
+		if decodeErr != nil {
+			t.Fatal(decodeErr)
+		}
+		result, _ := object(copied)
+		return result
+	}
+
+	wrongBase := clone()
+	wrongBase["base_oid"] = gitTestOutput(t, "rev-parse", "HEAD^^")
+	if _, err := createReceipt(encode(wrongBase)); err == nil || !strings.Contains(err.Error(), "base commit does not match") {
+		t.Fatalf("wrong base authority error = %v", err)
+	}
+
+	staleHead := clone()
+	staleOID := gitTestOutput(t, "rev-parse", "HEAD^")
+	staleTree := gitTestOutput(t, "rev-parse", staleOID+"^{tree}")
+	staleHead["head_oid"] = staleOID
+	staleHead["head_tree_oid"] = staleTree
+	staleHead["potential_merge_tree"] = map[string]any{"oid": gitTestOutput(t, "merge-tree", "--write-tree", input["base_oid"].(string), staleOID)}
+	for _, rawEntry := range staleHead["evidence"].([]any) {
+		entry, _ := object(rawEntry)
+		entry["head_oid"] = staleOID
+	}
+	if _, err := createReceipt(encode(staleHead)); err == nil || !strings.Contains(err.Error(), "candidate commit does not match") {
+		t.Fatalf("coherent stale candidate error = %v", err)
+	}
+
+	legacyMergeCommit := clone()
+	legacyMergeCommit["potential_merge_commit"] = map[string]any{
+		"oid": input["head_oid"], "tree": input["potential_merge_tree"],
+	}
+	if _, err := createReceipt(encode(legacyMergeCommit)); err == nil || !strings.Contains(err.Error(), "invalid schema or fields") {
+		t.Fatalf("legacy merge commit authority error = %v", err)
+	}
+
+	missingDigest := clone()
+	entries := missingDigest["evidence"].([]any)
+	entry, _ := object(entries[0])
+	entry["content_sha256"] = nil
+	if _, err := createReceipt(encode(missingDigest)); err == nil || !strings.Contains(err.Error(), "evidence digest is invalid") {
+		t.Fatalf("missing evidence digest error = %v", err)
+	}
+}
+
 func TestCLIRejectsWithExitTwo(t *testing.T) {
 	binaryName := "delivery-receipt"
 	if runtime.GOOS == "windows" {
@@ -186,7 +246,7 @@ func TestCLIRejectsWithExitTwo(t *testing.T) {
 		t.Fatalf("build CLI: %v\n%s", err, output)
 	}
 	command := exec.Command(binary, "create")
-	command.Stdin = bytes.NewBufferString(`{"schema":"delivery-barrier-input/v3","schema":"delivery-barrier-input/v3"}`)
+	command.Stdin = bytes.NewBufferString(`{"schema":"delivery-barrier-input/v4","schema":"delivery-barrier-input/v4"}`)
 	err := command.Run()
 	var exitError *exec.ExitError
 	if !errors.As(err, &exitError) || exitError.ExitCode() != 2 {

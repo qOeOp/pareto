@@ -265,13 +265,14 @@ const origin = join(root, "qOeOp", "skills.git");
   result = spawnSync("go", ["build", "-o", receiptBinary, installedReceiptSource], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   const head = field("HEAD");
-  const base = field("HEAD^");
+  const base = field("refs/remotes/origin/main");
+  const previous = field("HEAD^");
   const headTree = field("HEAD^{tree}");
-  const baseTree = field(`${base}^{tree}`);
+  const previousTree = field(`${previous}^{tree}`);
   const mergeTree = git(repositoryRoot, "merge-tree", "--write-tree", base, head);
   assert.equal(mergeTree.status, 0, mergeTree.stderr);
   const evidence = ["real_consumer", "root", "audit", "ci", "conversation", "drift"].map((kind) => ({
-    content_sha256: null,
+    content_sha256: `sha256:${"a".repeat(64)}`,
     head_oid: head,
     kind,
     locator: `fixture:${kind}`,
@@ -283,11 +284,11 @@ const origin = join(root, "qOeOp", "skills.git");
     evidence,
     head_oid: head,
     head_tree_oid: headTree,
-    potential_merge_commit: { oid: head, tree: { oid: mergeTree.stdout.trim() } },
+    potential_merge_tree: { oid: mergeTree.stdout.trim() },
     pull_request: 1,
     queue_state: "none",
     repository: "qOeOp/skills",
-    schema: "delivery-barrier-input/v3",
+    schema: "delivery-barrier-input/v4",
   };
   const runReceipt = (arguments_, input) => spawnSync(receiptBinary, arguments_, {
     cwd: repositoryRoot,
@@ -303,16 +304,43 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.equal(verified.stdout, created.stdout);
 
   const staleHead = structuredClone(deliveryInput);
-  staleHead.head_oid = base;
+  staleHead.head_oid = previous;
+  staleHead.head_tree_oid = previousTree;
+  staleHead.potential_merge_tree.oid = git(
+    repositoryRoot,
+    "merge-tree",
+    "--write-tree",
+    base,
+    previous,
+  ).stdout.trim();
+  for (const entry of staleHead.evidence) entry.head_oid = previous;
   result = runReceipt(["create"], canonicalLine(staleHead));
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /candidate commit does not match the current checkout/);
+
+  const wrongHeadTree = structuredClone(deliveryInput);
+  wrongHeadTree.head_tree_oid = previousTree;
+  result = runReceipt(["create"], canonicalLine(wrongHeadTree));
   assert.equal(result.status, 2, result.stderr);
   assert.match(result.stderr, /candidate tree does not match the local head commit/);
 
   const wrongMergeTree = structuredClone(deliveryInput);
-  wrongMergeTree.potential_merge_commit.tree.oid = baseTree;
+  wrongMergeTree.potential_merge_tree.oid = previousTree;
   result = runReceipt(["create"], canonicalLine(wrongMergeTree));
   assert.equal(result.status, 2, result.stderr);
   assert.match(result.stderr, /merge tree does not match local base and head/);
+
+  const wrongBase = structuredClone(deliveryInput);
+  wrongBase.base_oid = previous;
+  result = runReceipt(["create"], canonicalLine(wrongBase));
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /base commit does not match the local origin ref/);
+
+  const missingDigest = structuredClone(deliveryInput);
+  missingDigest.evidence[0].content_sha256 = null;
+  result = runReceipt(["create"], canonicalLine(missingDigest));
+  assert.equal(result.status, 2, result.stderr);
+  assert.match(result.stderr, /evidence digest is invalid/);
 
   const wrongRepository = structuredClone(deliveryInput);
   wrongRepository.repository = "qOeOp/trade";
