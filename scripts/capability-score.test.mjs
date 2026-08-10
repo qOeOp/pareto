@@ -96,7 +96,7 @@ function rollout({ capabilityId, scenario, trial, sourceKind, result = "pass", u
       authority: "local_interface_observation",
       executable: { sha256: executableSha256, server_version: "0.147.0" },
       host: { platform_family: "unix", platform_os: "fixture", user_agent: userAgent },
-      thread: { cli_version: "0.146.0", cwd_sha256: `sha256:${"e".repeat(64)}`, id: sessionId, parent_thread_id: null, source: { kind: "cli", sha256: `sha256:${"f".repeat(64)}` }, status: "notLoaded" },
+      thread: { cli_version: "0.146.0", cwd_sha256: `sha256:${"e".repeat(64)}`, id: sessionId, parent_thread_id: null, session_id_sha256: `sha256:${"a".repeat(64)}`, source: { kind: "cli", sha256: `sha256:${"f".repeat(64)}` }, status: "notLoaded" },
       goal: null,
       expectation: { goal_status: "absent", objective_sha256: null },
       binding: { capability_id: capabilityId, scenario, case_id: `${capabilityId}-${scenario}`, candidate: { commit: candidate.commit, tree: candidate.tree }, result },
@@ -220,6 +220,19 @@ try {
   const corruptEvidence = JSON.parse(await readFile(corrupt.evidencePath, "utf8"));
   await writeFile(path.join(corrupt.directory, corruptEvidence.observations[0].artifact_path), "tampered\n");
   await assert.rejects(() => scoreEvidence(corrupt), /digest mismatch/);
+
+  const nativeMismatch = await fixture("native-mismatch");
+  const nativeEvidence = JSON.parse(await readFile(nativeMismatch.evidencePath, "utf8"));
+  const nativeObservation = nativeEvidence.observations.find((entry) => entry.source_kind === "native_trace" && entry.result === "pass");
+  const nativePath = path.join(nativeMismatch.directory, nativeObservation.artifact_path);
+  const nativeReceipt = JSON.parse(await readFile(nativePath, "utf8"));
+  nativeReceipt.payload.expectation = { goal_status: "active", objective_sha256: `sha256:${"1".repeat(64)}` };
+  nativeReceipt.content_sha256 = sha(Buffer.from(JSON.stringify(canonical(nativeReceipt.payload))));
+  const mismatchedBytes = Buffer.from(`${JSON.stringify(nativeReceipt)}\n`);
+  await writeFile(nativePath, mismatchedBytes);
+  nativeObservation.content_sha256 = sha(mismatchedBytes);
+  await writeFile(nativeMismatch.evidencePath, `${JSON.stringify(nativeEvidence, null, 2)}\n`);
+  await assert.rejects(() => scoreEvidence(nativeMismatch), /goal does not match expectation/);
 
   const wrongCandidate = await fixture("wrong-candidate");
   const wrongEvidence = JSON.parse(await readFile(wrongCandidate.evidencePath, "utf8"));

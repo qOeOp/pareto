@@ -120,7 +120,7 @@ export async function collectNativeEvidence({
         const message = JSON.parse(line);
         messages.push(message);
         if (message.id === 0) {
-          if (message.error) fail(`initialize failed: ${message.error.message ?? "unknown app-server error"}`);
+          if (message.error) fail("initialize failed");
           send({ method: "initialized", params: {} });
           send({ method: "thread/read", id: 1, params: { threadId, includeTurns: false } });
           send({ method: "thread/goal/get", id: 2, params: { threadId } });
@@ -150,7 +150,7 @@ export async function collectNativeEvidence({
   const read = responseResult(messages, 1, "thread/read");
   const goalRead = responseResult(messages, 2, "thread/goal/get");
   const thread = read.thread;
-  if (!thread || thread.id !== threadId || thread.sessionId !== threadId) fail("thread/read did not return the exact thread identity");
+  if (!thread || thread.id !== threadId || !threadPattern.test(thread.sessionId)) fail("thread/read did not return the exact thread identity");
   for (const [name, value] of [["userAgent", initialized.userAgent], ["platformFamily", initialized.platformFamily], ["platformOs", initialized.platformOs], ["cliVersion", thread.cliVersion], ["cwd", thread.cwd], ["status", thread.status?.type]]) {
     if (typeof value !== "string" || value.length === 0) fail(`app-server omitted ${name}`);
   }
@@ -184,6 +184,7 @@ export async function collectNativeEvidence({
       cwd_sha256: digest(thread.cwd),
       id: thread.id,
       parent_thread_id: thread.parentThreadId ?? null,
+      session_id_sha256: digest(thread.sessionId),
       source,
       status: thread.status.type,
     },

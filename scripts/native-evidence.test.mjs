@@ -12,9 +12,9 @@ const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "native-evidence-test
 const binding = { capabilityId: "ORC-01", scenario: "positive", caseId: "goal-active", candidateCommit: "a".repeat(40), candidateTree: "b".repeat(40), expectedServerVersion: "0.147.0" };
 let fixtureIndex = 0;
 
-async function fakeServer({ goal = { threadId, objective, status: "active" }, duplicate = false, readError = false, silent = false, source = "cli", ignoreTerm = false, pidFile = null } = {}) {
+async function fakeServer({ goal = { threadId, objective, status: "active" }, duplicate = false, initializeError = false, readError = false, silent = false, source = "cli", sessionId = threadId, parentThreadId = null, ignoreTerm = false, pidFile = null } = {}) {
   const executable = path.join(temporaryRoot, `codex-${fixtureIndex += 1}`);
-  const fixture = { threadId, goal, duplicate, readError, silent, source, ignoreTerm, pidFile };
+  const fixture = { threadId, goal, duplicate, initializeError, readError, silent, source, sessionId, parentThreadId, ignoreTerm, pidFile };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fs = require("node:fs");
@@ -27,10 +27,11 @@ rl.on("line", (line) => {
   if (fixture.silent) return;
   if (message.id === 0) {
     if (fixture.duplicate) process.stdout.write("{\\\"id\\\":0,\\\"id\\\":0,\\\"result\\\":{}}\\n");
+    else if (fixture.initializeError) process.stdout.write(JSON.stringify({ id: 0, error: { message: "/private/secret" } }) + "\\n");
     else process.stdout.write(JSON.stringify({ id: 0, result: { userAgent: "Codex Desktop/0.147.0 (fixture)", platformFamily: "unix", platformOs: "fixture" } }) + "\\n");
   }
   if (message.id === 1) {
-    const response = fixture.readError ? { id: 1, error: { message: "/private/secret" } } : { id: 1, result: { thread: { id: fixture.threadId, sessionId: fixture.threadId, parentThreadId: null, cliVersion: "0.146.0", source: fixture.source, cwd: "/private/workspace", status: { type: "notLoaded" } } } };
+    const response = fixture.readError ? { id: 1, error: { message: "/private/secret" } } : { id: 1, result: { thread: { id: fixture.threadId, sessionId: fixture.sessionId, parentThreadId: fixture.parentThreadId, cliVersion: "0.146.0", source: fixture.source, cwd: "/private/workspace", status: { type: "notLoaded" } } } };
     process.stdout.write(JSON.stringify(response) + "\\n");
   }
   if (message.id === 2) process.stdout.write(JSON.stringify({ id: 2, result: { goal: fixture.goal } }) + "\\n");
@@ -54,8 +55,11 @@ try {
   const absent = await collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "absent", codexExecutable: await fakeServer({ goal: null }) });
   assert.equal(absent.payload.goal, null);
 
-  const subagent = await collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "absent", codexExecutable: await fakeServer({ goal: null, source: { subAgent: { thread_spawn: { depth: 1, parent_thread_id: threadId } } } }) });
+  const rootSessionId = "019fb8b4-ebd0-7c20-8ba1-041ed6836205";
+  const parentThreadId = "019fb8b4-ebd0-7c20-8ba1-041ed6836206";
+  const subagent = await collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "absent", codexExecutable: await fakeServer({ goal: null, sessionId: rootSessionId, parentThreadId, source: { subAgent: { thread_spawn: { depth: 1, parent_thread_id: parentThreadId } } } }) });
   assert.equal(subagent.payload.thread.source.kind, "subAgent");
+  assert.equal(JSON.stringify(subagent).includes(rootSessionId), false, "session identity must remain digested");
 
   const pidFile = path.join(temporaryRoot, "stubborn.pid");
   await collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "absent", codexExecutable: await fakeServer({ goal: null, ignoreTerm: true, pidFile }) });
@@ -69,6 +73,8 @@ try {
   const readError = await collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ readError: true }) }).catch((error) => error);
   assert.equal(readError.message, "thread/read failed");
   assert.equal(readError.message.includes("/private"), false);
+  const initializeError = await collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ initializeError: true }) }).catch((error) => error);
+  assert.equal(initializeError.message, "initialize failed");
 
   await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, timeoutMs: 20, codexExecutable: await fakeServer({ silent: true }) }), /timed out/);
   console.log("native evidence tests passed");

@@ -211,15 +211,20 @@ function parseNativeTrace(bytes, observation, candidate) {
   if (!shaPattern.test(payload.executable.sha256) || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(payload.executable.server_version)) fail("native executable identity is invalid");
   exactKeys(payload.host, ["platform_family", "platform_os", "user_agent"], "native host");
   for (const key of ["platform_family", "platform_os", "user_agent"]) atom(payload.host[key], `native host ${key}`);
-  exactKeys(payload.thread, ["cli_version", "cwd_sha256", "id", "parent_thread_id", "source", "status"], "native thread");
+  exactKeys(payload.thread, ["cli_version", "cwd_sha256", "id", "parent_thread_id", "session_id_sha256", "source", "status"], "native thread");
   exactKeys(payload.thread.source, ["kind", "sha256"], "native thread source");
-  if (!threadPattern.test(payload.thread.id) || (payload.thread.parent_thread_id !== null && !threadPattern.test(payload.thread.parent_thread_id)) || !shaPattern.test(payload.thread.cwd_sha256) || !shaPattern.test(payload.thread.source.sha256)) fail("native thread identity is invalid");
+  if (!threadPattern.test(payload.thread.id) || (payload.thread.parent_thread_id !== null && !threadPattern.test(payload.thread.parent_thread_id)) || !shaPattern.test(payload.thread.session_id_sha256) || !shaPattern.test(payload.thread.cwd_sha256) || !shaPattern.test(payload.thread.source.sha256)) fail("native thread identity is invalid");
   for (const key of ["cli_version", "status"]) atom(payload.thread[key], `native thread ${key}`);
   exactKeys(payload.expectation, ["goal_status", "objective_sha256"], "native expectation");
   if (![...goalStatuses, "absent"].includes(payload.expectation.goal_status) || (payload.expectation.objective_sha256 !== null && !shaPattern.test(payload.expectation.objective_sha256))) fail("native expectation is invalid");
   if (payload.goal !== null) {
     exactKeys(payload.goal, ["objective_sha256", "status", "thread_id"], "native goal");
     if (!shaPattern.test(payload.goal.objective_sha256) || !goalStatuses.has(payload.goal.status) || payload.goal.thread_id !== payload.thread.id) fail("native goal is invalid");
+  }
+  if (payload.expectation.goal_status === "absent") {
+    if (payload.goal !== null || payload.expectation.objective_sha256 !== null) fail("native goal does not match absent expectation");
+  } else if (!payload.goal || payload.goal.status !== payload.expectation.goal_status || payload.goal.objective_sha256 !== payload.expectation.objective_sha256) {
+    fail("native goal does not match expectation");
   }
   exactKeys(payload.binding, ["capability_id", "scenario", "case_id", "candidate", "result"], "native binding");
   exactKeys(payload.binding.candidate, ["commit", "tree"], "native binding candidate");
