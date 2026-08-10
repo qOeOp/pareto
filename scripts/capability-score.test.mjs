@@ -233,8 +233,8 @@ await assert.rejects(() => verifyCommittedNativeTurn({
 "verification receipts must reject a contradictory authority suffix");
 const committedCapabilityIds = new Set(committedCases.map((testCase) =>
   testCase.metadata.observations.capability.id));
-const uncommittedCapability = catalog.capabilities.find((row) => !committedCapabilityIds.has(row.id));
-assert.ok(uncommittedCapability, "the sparse corpus fixture requires one capability without a committed case");
+assert.equal(committedCapabilityIds.size, catalog.capabilities.length,
+  "the complete corpus must bind at least one committed case to every capability");
 assert.deepEqual(
   committedCases
     .filter((testCase) => testCase.metadata.observations.capability.id === "EVAL-01")
@@ -690,11 +690,13 @@ try {
   const complete = await fixture("complete");
   const runnerOnlyScore = await scoreEvidence({ evidencePath: complete.runnerEvidencePath });
   assert.equal(runnerOnlyScore.eligible, false);
-  assert.equal(runnerOnlyScore.minimum_score, 0, "runner evidence must leave uncovered capability leaves at zero");
+  assert.equal(runnerOnlyScore.minimum_score, 2,
+    "complete deterministic coverage remains locally writable and capped at declared maturity");
   assert.ok(runnerOnlyScore.capabilities.some((row) => row.reason === "local_writable_trace_has_no_provider_attestation"));
   const completeScore = await scoreEvidence(complete);
   assert.equal(completeScore.eligible, false, "locally writable traces must never self-certify 9.5");
-  assert.equal(completeScore.minimum_score, 0, "leaves without committed cases must remain absent");
+  assert.equal(completeScore.minimum_score, 2,
+    "complete local evidence must cover every leaf without exceeding declared maturity");
   assert.equal(completeScore.evidence_limit, "provider_attested_attempt_inventory_unavailable");
   assert.ok(completeScore.capabilities.some((row) => row.score === 2 && row.maturity === "declared"));
   assert.ok(completeScore.capabilities.every((row) => row.score <= 2 && !("observed_score" in row)));
@@ -702,16 +704,8 @@ try {
   assert.equal(nativeTrajectoryRow.score, 2);
   assert.equal(nativeTrajectoryRow.maturity, "declared");
   assert.ok(nativeTrajectoryRow.observation_count >= 3);
-  assert.deepEqual(completeScore.capabilities.find((row) => row.id === uncommittedCapability.id), {
-    ...uncommittedCapability,
-    score: 0,
-    maturity: "absent",
-    reason: "no_passing_evidence",
-    observation_count: 0,
-    attested_campaign_count: 0,
-    unavailable_count: 0,
-    gap_count: 0,
-  }, "a leaf without a committed case cannot be populated by invented trace labels");
+  assert.ok(completeScore.capabilities.every((row) => row.observation_count > 0),
+    "complete corpus evidence must leave no capability silently absent");
 
   const attested = await attestedFixture("attested-install");
   await assert.rejects(

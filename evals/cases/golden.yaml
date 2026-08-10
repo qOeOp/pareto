@@ -1174,6 +1174,340 @@
         native_role_routing: unavailable
         capability_evidence: unavailable
 
+- description: "[full] exact trade session pin is classified as silent continuation"
+  metadata:
+    observations: { capability: { id: INS-02, scenario: positive, case_id: ins-02-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Classify, but do not execute, the pinned consumer repository's SessionStart where no
+      repository-local RBM Skill or owned agent profile exists, origin/main supplies a valid pareto
+      lock, and the installed receipt, Skill manifest, and four-profile manifest all match exactly.
+      Return exactly the bounded classification below without claiming that the host hook ran.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        consumer: trade-SessionStart
+        local_skill_override: none
+        local_profile_override: none
+        origin_pin: current-and-valid
+        installed_receipt: exact
+        installed_skill_manifest: exact
+        installed_agent_manifest: exact
+        classified_decision: continue-silent
+        hook_execution_observation: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] project-local agent override is classified fail-closed"
+  metadata:
+    observations: { capability: { id: INS-02, scenario: negative, case_id: ins-02-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Classify, but do not execute, the pinned consumer repository's SessionStart where the
+      checkout contains .codex/agents/mission-evaluator.toml and would override the pinned user
+      profile. Return exactly the fail-closed classification below; do not fetch, install, delete,
+      or claim a native hook observation.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        consumer: trade-SessionStart
+        project_profile_override: mission-evaluator.toml
+        classified_decision: stop
+        fetch_after_override: forbidden
+        repository_mutation: none
+        installation_mutation: none
+        recovery_requirement: remove-or-migrate-then-new-session
+        hook_execution_observation: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] stale installation requires explicit bootstrap and a new session"
+  metadata:
+    observations: { capability: { id: INS-02, scenario: recovery, case_id: ins-02-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Classify, but do not execute, the pinned consumer repository's SessionStart whose fetched
+      lock is valid but whose installed receipt or manifests differ. The hook is not authorized to
+      install. Return exactly the recovery classification below without claiming same-session reload
+      or native hook execution.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        consumer: trade-SessionStart
+        pin_state: mismatch
+        current_session: stop
+        automatic_install: forbidden
+        bootstrap_authority: separate-and-exact
+        same_session_reload: unproved
+        recovery: bootstrap-then-new-session
+        hook_execution_observation: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] structural challenge classifies to planner without pretending dispatch"
+  metadata:
+    observations: { capability: { id: INS-04, scenario: positive, case_id: ins-04-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A frozen Mission has one evidenced structural mechanism question with
+      consequential cross-owner tradeoffs. Main retains Frame, Plan admission, effects, and Finalize.
+      Classify the lowest sufficient support lane, but do not launch it. Return exactly the receipt.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        unresolved_need: structural-challenge
+        classified_role: mission_planner
+        lane_output: bounded-proposal
+        main_frame_authority: retained
+        main_plan_admission_authority: retained
+        dispatch_issued: false
+        native_role_provenance: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] candidate review does not route through planner"
+  metadata:
+    observations: { capability: { id: INS-04, scenario: negative, case_id: ins-04-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. The only unresolved need is semantic review of an exact frozen
+      candidate under one falsifiable risk question; there is no structural mechanism decision.
+      Classify planner admission only, do not launch any role, and return exactly the receipt.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        unresolved_need: frozen-candidate-semantic-risk
+        mission_planner: not-triggered
+        correct_owner: reviewer-handoff
+        dispatch_issued: false
+        native_role_provenance: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] unavailable planner dispatch does not create a replacement"
+  metadata:
+    observations: { capability: { id: INS-04, scenario: recovery, case_id: ins-04-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. One complete mission_planner dispatch for a frozen structural question
+      returned no consumable native role provenance. Return exactly the recovery disposition without
+      retrying, repacketing, inventing a planner result, or changing the candidate.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        classified_role: mission_planner
+        dispatch_result: unavailable
+        planner_proposal: unavailable
+        automatic_retry: forbidden
+        replacement_role: forbidden
+        main_decision_authority: retained
+        candidate_mutation: none
+        native_role_provenance: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] frozen material risk classifies to evaluator without pretending launch"
+  metadata:
+    observations: { capability: { id: INS-06, scenario: positive, case_id: ins-06-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. An exact frozen candidate, complete Frame and Plan, neutral control,
+      and one material falsifiable risk question are available. Classify the reviewer lane, but do
+      not launch it or claim independent evidence. Return exactly the receipt.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        candidate_identity: exact-and-frozen
+        classified_role: mission_evaluator
+        risk_lenses: one
+        evaluator_mode: fresh-read-only
+        main_reproduction_required: true
+        dispatch_issued: false
+        native_role_provenance: unavailable
+        independent_evidence: unavailable
+
+- description: "[full] mutable candidate is not admitted to evaluator"
+  metadata:
+    observations: { capability: { id: INS-06, scenario: negative, case_id: ins-06-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. The candidate is still changing, the neutral control is absent, and
+      the proposed reviewer question was written to confirm Main's preferred answer. Classify
+      evaluator admission only and return exactly the receipt without launching a role.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        candidate_identity: mutable
+        neutral_control: missing
+        risk_question: confirmatory
+        mission_evaluator: not-admitted
+        dispatch_issued: false
+        acceptance_evidence: unavailable
+        native_role_provenance: unavailable
+
+- description: "[full] unavailable evaluator evidence remains unsupported without retry"
+  metadata:
+    observations: { capability: { id: INS-06, scenario: recovery, case_id: ins-06-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A single complete mission_evaluator dispatch on an exact frozen packet
+      ended without a valid terminal review contract. Return exactly the recovery disposition; the
+      same candidate and requirement have not changed.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        classified_role: mission_evaluator
+        review_result: unsupported
+        no_finding: false
+        automatic_retry: forbidden
+        repacket_same_input: forbidden
+        replacement_reviewer: forbidden
+        candidate_acceptance: frozen
+        native_role_provenance: unavailable
+
+- description: "[full] decision-changing external fact classifies to researcher"
+  metadata:
+    observations: { capability: { id: INS-08, scenario: positive, case_id: ins-08-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_provider_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. One current external primary-source fact can change a frozen Plan
+      decision; the exact question, source boundary, consumer, and Stop are known. Classify the
+      evidence lane, but do not launch it or claim research evidence. Return exactly the receipt.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        unresolved_need: decision-changing-external-fact
+        classified_role: mission_researcher
+        source_scope: current-primary
+        output: bounded-evidence-brief
+        candidate_selection_authority: main
+        dispatch_issued: false
+        native_role_provenance: unavailable
+        research_evidence: unavailable
+
+- description: "[full] repository-local fact stays with Main"
+  metadata:
+    observations: { capability: { id: INS-08, scenario: negative, case_id: ins-08-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. The only question is whether a named function exists in the current
+      repository, and Main can inspect the exact committed source directly. Classify researcher
+      admission only, do not browse or launch a role, and return exactly the receipt.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        unresolved_need: repository-local-inspectable-fact
+        mission_researcher: not-triggered
+        evidence_owner: main
+        external_research: unnecessary
+        dispatch_issued: false
+        native_role_provenance: unavailable
+
+- description: "[full] unavailable research freezes only its dependent decision"
+  metadata:
+    observations: { capability: { id: INS-08, scenario: recovery, case_id: ins-08-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_provider_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. One complete mission_researcher dispatch returned no authoritative
+      primary-source brief. The Plan contains one decision that depends on that fact and independent
+      decisions that do not. Return exactly the recovery disposition without retry or invented facts.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        classified_role: mission_researcher
+        evidence_result: unavailable
+        dependent_decision: frozen
+        independent_decisions: may-continue
+        invented_evidence: forbidden
+        automatic_retry: forbidden
+        replacement_role: forbidden
+        native_role_provenance: unavailable
+
+- description: "[full] exact mechanical leaf classifies to fast builder"
+  metadata:
+    observations: { capability: { id: INS-10, scenario: positive, case_id: ins-10-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. One leaf has an immutable Origin, exact paths, one writer, frozen owner
+      and boundary, an exact mechanical replacement, supplied safe checks, oracle, and Stop; no design,
+      authority, safety, schema, wording, dependency, contract, or effect decision remains. Classify only.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        leaf_state: fully-frozen-mechanical
+        immutable_origin: frozen
+        classified_role: fast_builder
+        unresolved_decisions: none
+        main_acceptance_authority: retained
+        dispatch_issued: false
+        native_role_provenance: unavailable
+        executed_model_effort: unavailable
+        capability_evidence: unavailable
+
+- description: "[full] unresolved authority decision rejects fast builder"
+  metadata:
+    observations: { capability: { id: INS-10, scenario: negative, case_id: ins-10-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A proposed implementation leaf still requires choosing the public
+      schema owner and deciding whether a safety fallback is acceptable. Classify fast-builder
+      admission only, do not dispatch, and return exactly the receipt.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        leaf_state: unresolved-authority-and-safety
+        fast_builder: not-admitted
+        ordinary_implementation_owner: main
+        dispatch_issued: false
+        candidate_mutation: none
+        native_role_provenance: unavailable
+        executed_model_effort: unavailable
+
+- description: "[full] unavailable fast-builder attempt does not reroute or retry"
+  metadata:
+    observations: { capability: { id: INS-10, scenario: recovery, case_id: ins-10-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. One complete fast_builder dispatch for an exact frozen leaf returned
+      no valid terminal output or executed model/effort provenance. Return exactly the recovery
+      disposition; the candidate, packet, and requirement are unchanged.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        classified_role: fast_builder
+        dispatch_result: unavailable
+        automatic_retry: forbidden
+        repacket_same_input: forbidden
+        replacement_role: forbidden
+        main_fallback_after_attempt: forbidden
+        candidate_mutation: none
+        native_role_provenance: unavailable
+        executed_model_effort: unavailable
+
 - description: "[full] one semantic writer produces one bounded repository candidate"
   metadata:
     observations: { capability: { id: EXE-01, scenario: positive, case_id: exe-01-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
