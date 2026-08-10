@@ -38,10 +38,14 @@ against the exact admitted provider/model/effort authority.
 The disposable repository contains one synthetic repository instruction: use the installed Skill for
 non-trivial implementation or delivery, not for answer-only work. This makes repository-rule
 auto-trigger a real consumer path rather than prompt prose. Promptfoo `0.122.0` derives
-`response.metadata.skillCalls` heuristically from a successful `command_execution` whose command text
-contains a recognized `SKILL.md` path; each entry has `source: heuristic`. Result admission replays
-that derivation from `response.raw.items` and rejects disagreement, but classifies the evidence only
-as `dynamic_heuristic`. It is not a host-native route receipt, can miss activation that does not emit
+`response.metadata.skillCalls` heuristically from a limited set of legacy Skill roots that excludes the
+production `$HOME/.agents/skills` root. The runner therefore removes Promptfoo's `skill-used` assertions
+from its in-memory runtime case projection and replays activation directly from successful
+`response.raw.items` commands against the exact installed root after Promptfoo returns. Runtime cases
+and configuration are passed through Promptfoo's programmatic evaluator and are not written into the
+evaluated workspace, so the subject receives the prompt but not a colocated oracle file. The committed
+case metadata remains the activation oracle and the remaining deterministic assertions stay owned by
+Promptfoo. This evidence is classified only as `dynamic_heuristic`; it is not a host-native route receipt and can miss activation that does not emit
 such a command, and cannot by itself prove stable activation. Current Codex SDK output does not expose
 trustworthy native Task, Goal, compaction, GitHub, evaluator, or reference-read state. Each affected
 case records that mechanism axis as `unavailable`; deterministic answer text remains a
@@ -58,14 +62,14 @@ Repository acceptance reads Promptfoo result artifacts as raw JSON and rejects d
 members before normalization; exit zero never authorizes a last-wins representation.
 Before any provider-capable command, the runner requires exactly one canonical provider and the exact
 invoked model, reasoning effort, working directory, and read-only provider configuration. Promptfoo
-redacts the working-directory value in exported JSON; result acceptance requires that exact redaction
-marker plus the invoked provider identity, model, reasoning effort, and all remaining safety fields. Every result row
+redacts the working-directory and explicit `HOME`/`CODEX_HOME` values in exported JSON; result acceptance
+requires those exact redaction markers plus the invoked provider identity, model, reasoning effort, and all remaining safety fields. Every result row
 names that provider and reproduces its selected case's exact vars and assertion inventory; and every
-assertion has an explicit passing component outcome. Heuristic Skill-use assertions are replayed with
-the selected case's expected vars against `response.metadata.skillCalls`, and those calls must exactly
-match successful Skill-path `command_execution` items parsed from duplicate-safe `response.raw` JSON;
-artifact-controlled vars or declared component success cannot override contradictory positive or
-negative oracle evidence. Required replayable item classes and unavailable mechanism axes are bound
+assertion has an explicit passing component outcome. Skill activation is replayed against successful
+Skill-path `command_execution` items parsed from duplicate-safe `response.raw` JSON; Promptfoo's
+incomplete `skillCalls` metadata is not an authority. Artifact-controlled vars or declared component
+success cannot override contradictory positive or negative activation evidence. Required replayable
+item classes and unavailable mechanism axes are bound
 per case outside the prompt. The production assertion engine recomputes every deterministic assertion
 from `response.output`; artifact-declared component success is non-authorizing. A successful raw turn
 must match the current Codex SDK's exact completed item union, contain unique ordered item IDs, terminal
@@ -78,11 +82,16 @@ must contain no raw `error` item; and repeated trials must carry distinct raw-tu
 provider-produced item IDs that are disjoint across rows. Row success and aggregate counts alone never
 authorize an evaluation result.
 
-The runner materializes its Skill workspace only from regular tracked blobs in the exact Git
-`HEAD:skills` tree. It never copies working-tree, untracked, or ignored Skill material into an
-evaluation workspace; unsupported Git entry modes, invalid UTF-8 paths, normalization collisions, and
-unsafe paths fail closed. The complete tree is validated before any destination write; Windows
-separator, case, or resolved-target collisions also fail closed on every host. Repository-owned Git
+The runner invokes the production installer against an exact clean `HEAD` and directs its user-level
+Skill and four custom-agent profiles into disposable `HOME` and `CODEX_HOME` roots passed through the
+Codex provider's explicit `cli_env`. It does not install a project-local `.agents/skills` fixture.
+Before Promptfoo is imported, the runner also binds `PROMPTFOO_CONFIG_DIR` to the disposable evaluation
+root, sets the vendor telemetry/update flags, and installs an exact hostname guard that rejects all
+`promptfoo.app` network traffic while leaving the model provider route untouched. This closes
+Promptfoo `0.122.0`'s otherwise unconditional anonymous "telemetry disabled" request. Accepted results
+require `author: null`, so ambient Promptfoo account or cloud identity cannot enter the evidence artifact.
+The installer performs byte-exact post-install verification before Codex starts, and the runner repeats
+that check. Repository-owned Git
 calls derive their root explicitly and clear inherited `GIT_*` selectors case-insensitively, including the disposable
 workspace initialization, installer lock verification, and delivery receipt identity checks, so caller environment
 cannot redirect repository authority.
@@ -109,6 +118,39 @@ A committed comparison may return only when all of these exist together:
 The producer must also exclude local paths, credentials, task/session identifiers, private locators,
 prompt caches, and raw transcripts. Until those consumers exist, schema and provenance machinery stay
 deleted rather than preserving an unusable second evidence ledger.
+
+## Atomic capability scoring
+
+`evals/capabilities.json` is the sole fine-grained capability inventory. Each leaf has one owner,
+real consumer, equal default weight, and an explicit critical-floor classification. The deterministic
+scorer reports both the weighted aggregate and the minimum leaf score. Completion requires both to be
+at least 9.5 and every critical leaf to pass; no weight, domain aggregate, or unrelated strong leaf may
+hide a weaker capability.
+
+The scorer consumes content-addressed raw Codex rollout JSONL, not agent-authored numeric scores. Duplicate
+members, stale catalog identity, duplicate trials, unknown leaves, self-described independent review,
+artifact drift, failed observations, and material or critical gaps fail closed. Source adapters derive
+session/parent identities, terminal task and token receipts, tool execution for deterministic replay,
+the exact candidate-bound capability result, unavailable evidence, gaps, and mutation observation from
+the raw trace. Independent review must be a native subagent rollout. Plain files or evidence fields
+cannot unlock the 9.5 anchor. Local rollout files are writable by the same host and therefore cannot
+prove their own completeness or authenticity. They are capped at 2 even when their internal shape is
+consistent; the assessor does not publish a higher "observed" score from author-controlled oracle text.
+The 9.5 anchor remains unavailable until Codex exposes a provider-attested complete attempt
+inventory with a repository verifier; the scorer rejects manifests that pretend this authority exists.
+
+The CLI is an explicit operator gate, not a host Goal integration: it exits nonzero for every report
+whose minimum leaf is below 9.5. The candidate repository must match the scorer checkout's exact origin;
+its commit must be the clean checkout `HEAD`, its tree must resolve exactly, and its committed catalog
+blob must equal the catalog being scored. The catalog is the checked-in 39-leaf authority; callers
+cannot substitute a smaller catalog. An explicit unavailable attempt is non-authorizing, and an
+unavailable provider inventory is reported as the global evidence limit rather than hidden by selected
+passes.
+
+`scripts/capability-score.mjs` is an assessor, not a result producer, trace store, benchmark scheduler,
+or capability repair owner. Raw private traces remain external. A published assessment may contain
+only content digests, generalized capability IDs, scores derived by this assessor, explicit gaps, and
+the exact candidate/catalog identities.
 
 ## Regression rule
 
