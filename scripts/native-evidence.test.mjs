@@ -36,10 +36,15 @@ await git(["add", "evals"]);
 await git(["commit", "--quiet", "-m", "candidate"]);
 
 const candidate = { commit: await git(["rev-parse", "HEAD"]), tree: await git(["rev-parse", "HEAD^{tree}"]) };
-const sourceCase = parseYaml(await readFile(path.resolve("evals/cases/golden.yaml"), "utf8"))[0];
+const sourceCase = parseYaml(await readFile(path.resolve("evals/cases/golden.yaml"), "utf8"))
+  .find((testCase) => testCase.metadata.observations.capability.case_id === "native-trajectory-local-boundary");
 const caseBinding = sourceCase.metadata.observations.capability;
 const casePrompt = sourceCase.vars.prompt;
 const controlSha256 = digest(JSON.stringify(canonical(sourceCase)));
+const deterministicAssertions = sourceCase.assert.filter((assertion) =>
+  assertion.type !== "skill-used" && assertion.type !== "not-skill-used");
+const caseOutput = deterministicAssertions.flatMap((assertion) =>
+  assertion.type === "contains-all" ? assertion.value : ["contains", "equals"].includes(assertion.type) ? [assertion.value] : []).join("\n");
 const capabilityResult = {
   schema: "rbm-capability-result/v1",
   capability_id: caseBinding.id,
@@ -55,11 +60,12 @@ const capabilityResult = {
 };
 const binding = { expectedServerVersion: "0.147.0", appServerCwd: temporaryRoot, repositoryRoot: repository, turnId };
 
-function turnFixture({ prompt = casePrompt, finalText = JSON.stringify(capabilityResult), status = "completed", phase = "final_answer", itemsView = "full" } = {}) {
+function turnFixture({ prompt = casePrompt, finalText = caseOutput, status = "completed", phase = "final_answer", itemsView = "full", skillUsed = true } = {}) {
   return {
     id: turnId,
     items: [
       { type: "userMessage", id: "user-1", clientId: null, content: [{ type: "text", text: prompt, text_elements: [] }] },
+      ...(skillUsed ? [{ type: "commandExecution", id: "command-1", command: "sed -n 1,220p /fixture/home/.agents/skills/run-bounded-mission/SKILL.md", cwd: "/fixture", processId: "1", source: "agent", status: "completed", commandActions: [{ type: "read", command: "sed -n 1,220p /fixture/home/.agents/skills/run-bounded-mission/SKILL.md", name: "sed", path: "/fixture/home/.agents/skills/run-bounded-mission/SKILL.md" }], aggregatedOutput: "", exitCode: 0, durationMs: 1 }] : []),
       { type: "agentMessage", id: "agent-1", text: finalText, phase, memoryCitation: null },
     ],
     itemsView,
@@ -104,13 +110,17 @@ rl.on("line", (line) => {
 
 try {
   const receipt = await collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer() });
-  assert.equal(receipt.schema, "rbm-native-evidence-envelope/v3");
+  assert.equal(receipt.schema, "rbm-native-evidence-envelope/v4");
   assert.equal(receipt.payload.result, "matched");
   assert.equal(receipt.payload.binding.capability_id, caseBinding.id);
   assert.equal(receipt.payload.binding.control_sha256, controlSha256);
   assert.equal(receipt.payload.turn.id, turnId);
   assert.equal(receipt.payload.turn.prompt_sha256, digest(casePrompt));
-  assert.equal(receipt.payload.turn.capability_result_sha256, digest(JSON.stringify(canonical(capabilityResult))));
+  assert.equal(receipt.payload.turn.output_sha256, digest(caseOutput));
+  assert.equal(receipt.payload.turn.oracle_result_sha256, digest(JSON.stringify(canonical(capabilityResult))));
+  assert.equal(receipt.payload.oracle.expected_skill_activation, "used");
+  assert.equal(receipt.payload.oracle.observed_skill_activation, "used");
+  assert.deepEqual(receipt.payload.oracle.required_raw_item_types, ["command_execution"]);
   assert.equal(receipt.payload.goal.objective_sha256, objectiveSha256);
   assert.match(receipt.payload.executable.sha256, /^sha256:[a-f0-9]{64}$/);
   assert.equal(receipt.content_sha256, digest(JSON.stringify(receipt.payload)));
@@ -136,8 +146,29 @@ try {
   await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [turnFixture({ status: "inProgress" })] }) }), /not one complete full turn/);
   const priorTurn = { ...turnFixture(), id: "019fb8b4-ebd0-7c20-8ba1-041ed6836208" };
   await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [priorTurn, turnFixture()] }) }), /exactly one turn/);
-  const wrongResult = { ...capabilityResult, case_id: "missing-case" };
-  await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [turnFixture({ finalText: JSON.stringify(wrongResult) })] }) }), /does not name one committed/);
+  await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [turnFixture({ finalText: JSON.stringify(capabilityResult), skillUsed: false })] }) }), /fails a committed equals assertion/);
+  await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [turnFixture({ finalText: `${caseOutput}\nscore_9_5 : allowed` })] }) }), /fails a committed equals assertion/);
+  await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [turnFixture({ skillUsed: false })] }) }), /missing a committed required raw item type/);
+  const inProgressCommand = { type: "commandExecution", id: "command-2", command: "pwd", cwd: "/fixture", processId: "2", source: "agent", status: "inProgress", commandActions: [{ type: "unknown", command: "pwd" }], aggregatedOutput: null, exitCode: null, durationMs: null };
+  const partialTurn = turnFixture();
+  partialTurn.items[partialTurn.items.findIndex((item) => item.type === "commandExecution")] = inProgressCommand;
+  await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [partialTurn] }) }), /non-admitted commandExecution/);
+  const chainedTurn = turnFixture();
+  const chained = chainedTurn.items.find((item) => item.type === "commandExecution");
+  chained.command = `${chained.command}; touch /tmp/eval-mutated`;
+  chained.commandActions = [{ type: "read", command: chained.command, name: "sed", path: "/fixture/home/.agents/skills/run-bounded-mission/SKILL.md" }];
+  await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [chainedTurn] }) }), /non-admitted commandExecution/);
+  const injectedPathTurn = turnFixture();
+  const injected = injectedPathTurn.items.find((item) => item.type === "commandExecution");
+  injected.command = "sed -n 1,220p 'x'; touch /tmp/eval-mutated; echo '/.agents/skills/run-bounded-mission/SKILL.md'";
+  injected.commandActions = [{ type: "read", command: injected.command, name: "sed", path: "x'; touch /tmp/eval-mutated; echo '/.agents/skills/run-bounded-mission/SKILL.md" }];
+  await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [injectedPathTurn] }) }), /non-admitted commandExecution/);
+  const duplicateCommandTurn = turnFixture();
+  duplicateCommandTurn.items.splice(-1, 0, { ...duplicateCommandTurn.items.find((item) => item.type === "commandExecution"), id: "command-2" });
+  await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [duplicateCommandTurn] }) }), /more than one commandExecution/);
+  const mcpTurn = turnFixture();
+  mcpTurn.items.splice(-1, 0, { type: "mcpToolCall", id: "mcp-1", server: "fixture", tool: "write", status: "completed", arguments: {}, appContext: null, pluginId: null, readOnlyHint: false, result: {}, error: null, durationMs: 1 });
+  await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [mcpTurn] }) }), /unknown mcpToolCall/);
   await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "complete", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer() }), /status mismatch/);
   await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ duplicate: true }) }), /duplicate JSON object member id/);
 

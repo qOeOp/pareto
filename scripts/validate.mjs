@@ -117,7 +117,7 @@ function validatePromptfooCases(cases, { file, suites, count }) {
     }
     const deterministic = testCase.assert.filter((assertion) => !native.includes(assertion));
     if (deterministic.length === 0 || deterministic.some((assertion) =>
-      !["contains", "contains-all", "not-contains"].includes(assertion.type))) {
+      !["contains", "contains-all", "not-contains", "equals"].includes(assertion.type))) {
       fail(`${testCase.description}: expected admitted deterministic output assertions`);
     }
     validateExactKeys(testCase.metadata, new Set(["observations"]), `${testCase.description} metadata`);
@@ -240,7 +240,7 @@ const holdoutCases = parseYaml(await readFile(path.join(root, "evals/cases/holdo
 const goldenDescriptions = validatePromptfooCases(goldenCases, {
   file: "evals/cases/golden.yaml",
   suites: new Set(["smoke", "full"]),
-  count: 16,
+  count: 19,
 });
 const holdoutDescriptions = validatePromptfooCases(holdoutCases, {
   file: "evals/cases/holdout.yaml",

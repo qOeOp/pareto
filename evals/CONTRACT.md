@@ -13,7 +13,7 @@ locators, business repositories, credentials, and provider receipts remain exter
 ## Suites
 
 - `smoke`: the two `[smoke]` cases in `cases/golden.yaml`, one trial each.
-- `full`: all 16 public golden cases in `cases/golden.yaml`, two trials each.
+- `full`: all 19 public golden cases in `cases/golden.yaml`, two trials each.
 - `holdout`: the four public withheld-regression cases in the separate `cases/holdout.yaml`, three
   trials each. The runner never loads this file for smoke/full and requires a clean Git
   commit, binds the exact commit, tree, `skills/` tree, and matrix digest into Promptfoo output, and
@@ -51,12 +51,18 @@ such a command, and cannot by itself prove stable activation. Current Codex app-
 version-bound read-only thread, turn, and Goal snapshots. The `scripts/native-evidence.mjs` probe consumes
 `initialize`, `thread/read`, `thread/turns/list`, and `thread/goal/get` over fixed stdio. It exhausts turn
 pagination and accepts an exact one-turn task only when the named completed full turn's user prompt matches one
-committed case and its terminal final JSON matches that case's capability, scenario, candidate, oracle,
-and content-addressed control. Capability fields are derived from that result rather than operator
-flags. The scorer recomputes the receipt's prompt and canonical-result summaries from the committed case;
-item identities remain digested. The receipt also binds the exact thread, Goal expectation, executable digest, and server version. It emits no raw
+committed case, the terminal natural-language output passes that case's deterministic assertions, the
+observed raw item types satisfy its requirements, and the command-path Skill-use heuristic matches its
+activation oracle. The only admitted action item is one successful, structurally parsed, unchained read
+of the installed Skill file; MCP, dynamic, mutating, nested-agent, error, context-compaction, unknown,
+partial, in-progress, and failed items are rejected. Its terminal state remains in the receipt for scorer replay.
+The probe derives the clean capability result from the committed case and exact clean
+checkout; it never accepts an Agent-authored pass result. The scorer recomputes the receipt's prompt,
+assertion inventory, activation expectation, and canonical-result summaries from the committed case;
+terminal output and item identities remain digested. The receipt also binds the exact thread, Goal expectation, executable digest, and server version. It emits no raw
 objective, path, source detail, or transcript; the scorer accepts a passing `native_trace` only through
-this receipt. This is a local-interface observation, not host attestation: an operator can still alter
+this receipt. Command-path activation remains a local heuristic, not proof of host-native Skill routing.
+This is a local-interface observation, not host attestation: an operator can still alter
 or omit it, and the interface does not prove that a spawned task inherited no parent context. It therefore
 cannot prove a complete attempt inventory, independent context, or unlock 9.5. Current Codex
 SDK output still does not expose trustworthy compaction, GitHub, evaluator, reference-read, or

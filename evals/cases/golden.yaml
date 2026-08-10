@@ -312,6 +312,75 @@
         - "message_count_alone: insufficient"
         - "repeat_unchanged_status: false"
 
+- description: "[full] native trajectory evidence stays locally bounded"
+  metadata:
+    observations: { capability: { id: EVAL-01, scenario: positive, case_id: native-trajectory-local-boundary }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state, external_provider_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A local read-only app-server receipt binds one committed evaluation
+      case, the exact clean candidate commit and tree, one complete full turn, the exact user prompt,
+      and one terminal output checked against the committed oracle. Its bytes and digests verify, but the same operator can
+      still write or omit the receipt and no provider-attested attempt inventory exists. Return only
+      the evidence admission and score boundary.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        native_trace: admitted-local-observation
+        committed_case_binding: required
+        single_complete_turn: required
+        candidate_identity: exact-clean-head-tree
+        local_writable_authority: true
+        score_ceiling: 2
+        provider_attested_inventory: unavailable
+        score_9_5: forbidden
+
+- description: "[full] self-authored native pass is rejected"
+  metadata:
+    observations: { capability: { id: EVAL-01, scenario: negative, case_id: self-authored-native-pass-rejected }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. An assessor-authored JSON says a native task passed at score 9.5, but
+      it has no committed case control, no exact candidate tree, no paginated full turn, and no exact
+      prompt or terminal-result binding. Return only the fail-close capability-evidence decision.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        native_trace: rejected
+        self_authored_pass_authority: false
+        missing_committed_case: blocking
+        missing_candidate_tree: blocking
+        missing_full_turn: blocking
+        missing_prompt_result_binding: blocking
+        capability_score: 0
+        goal_completion: forbidden
+
+- description: "[full] invalid native trace recovery preserves the failed attempt"
+  metadata:
+    observations: { capability: { id: EVAL-01, scenario: recovery, case_id: native-trace-recovery-without-rewrite }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state, external_provider_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A native receipt names the right committed case but its task contains
+      two turns and its prompt digest is stale. A later independently authorized task may provide a
+      new exact one-turn observation for the same current candidate. Return the recovery rules without
+      rewriting, replacing, or hiding the failed attempt.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        old_receipt: rejected
+        old_attempt: retained
+        receipt_rewrite: forbidden
+        failed_attempt_omission: forbidden
+        new_observation_identity: distinct
+        case_candidate_control_rebind: required
+        score_before_verified_observation: 0
+        provider_attested_inventory: unavailable
+
 - description: "[full] high score cannot complete an unproved Goal"
   metadata:
     observations: { capability: { id: EVAL-02, scenario: negative, case_id: score-cannot-hide-failed-floor }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_goal_state] }

@@ -8,7 +8,7 @@ import readline from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
-import { parseCapabilityResult, verifyCommittedCapabilityResult } from "./capability-score.mjs";
+import { verifyCommittedNativeTurn } from "./capability-score.mjs";
 
 const statuses = new Set(["active", "paused", "blocked", "usageLimited", "budgetLimited", "complete", "absent"]);
 const shaPattern = /^sha256:[a-f0-9]{64}$/;
@@ -28,6 +28,71 @@ function canonical(value) {
     return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
   }
   return value;
+}
+
+const rawItemTypeByNativeType = new Map([
+  ["commandExecution", "command_execution"],
+  ["fileChange", "file_change"],
+  ["mcpToolCall", "mcp_tool_call"],
+  ["dynamicToolCall", "mcp_tool_call"],
+  ["agentMessage", "agent_message"],
+  ["reasoning", "reasoning"],
+  ["webSearch", "web_search"],
+  ["plan", "todo_list"],
+  ["error", "error"],
+]);
+const passiveNativeItemTypes = new Set([
+  "userMessage", "hookPrompt", "agentMessage", "plan", "reasoning", "webSearch", "imageView", "sleep",
+]);
+
+function strictSkillReadCommand(item) {
+  if (!Array.isArray(item.commandActions) || item.commandActions.length !== 1) return false;
+  const action = item.commandActions[0];
+  if (!action || Object.keys(action).sort().join(",") !== "command,name,path,type" || action.type !== "read" ||
+      action.command !== item.command || typeof action.name !== "string" || action.name.length === 0 ||
+      typeof action.path !== "string") return false;
+  if (!/^(?:\/[A-Za-z0-9_./:@+-]+|[A-Za-z]:[\\/][A-Za-z0-9_./:\\@+-]+)$/.test(action.path)) return false;
+  const normalizedPath = action.path.replace(/\\/g, "/");
+  if (!/(?:^|\/)\.agents\/skills\/run-bounded-mission\/SKILL\.md$/.test(normalizedPath)) return false;
+  const escaped = action.path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  if (action.name === "cat") return new RegExp(`^(?:cat|/bin/cat|/usr/bin/cat) -- ${escaped}$`).test(item.command);
+  if (action.name === "sed") return new RegExp(`^sed -n '?1,[1-9][0-9]{0,2}p'? ${escaped}$`).test(item.command);
+  return false;
+}
+
+function nativeItemObservation(item) {
+  if (item.type === "fileChange" || item.type === "collabAgentToolCall" || item.type === "subAgentActivity" ||
+      item.type === "imageGeneration" || item.type === "enteredReviewMode" || item.type === "exitedReviewMode" ||
+      item.type === "contextCompaction" || item.type === "error") {
+    fail(`native capability task contains a disallowed ${item.type} item`);
+  }
+  if (!passiveNativeItemTypes.has(item.type) && item.type !== "commandExecution") {
+    fail(`native capability task contains an unknown ${item.type} item`);
+  }
+  let terminalState = null;
+  let skillRead = false;
+  if (item.type === "commandExecution") {
+    if (item.status !== "completed" || item.exitCode !== 0 || typeof item.command !== "string" ||
+        !strictSkillReadCommand(item)) {
+      fail("native capability task contains a non-admitted commandExecution item");
+    }
+    terminalState = item.status;
+    skillRead = true;
+  }
+  return { rawType: rawItemTypeByNativeType.get(item.type) ?? null, skillRead, terminalState };
+}
+
+function observedNativeTurn(items) {
+  if (items.filter((item) => item.type === "commandExecution").length > 1) {
+    fail("native capability task contains more than one commandExecution item");
+  }
+  const itemObservations = items.map(nativeItemObservation);
+  const rawItemTypes = [...new Set(itemObservations.map((entry) => entry.rawType).filter(Boolean))];
+  return {
+    itemObservations,
+    rawItemTypes,
+    skillActivation: itemObservations.some((entry) => entry.skillRead) ? "used" : "not_used",
+  };
 }
 
 function responseResult(messages, id, label) {
@@ -188,9 +253,14 @@ export async function collectNativeEvidence({
   if (userMessages.length !== 1 || finalMessages.length !== 1 || turn.items.at(-1) !== finalMessages[0]) fail("requested turn lacks one exact prompt and terminal final answer");
   const userContent = userMessages[0].content;
   if (!Array.isArray(userContent) || userContent.length !== 1 || userContent[0]?.type !== "text" || typeof userContent[0].text !== "string") fail("requested turn prompt is not one exact text input");
-  const capabilityResult = parseCapabilityResult(finalMessages[0].text, "native terminal capability result");
-  const { candidate, committedCase } = await verifyCommittedCapabilityResult({ repositoryRoot, result: capabilityResult });
-  if (userContent[0].text !== committedCase.prompt) fail("native turn prompt does not match the committed capability case");
+const observation = observedNativeTurn(turn.items);
+  const { candidate, committedCase, result: capabilityResult } = await verifyCommittedNativeTurn({
+    repositoryRoot,
+    prompt: userContent[0].text,
+    output: finalMessages[0].text,
+    observedRawItemTypes: observation.rawItemTypes,
+    observedSkillActivation: observation.skillActivation,
+  });
 
   const goal = goalRead.goal ?? null;
   if (goal !== null && (goal.threadId !== threadId || typeof goal.objective !== "string" || !statuses.has(goal.status) || goal.status === "absent")) {
@@ -205,7 +275,7 @@ export async function collectNativeEvidence({
   }
 
   const payload = canonical({
-    schema: "rbm-native-evidence/v3",
+    schema: "rbm-native-evidence/v4",
     authority: "local_interface_observation",
     executable: { sha256: executable.sha256, server_version: expectedServerVersion },
     host: {
@@ -225,9 +295,16 @@ export async function collectNativeEvidence({
     turn: {
       id: turn.id,
       status: turn.status,
-      items: turn.items.map((item) => ({ id_sha256: digest(item.id), type: item.type })),
+      items: turn.items.map((item, index) => ({
+        id_sha256: digest(item.id),
+        raw_type: observation.itemObservations[index].rawType,
+        skill_read: observation.itemObservations[index].skillRead,
+        terminal_state: observation.itemObservations[index].terminalState,
+        type: item.type,
+      })),
       prompt_sha256: digest(userContent[0].text),
-      capability_result_sha256: digest(JSON.stringify(canonical(capabilityResult))),
+      output_sha256: digest(finalMessages[0].text),
+      oracle_result_sha256: digest(JSON.stringify(canonical(capabilityResult))),
     },
     goal: goal ? {
       objective_sha256: digest(goal.objective),
@@ -247,12 +324,19 @@ export async function collectNativeEvidence({
       oracle: committedCase.oracle,
       control_sha256: committedCase.control_sha256,
     },
+    oracle: {
+      assertions_sha256: digest(JSON.stringify(canonical(committedCase.assertions))),
+      expected_skill_activation: committedCase.skill_activation.expected,
+      observed_skill_activation: observation.skillActivation,
+      required_raw_item_types: committedCase.required_raw_item_types,
+      observed_raw_item_types: observation.rawItemTypes,
+    },
     result: "matched",
   });
   return canonical({
     content_sha256: digest(JSON.stringify(payload)),
     payload,
-    schema: "rbm-native-evidence-envelope/v3",
+    schema: "rbm-native-evidence-envelope/v4",
   });
 }
 

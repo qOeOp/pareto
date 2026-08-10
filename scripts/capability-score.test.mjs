@@ -104,8 +104,21 @@ function rollout({ sourceCase, trial, sourceKind, result = "pass", unverified = 
     const userAgent = "Codex Desktop/0.147.0 (fixture)";
     const executableSha256 = `sha256:${"d".repeat(64)}`;
     nativeEnvironment = `codex-app-server:${userAgent}:unix:fixture:${executableSha256}`;
+    const output = deterministicOutput(sourceCase);
+    const expectsSkill = sourceCase.metadata.observations.skill_activation.expected === "used";
+    const nativeItems = [
+      { id_sha256: sha(Buffer.from(`user-${caseId}-${trial}`)), raw_type: null, skill_read: false, terminal_state: null, type: "userMessage" },
+      ...(expectsSkill ? [{ id_sha256: sha(Buffer.from(`command-${caseId}-${trial}`)), raw_type: "command_execution", skill_read: true, terminal_state: "completed", type: "commandExecution" }] : []),
+      { id_sha256: sha(Buffer.from(`agent-${caseId}-${trial}`)), raw_type: "agent_message", skill_read: false, terminal_state: null, type: "agentMessage" },
+    ];
+    const observedRawItemTypes = [...new Set([
+      ...(expectsSkill ? ["command_execution"] : []),
+      "agent_message",
+    ])];
+    const deterministicAssertions = sourceCase.assert.filter((assertion) =>
+      assertion.type !== "skill-used" && assertion.type !== "not-skill-used");
     const payload = canonical({
-      schema: "rbm-native-evidence/v3",
+      schema: "rbm-native-evidence/v4",
       authority: "local_interface_observation",
       executable: { sha256: executableSha256, server_version: "0.147.0" },
       host: { platform_family: "unix", platform_os: "fixture", user_agent: userAgent },
@@ -113,19 +126,24 @@ function rollout({ sourceCase, trial, sourceKind, result = "pass", unverified = 
       turn: {
         id: uuid(`turn-${capabilityId}-${scenario}-${trial}`),
         status: "completed",
-        items: [
-          { id_sha256: sha(Buffer.from(`user-${caseId}-${trial}`)), type: "userMessage" },
-          { id_sha256: sha(Buffer.from(`agent-${caseId}-${trial}`)), type: "agentMessage" },
-        ],
+        items: nativeItems,
         prompt_sha256: sha(Buffer.from(sourceCase.vars.prompt)),
-        capability_result_sha256: sha(Buffer.from(JSON.stringify(canonical(capabilityResult)))),
+        output_sha256: sha(Buffer.from(output)),
+        oracle_result_sha256: sha(Buffer.from(JSON.stringify(canonical(capabilityResult)))),
       },
       goal: null,
       expectation: { goal_status: "absent", objective_sha256: null },
       binding: { capability_id: capabilityId, scenario, case_id: caseId, candidate: { commit: candidate.commit, tree: candidate.tree }, result, oracle: sourceCase.metadata.observations.behavioral_oracle, control_sha256: caseControl },
+      oracle: {
+        assertions_sha256: sha(Buffer.from(JSON.stringify(canonical(deterministicAssertions)))),
+        expected_skill_activation: sourceCase.metadata.observations.skill_activation.expected,
+        observed_skill_activation: sourceCase.metadata.observations.skill_activation.expected,
+        required_raw_item_types: sourceCase.metadata.observations.required_raw_item_types,
+        observed_raw_item_types: observedRawItemTypes,
+      },
       result: "matched",
     });
-    artifact = Buffer.from(`${JSON.stringify(canonical({ schema: "rbm-native-evidence-envelope/v3", content_sha256: sha(Buffer.from(JSON.stringify(payload))), payload }))}\n`);
+    artifact = Buffer.from(`${JSON.stringify(canonical({ schema: "rbm-native-evidence-envelope/v4", content_sha256: sha(Buffer.from(JSON.stringify(payload))), payload }))}\n`);
   }
   return {
     sessionId,
@@ -152,11 +170,24 @@ function rollout({ sourceCase, trial, sourceKind, result = "pass", unverified = 
 const goldenCases = parseYaml(await readFile(path.resolve("evals/cases/golden.yaml"), "utf8"));
 const holdoutCases = parseYaml(await readFile(path.resolve("evals/cases/holdout.yaml"), "utf8"));
 const committedCases = [...goldenCases, ...holdoutCases];
+assert.deepEqual(
+  committedCases
+    .filter((testCase) => testCase.metadata.observations.capability.id === "EVAL-01")
+    .map((testCase) => testCase.metadata.observations.capability)
+    .sort((left, right) => left.scenario.localeCompare(right.scenario)),
+  [
+    { id: "EVAL-01", scenario: "negative", case_id: "self-authored-native-pass-rejected" },
+    { id: "EVAL-01", scenario: "positive", case_id: "native-trajectory-local-boundary" },
+    { id: "EVAL-01", scenario: "recovery", case_id: "native-trace-recovery-without-rewrite" },
+  ],
+  "native trajectory evidence must keep committed positive, negative, and recovery controls",
+);
 
 function deterministicOutput(testCase) {
   return (testCase.assert ?? []).flatMap((assertion) => {
     if (assertion.type === "contains") return [assertion.value];
     if (assertion.type === "contains-all") return assertion.value;
+    if (assertion.type === "equals") return [assertion.value];
     return [];
   }).join("\n");
 }
@@ -297,6 +328,10 @@ try {
   assert.equal(completeScore.evidence_limit, "provider_attested_attempt_inventory_unavailable");
   assert.ok(completeScore.capabilities.some((row) => row.score === 2 && row.maturity === "declared"));
   assert.ok(completeScore.capabilities.every((row) => row.score <= 2 && !("observed_score" in row)));
+  const nativeTrajectoryRow = completeScore.capabilities.find((row) => row.id === "EVAL-01");
+  assert.equal(nativeTrajectoryRow.score, 2);
+  assert.equal(nativeTrajectoryRow.maturity, "declared");
+  assert.ok(nativeTrajectoryRow.observation_count >= 3);
   assert.deepEqual(completeScore.capabilities.find((row) => row.id === "PLN-02"), {
     ...catalog.capabilities.find((row) => row.id === "PLN-02"),
     score: 0,
@@ -394,6 +429,20 @@ try {
   nativeContentObservation.content_sha256 = sha(nativeContentBytes);
   await writeFile(nativeContentMismatch.evidencePath, `${JSON.stringify(nativeContentEvidence, null, 2)}\n`);
   await assert.rejects(() => scoreEvidence(nativeContentMismatch), /prompt digest does not match committed case/);
+
+  const nativeItemMismatch = await fixture("native-item-mismatch");
+  const nativeItemEvidence = JSON.parse(await readFile(nativeItemMismatch.evidencePath, "utf8"));
+  const nativeItemObservation = nativeItemEvidence.observations.find((entry) => entry.source_kind === "native_trace" && entry.result === "pass");
+  const nativeItemPath = path.join(nativeItemMismatch.directory, nativeItemObservation.artifact_path);
+  const nativeItemReceipt = JSON.parse(await readFile(nativeItemPath, "utf8"));
+  const commandItem = nativeItemReceipt.payload.turn.items.find((item) => item.type === "commandExecution");
+  commandItem.terminal_state = "inProgress";
+  nativeItemReceipt.content_sha256 = sha(Buffer.from(JSON.stringify(canonical(nativeItemReceipt.payload))));
+  const nativeItemBytes = Buffer.from(`${JSON.stringify(nativeItemReceipt)}\n`);
+  await writeFile(nativeItemPath, nativeItemBytes);
+  nativeItemObservation.content_sha256 = sha(nativeItemBytes);
+  await writeFile(nativeItemMismatch.evidencePath, `${JSON.stringify(nativeItemEvidence, null, 2)}\n`);
+  await assert.rejects(() => scoreEvidence(nativeItemMismatch), /native turn item observation is invalid/);
 
   const wrongCandidate = await fixture("wrong-candidate");
   const wrongEvidence = JSON.parse(await readFile(wrongCandidate.evidencePath, "utf8"));
