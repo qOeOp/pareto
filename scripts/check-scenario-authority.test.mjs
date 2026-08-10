@@ -21,7 +21,7 @@ try {
     "evals/capabilities.json", "evals/scenarios.json", "evals/cases/golden.yaml", "evals/cases/holdout.yaml",
     ".github/workflows/scenario-authority.yml", ".github/workflows/observe-install-capability.yml",
     ".github/workflows/observe-score-capability.yml", "scripts/check-scenario-authority.mjs",
-    "scripts/validate.mjs", "scripts/capability-score.mjs", "scripts/observe-install-capability.mjs",
+    "scripts/self-test.mjs", "scripts/validate.mjs", "scripts/capability-score.mjs", "scripts/observe-install-capability.mjs",
     "scripts/observe-score-capability.mjs", "scripts/json.mjs",
     "package.json", "package-lock.json",
   ]) {
@@ -33,8 +33,8 @@ try {
   runGit("commit", "--quiet", "-m", "base");
   const base = runGit("rev-parse", "HEAD");
 
-  const commitMutation = async (name, mutate) => {
-    runGit("checkout", "--quiet", "-B", name, base);
+  const commitMutation = async (name, mutate, origin = base) => {
+    runGit("checkout", "--quiet", "-B", name, origin);
     await mutate();
     runGit("add", ".");
     runGit("commit", "--quiet", "--allow-empty", "-m", name);
@@ -70,13 +70,26 @@ try {
 
   const partialFixedObserverAdmission = await commitMutation("partial-fixed-observer-admission", async () => {
     const design = JSON.parse(await readFile(designPath, "utf8"));
-    const row = design.scenarios.find((entry) => entry.capability_id === "INS-01");
-    row.authority_status = "implemented";
-    row.missing_authority = null;
+    const rows = design.scenarios.filter((entry) => entry.capability_id === "INS-01");
+    const row = rows[0];
+    const canonicalImplemented = rows.every((entry) => entry.authority_status === "implemented");
+    row.authority_status = canonicalImplemented ? "authority_unavailable" : "implemented";
+    row.missing_authority = canonicalImplemented ? "scenario_consumer_binding" : null;
     await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
   });
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: partialFixedObserverAdmission }),
-    /must admit all INS-01 fixed-observer scenarios atomically/);
+    /must admit all INS-01 fixed-observer scenarios atomically|changed canonical INS-01\/positive authority without an admitted fixed observer/);
+
+  const partialFixedObserverDowngrade = await commitMutation("partial-fixed-observer-downgrade", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    const row = design.scenarios.find((entry) => entry.capability_id === "INS-01");
+    row.authority_status = "authority_unavailable";
+    row.missing_authority = "scenario_consumer_binding";
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  }, fixedObserverAdmission);
+  assert.throws(() => checkScenarioAuthority({
+    repo: fixture, base: fixedObserverAdmission, candidate: partialFixedObserverDowngrade,
+  }), /changed canonical INS-01\/positive authority without an admitted fixed observer/);
 
   const inventedObserverAdmission = await commitMutation("invented-observer-admission", async () => {
     const design = JSON.parse(await readFile(designPath, "utf8"));
@@ -99,6 +112,13 @@ try {
   });
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: observerAndAuthorityChange }),
     /changed protected scenario authority control scripts\/observe-install-capability\.mjs/);
+
+  const selfTestDrift = await commitMutation("self-test-drift", async () => {
+    const selfTestPath = path.join(fixture, "scripts", "self-test.mjs");
+    await writeFile(selfTestPath, `${await readFile(selfTestPath, "utf8")}\n// candidate self-test drift\n`);
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: selfTestDrift }),
+    /changed protected scenario authority control scripts\/self-test\.mjs/);
 
   const malformedAddition = await commitMutation("malformed-addition", async () => {
     const design = JSON.parse(await readFile(designPath, "utf8"));

@@ -47,7 +47,7 @@ executes candidate code, reads candidate matrix/corpus blobs by exact event head
 catalog field, slot, case definition, suite, observer, and missing-authority binding, and permits only a new
 executable case on a previously unbound slot. Schema, catalog, case, or authority-state migration therefore
 requires a separate base-first change.
-The workflow, checker, JSON parser, and package manifest/lock are exact protected control-plane blobs. Their
+The workflow, checker, validator self-test, JSON parser, and package manifest/lock are exact protected control-plane blobs. Their
 migration requires explicit repository-owner bypass; a scenario candidate cannot authorize its own checker.
 The schema-v2 migration itself keeps every slot unavailable. Only a later PR may switch the six fixed-observer
 slots to `implemented`, and the already-canonical base checker rejects any simultaneous observer, scorer,
