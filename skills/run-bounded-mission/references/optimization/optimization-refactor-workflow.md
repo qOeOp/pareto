@@ -13,6 +13,10 @@ Apply the necessity test: if deletion leaves clean success, known-defect prevent
 owner/consumer edges unchanged, remove the mechanism instead of preserving or summarizing it. Prefer
 owner convergence and deletion over adapters or compatibility paths.
 
+Where comparable benefit and cost evidence exists, test the most concentrated mechanisms first. The
+ordering never replaces the deletion consumer counterfactual and cannot trade critical behavior,
+unique authority, or fail-close boundaries.
+
 A proposal names the preserved consumer behavior, no-change cost, quantitative structural target,
 bounded independent Outcome, Origin, evidence/limits, acceptance, and non-goals. It requires fresh
 planning and user-approved task dispatch; it inherits no candidate, Plan, Stop, or effect authority.
