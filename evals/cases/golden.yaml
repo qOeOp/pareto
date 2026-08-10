@@ -487,6 +487,237 @@
         - "uncovered_risk: freeze"
         - "more_than_two: split-or-justify-indivisible-high-consequence"
 
+- description: "[full] publication contract requires one effect and full readback"
+  metadata:
+    observations: { capability: { id: DLV-01, scenario: positive, case_id: dlv-01-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission to classify an authorized Ready PR publication contract without
+      publishing. The candidate is committed and clean, its tree reproduces the accepted state, and the
+      repository's current PR contract is known, but GitHub state is unavailable. Return the next legal
+      publication sequence and evidence boundary.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        publication_effect: not-issued
+        publication_authority: exact-required
+        candidate_identity: committed-head-tree
+        write_surface: clean
+        pr_contract: current
+        title_gate: run-if-repository-owned
+        next_task_branch_effect: one-after-github-capability
+        next_ready_pr_effect: one-after-github-capability
+        required_readback: repository-number-url-base-head-ref-oid-title-body-state
+        readback_evidence: unavailable
+        readback_mismatch: stop
+        merge_effect: forbidden
+
+- description: "[full] ambiguous publication transport cannot create a replacement PR"
+  metadata:
+    observations: { capability: { id: DLV-01, scenario: negative, case_id: dlv-01-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. An authorized PR-create call returned a generic transport error after
+      submission; no exact PR identity was returned and remote readback is ambiguous. Return the effect
+      disposition and legal next action.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        publication_effect: transport-unknown
+        exact_pr_identity: unavailable
+        candidate_publication: unproved
+        replacement_pr: forbidden
+        second_create: forbidden
+        delivery_state: needs-attention
+        next_action: same-effect-authority-readback-only
+
+- description: "[full] publication recovery adopts only an exact existing PR"
+  metadata:
+    observations: { capability: { id: DLV-01, scenario: recovery, case_id: dlv-01-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. After an ambiguous PR-create result, an owner-authorized readback finds
+      one existing PR whose repository, base, head OID, branch, title, body, and Ready state exactly match
+      the frozen publication input. Return the recovery; also state the no-match boundary.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        matching_existing_pr: bind
+        identity_fields: repository-number-url-base-head-ref-oid-title-body-state
+        create_retry: false
+        replacement_pr: false
+        publication_recovery: same-effect-readback
+        no_exact_match: partial-or-unknown-stop
+        merge_authority: unchanged
+
+- description: "[full] merge-ready binds exact head checks conversations and replayed merge tree"
+  metadata:
+    observations: { capability: { id: DLV-02, scenario: positive, case_id: dlv-02-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission to classify the merge-ready contract without querying GitHub. The local
+      candidate head/tree is exact, but real-consumer, audit, CI, conversations, mergeability, queue,
+      branch protection, current base, structured potential merge tree, and final drift observations are
+      unavailable. Return only the required evidence and current decision; do not merge.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        real_consumer: required-exact-head
+        root_and_diff_gate: required-exact-head
+        audit: required-accepted-or-predicate-not-required
+        required_ci: required-all-terminal-success-exact-head
+        conversations: required-zero-material-unresolved
+        current_base_and_head: required
+        mergeability_queue_protection: required-acceptable
+        potential_merge_tree: required-structured-github-data
+        merge_tree_local_replay: required
+        drift: required-none-at-final-observation
+        checkout_equals_head: required
+        merge_ready: unproved
+        merge_effect: not-issued
+        merge_authority: lifecycle-owner-only
+
+- description: "[full] changed delivery facts require a fresh exact-head receipt"
+  metadata:
+    observations: { capability: { id: DLV-02, scenario: recovery, case_id: dlv-02-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A previously merge-ready PR has the same head, but its required-check set
+      changed and one newly required check is pending. Later that check reaches terminal success. Return
+      the recovery sequence and merge authority.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        prior_merge_ready_receipt: stale
+        pending_required_check: stop
+        refresh_head_base_mergeability_checks_conversations: required
+        refreshed_unknown_conflict_or_protection_uncertain: stop
+        fresh_required_set_terminal_success: required
+        merge_tree_replay: rerun
+        compact_receipt: recreate-and-verify-only-if-all-bound-facts-acceptable
+        merge_effect: not-issued
+        merge_authority: unchanged-admitted-lifecycle-owner
+
+- description: "[full] delivery receipt binds canonical bytes and fresh local Git replay"
+  metadata:
+    observations: { capability: { id: DLV-03, scenario: positive, case_id: dlv-03-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. The loader supplied the exact Skill root. A delivery input has unique JSON
+      members, the current local head/base and replayed merge tree, and all six digest-bound accepted
+      evidence kinds. Return the receipt create/verify contract without writing repository files.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        receipt_owner: loaded-skill-delivery-receipt-go
+        input_json_members: unique
+        required_evidence_kinds: real_consumer-root-audit-ci-conversation-drift
+        accepted_evidence: digest-bound-pass
+        audit_not_required: predicate-locator-plus-digest-only
+        create: canonical-json-lf
+        verify: supplied-digest-byte-identity
+        fresh_git_replay: head-base-merge-tree
+        repository_write: none
+        merge_authority: not-granted-by-receipt
+
+- description: "[full] malformed stale or hand-edited delivery receipts fail closed"
+  metadata:
+    observations: { capability: { id: DLV-03, scenario: negative, case_id: dlv-03-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Classify a delivery input with duplicate JSON members, a wrong current
+      head, a stale origin base, a non-replaying merge tree, missing evidence digests, and a hand-edited
+      receipt whose bytes no longer match its digest.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        duplicate_json_members: reject
+        wrong_current_head: reject
+        stale_origin_base: reject
+        wrong_merge_tree: reject
+        missing_evidence_digest: reject
+        hand_edited_receipt: reject
+        create_or_verify_failure: delivery-stop
+        inferred_merge_ready: forbidden
+
+- description: "[full] receipt recovery regenerates from changed typed facts"
+  metadata:
+    observations: { capability: { id: DLV-03, scenario: recovery, case_id: dlv-03-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A valid receipt becomes stale because a bound conversation and required
+      check changed while the candidate head stayed fixed. The exact helper source remains available.
+      Return the only valid receipt recovery and the unavailable-source boundary.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        old_receipt: non-authorizing-stale
+        changed_facts: refresh-from-authorities
+        typed_input: rebuild
+        receipt: recreate-and-verify
+        hand_edit_old_receipt: forbidden
+        preserve_same_head_assumption: forbidden
+        helper_source_unavailable: delivery-stop
+
+- description: "[full] broad cleanup and name-based deletion are forbidden"
+  metadata:
+    observations: { capability: { id: DLV-04, scenario: negative, case_id: dlv-04-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission at a terminal endpoint. A proposed cleanup uses branch-name matching and
+      broad worktree prune, while inventory contains a dirty user worktree, an active task, and a detached
+      unique commit. No exact deletion authority exists. Return the cleanup decision.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        branch_name_match_deletion: forbidden
+        broad_worktree_prune: forbidden
+        dirty_user_worktree: preserve
+        active_task: preserve
+        detached_unique_commit: preserve
+        exact_target_authority: missing
+        cleanup_effects: none
+        terminal_disposition: needs-attention-until-owned-preserve
+
+- description: "[full] failed cleanup row preserves custody and stops dependent effects"
+  metadata:
+    observations: { capability: { id: DLV-04, scenario: recovery, case_id: dlv-04-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. One exact absorbed branch deletion succeeded and read back absent, but the
+      next authorized worktree removal failed. A dependent cache removal remains unissued. Return the
+      row-level recovery without widening authority.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        absorbed_branch: cleaned-readback-absent
+        worktree_row: partial
+        worktree_custody: preserve-with-owner-reason-recovery-locator
+        dependent_cache_removal: stop-unissued
+        authority_widening: forbidden
+        resume_requirement: fresh-exact-target-authority-and-readback
+        finalize: blocked-until-all-rows-terminal
+
 - description: "[full] exact head delivery rejects stale evidence"
   metadata:
     observations: { capability: { id: DLV-02, scenario: negative, case_id: stale-delivery-evidence }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
