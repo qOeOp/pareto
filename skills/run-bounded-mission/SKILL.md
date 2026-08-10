@@ -1,25 +1,75 @@
 ---
 name: run-bounded-mission
-description: "Run a compact Frame, Plan, Execute, Verify, Finalize workflow. Use only when the user affirmatively invokes the exact token $run-bounded-mission, clearly asks to use or run the bounded mission workflow, repository instructions require it for non-trivial implementation or delivery, or a later commit, push, pull-request, or merge turn continues a candidate produced under this workflow. Quoting, naming, linking, inspecting, auditing, explaining, diagnosing, or negating the token, skill name, or path is not invocation. Without one of those positive entries, do not use it for answer-only work, mechanical edits, routine status, task management, or internal subtasks. An affirmative explicit invocation wins over otherwise excluded request types, including when appended to the request."
+description: "Run a compact Request Admission gate and Frame, Plan, Execute, Verify, Finalize workflow. Use only when the user affirmatively invokes the exact token $run-bounded-mission, clearly asks to use or run the bounded mission workflow, repository instructions require it for non-trivial implementation or delivery, or a later commit, push, pull-request, or merge turn continues a candidate produced under this workflow. Quoting, naming, linking, inspecting, auditing, explaining, diagnosing, or negating the token, skill name, or path is not invocation. Without one of those positive entries, do not use it for answer-only work, mechanical edits, routine status, task management, or internal subtasks. An affirmative explicit invocation wins over otherwise excluded request types, including when appended to the request."
 ---
 
 # Run Bounded Mission
 
-Use one conversation-owned lifecycle:
+Use one conversation-owned lifecycle preceded by its entrance gate:
 
 ```text
-Frame → Plan → Execute → Verify → Finalize
+Request Admission → Frame → Plan → Execute → Verify → Finalize
 ```
 
-The main agent owns Frame, Plan admission, the single writable candidate, evidence and finding
-judgment, effects, acceptance, and Finalize. A support lane may return evidence or a frozen leaf but
-cannot own those decisions. Keep repository authority current-state-only, dependencies acyclic, and
-the user's interaction language unchanged unless the user changes it.
+Request Admission is the Frame entrance gate, not a sixth lifecycle stage, second Spec, or Mission.
+
+The main agent owns Request Admission, Frame, Plan admission, the single writable candidate, evidence
+and finding judgment, effects, acceptance, and Finalize. A support lane may return evidence or a
+frozen leaf but cannot own those decisions. Keep repository authority current-state-only,
+dependencies acyclic, and the user's interaction language unchanged unless the user changes it.
 
 Do not create a coordinator, registry, scheduler, ledger, database, daemon, retry engine, wrapper, or
 compatibility path unless requested product behavior requires it. Prefer no change, deletion, or an
 existing owner. Compression must preserve consumer behavior, unique authority, fail-close boundaries,
 and observable acceptance.
+
+## Request Admission
+
+Before any admission evidence probe, bind the exact original user request by a conversation-native
+locator or a lossless bounded quotation; a summary is not the source. Separate user-owned intent,
+preferences, constraints, non-goals, acceptance, and explicit effect authority from technical or
+causal premises and the requested mechanism. Treat premises as claims and the mechanism as a candidate
+route unless the user explicitly owns it as a hard constraint. Current repository/runtime and real
+consumer behavior own local technical facts; an agent-preferred request is only a proposal.
+
+Freeze a read-only projection, then append its result after any admitted probe:
+
+```text
+Request admission projection
+Original request: <exact request or locator>
+User-owned intent / authority: <outcome, preferences, constraints, acceptance, effects>
+Consumer / no-change harm: <behavior changed; observable harm if unchanged>
+Material premises / mechanism: <claims to validate; candidate route or hard constraint>
+Result: <status; admitted or proposed request; reason and decisive evidence>
+```
+
+Use `Direct` only when consumer, authority, acceptance, reversibility, premises, and project impact are
+clear without external, structural, safety, or unknown consequence; emit only the compact projection
+and load no history or conditional owner. Otherwise use the cheapest current repository/runtime or
+consumer observation that can decide admission. For decision-changing bounded history, consequential
+ambiguity, or external evidence, load [decision evidence](references/planning/planning-decision-evidence.md).
+Mechanism comparison and structural choice remain in Plan.
+
+`admitted_as_requested` and `admitted_normalized` are the only admitted results. Both require a real
+consumer, a supported conclusion about no-change behavior, supported or testable necessary premises,
+sufficient authority, and project impact that preserves existing owners, fail-close boundaries,
+critical floors, and safe effects. Normalize only when every user-owned field is preserved and
+`material_change: none`; retain
+`original_request`, `admitted_request`, and `normalization`. A no-change result is normalized only when
+current behavior already satisfies every user-owned field and no consumer harm remains.
+`needs_user_alignment` asks the smallest question only the user can answer when a material reframe or
+choice among user-owned fields or a hard mechanism constraint is required; preserve the original and
+proposed requests, material diff, evidence, harm, and recommendation. `not_admitted` names the failed
+consumer, contradicted necessary premise, critical floor, project constraint, safe path, or effect
+authority; a corrected proposal is not admitted by implication. `evidence_unavailable` names the
+decision-changing fact and finite Stop and freezes only its dependent admission. A contradicted,
+unknown, unavailable, or reproduction-required necessary premise cannot reach its dependent Frame.
+Re-run admission after a decisive correction or new observation; never silently convert a material
+reframe into normalization.
+
+Only an admitted projection may form Frame. Admission itself authorizes no mutation, candidate, branch,
+worktree, PR, commit, shared external effect, Goal, or native Task. Conditional evidence support remains
+read-only and cannot choose the Outcome, generate Frame, or decide admission for Main.
 
 ## Frame
 
@@ -27,6 +77,7 @@ Before a decision-changing probe or mutation, state:
 
 ```text
 Frame projection
+Request origin / admission: <original request and admitted projection locators>
 Outcome / consumer: <observable result and real consumer>
 Included / excluded: <scope and non-goals>
 Authority / effects: <canonical authority; permitted and prohibited effects>
@@ -34,8 +85,10 @@ Acceptance: <falsifiable evidence and unavailable evidence>
 Origin / Stop: <immutable origin and finite stops>
 ```
 
-The request and current repository or user authority remain canonical. A material change to any field
-freezes mutation and unissued effects, invalidates the Plan, and requires a new projection.
+The admitted request, its immutable original-request locator, and current repository or user authority
+remain canonical. A material change to any field freezes mutation and unissued effects, invalidates
+the Plan, and requires a new projection; changing a user-owned field also requires alignment and
+re-admission.
 
 Choose session mode from independently valuable outcomes:
 

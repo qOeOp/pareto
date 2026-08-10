@@ -3,19 +3,21 @@
     observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
   vars:
     prompt: >-
-      Use $run-bounded-mission now for a small repository implementation. Do not edit files. Return
-      only the initial lifecycle projection and the next legal stage.
+      Use $run-bounded-mission. In README.md, replace only the opening description's word
+      `collection` with `repository` for the reader consumer; acceptance is that exact sentence change
+      with no other text or external effect. Inspect but do not edit. Return only Request Admission.
   assert:
     - type: skill-used
       value: run-bounded-mission
     - type: contains-all
       value:
-        - "Frame projection"
-        - "Outcome / consumer"
-        - "Included / excluded"
-        - "Authority / effects"
-        - "Acceptance"
-        - "Origin / Stop"
+        - "Request admission projection"
+        - "Original request"
+        - "User-owned intent / authority"
+        - "Consumer / no-change harm"
+        - "admission_depth: Direct"
+        - "next_stage: Frame"
+        - "conditional_owner_loaded: false"
 
 - description: "[smoke] quoted token answer-only near miss"
   metadata:
@@ -37,17 +39,37 @@
     observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
   vars:
     prompt: >-
-      Plan a non-trivial repository implementation under the repository instructions. Do not edit
-      files. Return the required initial projection and the next legal stage. Do not explicitly name
-      any Skill in your answer.
+      Plan a non-trivial repository implementation under the repository instructions, but no Outcome,
+      consumer, acceptance, or permitted effect has been supplied. Do not edit files. Return the
+      required entrance-gate disposition. Do not explicitly name any Skill in your answer.
   assert:
     - type: skill-used
       value: run-bounded-mission
     - type: contains-all
       value:
-        - "Frame projection"
-        - "Outcome / consumer"
-        - "Origin / Stop"
+        - "Request admission projection"
+        - "Original request"
+        - "admission_status: needs_user_alignment"
+        - "frame_created: false"
+
+- description: "[full] consumerless request does not reach Frame"
+  metadata:
+    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Add a new registry that has no caller, runtime entry, or observable
+      acceptance behavior. Return only the Request Admission result and effect disposition.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "admission_status: not_admitted"
+        - "real_consumer: none"
+        - "frame_created: false"
+        - "mutation: forbidden"
+    - type: not-contains
+      value: "admission_status: admitted_normalized"
 
 - description: "[full] nonactivation boundary classification"
   metadata:
@@ -252,24 +274,6 @@
         - "fixed_lens_taxonomy: false"
         - "uncovered_risk: freeze"
         - "more_than_two: split-or-justify-indivisible-high-consequence"
-
-- description: "[full] provider unavailable is not a pass"
-  metadata:
-    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_provider_state] }
-  vars:
-    prompt: >-
-      Use $run-bounded-mission. The single authorized provider attempt fails before inference because
-      capability is unavailable. Return the evidence disposition and retry rule.
-  assert:
-    - type: skill-used
-      value: run-bounded-mission
-    - type: contains-all
-      value:
-        - "status: unavailable"
-        - "pass: false"
-        - "retry: false"
-        - "preserve_raw_evidence: true"
-        - "quality_claim: unavailable"
 
 - description: "[full] exact head delivery rejects stale evidence"
   metadata:
