@@ -9,14 +9,15 @@
   },
   "scripts": {
     "audit:consumer": "npm audit --omit=dev",
-    "check": "node scripts/validate.mjs && node scripts/self-test.mjs && node scripts/install-codex.test.mjs && node scripts/capability-score.test.mjs && promptfoo validate -c evals/promptfooconfig.yaml",
+    "check": "node scripts/validate.mjs && node scripts/self-test.mjs && node scripts/install-codex.test.mjs && node scripts/capability-score.test.mjs && node scripts/native-evidence.test.mjs && promptfoo validate -c evals/promptfooconfig.yaml",
     "install:codex": "node scripts/install-codex.mjs",
     "check:codex-install": "node scripts/install-codex.mjs --check",
     "eval:smoke": "node scripts/eval.mjs smoke",
     "eval:full": "node scripts/eval.mjs full",
     "eval:holdout": "node scripts/eval.mjs holdout",
     "eval:matrix": "node scripts/matrix.mjs",
-    "score:capabilities": "node scripts/capability-score.mjs"
+    "score:capabilities": "node scripts/capability-score.mjs",
+    "evidence:native": "node scripts/native-evidence.mjs"
   },
   "devDependencies": {
     "promptfoo": "0.122.0",
