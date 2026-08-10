@@ -39,6 +39,10 @@ function digest(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
 
+function canonicalEqual(left, right) {
+  return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
+}
+
 function exactKeys(value, expected, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail(`${label} must be an object`);
   const actual = Object.keys(value).sort();
@@ -601,7 +605,7 @@ async function aggregate({ inputDir, output }) {
     const row = await readEnvelope(path.join(inputDir, name));
     const payload = row.envelope.payload;
     if (payload?.schema !== "pareto-capability-observation/v1" || payload.capability_id !== capabilityId ||
-        payload.result !== "pass" || JSON.stringify(payload.observer) !== JSON.stringify(observer) ||
+        payload.result !== "pass" || !canonicalEqual(payload.observer, observer) ||
         Object.entries(cases).some(([scenario, caseId]) =>
           payload.scenarios?.[scenario]?.case_id !== caseId || payload.scenarios[scenario].result !== "pass")) {
       fail("INS-01 campaign contains an invalid observation");
@@ -614,7 +618,7 @@ async function aggregate({ inputDir, output }) {
   }
   if (new Set(rows.map((row) => row.environment)).size !== 2 ||
       !rows.some((row) => row.environment === "linux") || !rows.some((row) => row.environment === "win32") ||
-      JSON.stringify(rows[0].subject) !== JSON.stringify(rows[1].subject) ||
+      !canonicalEqual(rows[0].subject, rows[1].subject) ||
       rows[0].subject.commit !== observer.commit) {
     fail("INS-01 campaign lacks exact Linux and Windows coverage for one subject");
   }
