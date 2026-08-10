@@ -1,0 +1,158 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { stringify as stringifyYaml } from "yaml";
+import { checkScenarioAuthority } from "./check-scenario-authority.mjs";
+
+const gitExecutable = process.platform === "win32" ? "git.exe" : "/usr/bin/git";
+const fixture = await mkdtemp(path.join(os.tmpdir(), "pareto-scenario-authority-"));
+const runGit = (...args) => execFileSync(gitExecutable, ["-C", fixture, ...args], { encoding: "utf8" }).trim();
+
+try {
+  runGit("init", "--quiet");
+  runGit("config", "user.name", "Pareto Test");
+  runGit("config", "user.email", "pareto@example.invalid");
+  runGit("checkout", "--quiet", "-b", "main");
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+  for (const file of [
+    "evals/capabilities.json", "evals/scenarios.json", "evals/cases/golden.yaml", "evals/cases/holdout.yaml",
+    ".github/workflows/scenario-authority.yml", "scripts/check-scenario-authority.mjs", "scripts/json.mjs",
+    "package.json", "package-lock.json",
+  ]) {
+    const target = path.join(fixture, file);
+    await mkdir(path.dirname(target), { recursive: true });
+    await writeFile(target, await readFile(path.join(root, file)));
+  }
+  runGit("add", ".");
+  runGit("commit", "--quiet", "-m", "base");
+  const base = runGit("rev-parse", "HEAD");
+
+  const commitMutation = async (name, mutate) => {
+    runGit("checkout", "--quiet", "-B", name, base);
+    await mutate();
+    runGit("add", ".");
+    runGit("commit", "--quiet", "--allow-empty", "-m", name);
+    return runGit("rev-parse", "HEAD");
+  };
+  const designPath = path.join(fixture, "evals/scenarios.json");
+  const goldenPath = path.join(fixture, "evals/cases/golden.yaml");
+
+  const addition = await commitMutation("addition", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    const row = design.scenarios.find((entry) => entry.executable_suite === undefined);
+    row.executable_suite = "golden";
+    const golden = (await import("yaml")).parse(await readFile(goldenPath, "utf8"));
+    const added = structuredClone(golden.find((testCase) => testCase.description.startsWith("[full]")));
+    added.description = "[full] monotonic addition";
+    added.metadata.observations.capability = { id: row.capability_id, scenario: row.scenario, case_id: row.case_id };
+    golden.push(added);
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+    await writeFile(goldenPath, stringifyYaml(golden));
+  });
+  assert.equal(checkScenarioAuthority({ repo: fixture, base, candidate: addition }).candidateCases, 26);
+
+  const malformedAddition = await commitMutation("malformed-addition", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    const row = design.scenarios.find((entry) => entry.executable_suite === undefined);
+    row.executable_suite = "golden";
+    const golden = (await import("yaml")).parse(await readFile(goldenPath, "utf8"));
+    golden.push({
+      description: "[full] malformed addition",
+      metadata: { observations: { capability: { id: row.capability_id, scenario: row.scenario, case_id: row.case_id } } },
+    });
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+    await writeFile(goldenPath, stringifyYaml(golden));
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: malformedAddition }),
+    /requires prompt and assertions/);
+
+  const thirdSmoke = await commitMutation("third-smoke", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    const row = design.scenarios.find((entry) => entry.executable_suite === undefined);
+    row.executable_suite = "golden";
+    const golden = (await import("yaml")).parse(await readFile(goldenPath, "utf8"));
+    const added = structuredClone(golden.find((testCase) => testCase.description.startsWith("[full]")));
+    added.description = "[smoke] third smoke";
+    added.metadata.observations.capability = { id: row.capability_id, scenario: row.scenario, case_id: row.case_id };
+    golden.push(added);
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+    await writeFile(goldenPath, stringifyYaml(golden));
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: thirdSmoke }),
+    /must retain exactly two smoke cases/);
+
+  const duplicateDescription = await commitMutation("duplicate-description", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    const row = design.scenarios.find((entry) => entry.executable_suite === undefined);
+    row.executable_suite = "golden";
+    const golden = (await import("yaml")).parse(await readFile(goldenPath, "utf8"));
+    const added = structuredClone(golden.find((testCase) => testCase.description.startsWith("[full]")));
+    added.metadata.observations.capability = { id: row.capability_id, scenario: row.scenario, case_id: row.case_id };
+    golden.push(added);
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+    await writeFile(goldenPath, stringifyYaml(golden));
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: duplicateDescription }),
+    /duplicate description/);
+
+  const coordinatedDeletion = await commitMutation("coordinated-deletion", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    const golden = (await import("yaml")).parse(await readFile(goldenPath, "utf8"));
+    const removed = golden.shift().metadata.observations.capability.case_id;
+    delete design.scenarios.find((row) => row.case_id === removed).executable_suite;
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+    await writeFile(goldenPath, stringifyYaml(golden));
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: coordinatedDeletion }),
+    /changed canonical .* executable suite/);
+
+  const authorityDowngrade = await commitMutation("authority-downgrade", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    const row = design.scenarios.find((entry) => entry.observer_kind === "external_authority");
+    row.observer_kind = "native_thread";
+    row.missing_authority = "host_native_provenance";
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: authorityDowngrade }),
+    /changed canonical .* observer_kind/);
+
+  const weakenedCase = await commitMutation("weakened-case", async () => {
+    const golden = (await import("yaml")).parse(await readFile(goldenPath, "utf8"));
+    golden[0].assert.pop();
+    await writeFile(goldenPath, stringifyYaml(golden));
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: weakenedCase }),
+    /requires deterministic assertions/);
+
+  const catalogDrift = await commitMutation("catalog-drift", async () => {
+    const catalogPath = path.join(fixture, "evals/capabilities.json");
+    const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
+    catalog.capabilities[0].critical = false;
+    await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: catalogDrift }),
+    /changed the canonical capability catalog/);
+
+  const topLevelScore = await commitMutation("top-level-score", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    design.score = 9.5;
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: topLevelScore }),
+    /scenario design identity is invalid/);
+
+  const weakenedControl = await commitMutation("weakened-control", async () => {
+    const workflowPath = path.join(fixture, ".github/workflows/scenario-authority.yml");
+    await writeFile(workflowPath, (await readFile(workflowPath, "utf8")).replace(
+      "github.event.pull_request.base.sha", "github.event.pull_request.head.sha"));
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: weakenedControl }),
+    /changed protected scenario authority control/);
+} finally {
+  await rm(fixture, { recursive: true, force: true });
+}
+
+process.stdout.write("Canonical scenario authority tests passed.\n");
