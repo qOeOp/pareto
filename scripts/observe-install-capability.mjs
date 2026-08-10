@@ -95,6 +95,21 @@ function exactOptionalKeys(value, required, optional, label) {
   }
 }
 
+export function classifyProfileConfigWarning(params, profilePath, configResponseSeen) {
+  exactKeys(params, ["details", "summary"], "profile warning params");
+  if (configResponseSeen || params.details !== null || typeof params.summary !== "string") {
+    fail("app-server profile warning is malformed or late");
+  }
+  const normalized = params.summary.replaceAll("\\", "/");
+  const sandboxFallback = "Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager. " +
+    "See the sandbox prerequisites: https://developers.openai.com/codex/concepts/sandboxing#prerequisites. " +
+    "Codex will use the bundled bubblewrap in the meantime.";
+  if (normalized === sandboxFallback) return "sandbox_prerequisite_fallback";
+  const malformedProfile = `Ignoring malformed agent role definition: failed to parse agent role file at ${profilePath}: TOML parse error at line 1, column 34\n  |\n1 | name = [pareto_observer_malformed\n  |                                  ^\nunclosed array, expected \`]\`\n`;
+  if (normalized === malformedProfile) return "malformed_target_profile";
+  fail("app-server returned an unrelated profile warning");
+}
+
 function normalizedRepository(value) {
   return value
     .replace(/^git@github\.com:/, "https://github.com/")
@@ -562,16 +577,9 @@ async function probeAgentProfileLoader({ codexEntry, cwd, roots, profile, expect
       } else {
         exactKeys(message, ["method", "params"], "app-server profile notification");
         if (message.method === "configWarning") {
-          exactKeys(message.params, ["details", "summary"], "profile warning params");
-          if (configResponseSeen || message.params.details !== null || typeof message.params.summary !== "string") {
-            fail("app-server profile warning is malformed or late");
-          }
-          const normalized = message.params.summary.replaceAll("\\", "/");
-          const expectedSummary = `Ignoring malformed agent role definition: failed to parse agent role file at ${profilePath}: TOML parse error at line 1, column 34\n  |\n1 | name = [pareto_observer_malformed\n  |                                  ^\nunclosed array, expected \`]\`\n`;
-          if (normalized !== expectedSummary) {
-            fail("app-server returned an unrelated profile warning");
-          }
-          warnings.push("malformed_target_profile");
+          const disposition = classifyProfileConfigWarning(message.params, profilePath, configResponseSeen);
+          if (disposition === "malformed_target_profile") warnings.push(disposition);
+          else notifications.push({ method: message.method, warning: disposition });
         } else if (message.method === "remoteControl/status/changed") {
           exactOptionalKeys(
             message.params,
@@ -1054,11 +1062,13 @@ function parseArguments(argv) {
   };
 }
 
-try {
-  const options = parseArguments(process.argv.slice(2));
-  if (options.inputDir) await aggregate(options);
-  else await observe(options);
-} catch (error) {
-  process.stderr.write(`${error.message}\n`);
-  process.exitCode = 1;
+if (import.meta.main) {
+  try {
+    const options = parseArguments(process.argv.slice(2));
+    if (options.inputDir) await aggregate(options);
+    else await observe(options);
+  } catch (error) {
+    process.stderr.write(`${error.message}\n`);
+    process.exitCode = 1;
+  }
 }

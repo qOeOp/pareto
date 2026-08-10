@@ -4,7 +4,9 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { classifyProfileConfigWarning } from "./observe-install-capability.mjs";
 
 const execFileAsync = promisify(execFile);
 const root = await mkdtemp(path.join(os.tmpdir(), "pareto-ins01-aggregate-test-"));
@@ -160,6 +162,32 @@ async function aggregate(capabilityId, observations, output) {
 }
 
 try {
+  const profilePath = "/tmp/codex-home/agents/mission-planner.toml";
+  const malformedSummary = `Ignoring malformed agent role definition: failed to parse agent role file at ${profilePath}: TOML parse error at line 1, column 34\n  |\n1 | name = [pareto_observer_malformed\n  |                                  ^\nunclosed array, expected \`]\`\n`;
+  const sandboxSummary = "Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager. " +
+    "See the sandbox prerequisites: https://developers.openai.com/codex/concepts/sandboxing#prerequisites. " +
+    "Codex will use the bundled bubblewrap in the meantime.";
+  assert.equal(
+    classifyProfileConfigWarning({ details: null, summary: malformedSummary }, profilePath, false),
+    "malformed_target_profile",
+  );
+  assert.equal(
+    classifyProfileConfigWarning({ details: null, summary: sandboxSummary }, profilePath, false),
+    "sandbox_prerequisite_fallback",
+  );
+  assert.throws(
+    () => classifyProfileConfigWarning({ details: null, summary: "unrelated warning" }, profilePath, false),
+    /unrelated profile warning/,
+  );
+  assert.throws(
+    () => classifyProfileConfigWarning({ details: null, summary: sandboxSummary }, profilePath, true),
+    /malformed or late/,
+  );
+  await execFileAsync(process.execPath, [
+    "--input-type=module",
+    "--eval",
+    `process.argv[1] = "-"; await import(${JSON.stringify(pathToFileURL(path.resolve("scripts/observe-install-capability.mjs")).href)})`,
+  ], { cwd: process.cwd(), encoding: "utf8", env: gitEnvironment });
   const workflow = (await readFile(".github/workflows/observe-install-capability.yml", "utf8")).replaceAll("\r\n", "\n");
   const scorer = await readFile("scripts/capability-score.mjs", "utf8");
   const observeJob = workflow.slice(workflow.indexOf("  observe:"), workflow.indexOf("  attest-observation:"));
