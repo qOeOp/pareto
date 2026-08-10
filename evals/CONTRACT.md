@@ -188,7 +188,9 @@ Evidence schema v2 may reference the campaign JSON and Sigstore bundle as extern
 files. A fresh child of the absolute current Node executable copies the package-lock-pinned Sigstore bundle, TUF,
 protobuf, core, and verifier packages into an ephemeral directory, rejects symlinks, and requires their complete
 file-tree digest to equal the reviewed candidate constant before importing them. The child receives no parent loader
-arguments and clears Node, Git, and dynamic-loader environment selectors. It reads the content-bound bundled
+arguments and clears Node, Git, and dynamic-loader environment selectors. One child may verify one bounded campaign
+batch while reusing that exact frozen runtime; every indexed observation bundle and the aggregate campaign bundle
+still receives its own signature, subject, signer, transparency-log, and content-identity verification. It reads the content-bound bundled
 `trusted_root.json` directly and does not run a TUF updater or make a network request. It then requires the exact
 repository, signer workflow, `main` ref, source commit,
 GitHub-hosted runner claims, CT log, and transparency log; then it independently replays the campaign envelope,
