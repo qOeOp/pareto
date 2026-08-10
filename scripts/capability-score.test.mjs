@@ -7,7 +7,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
-import { nodeSupportsSigstore, validateCatalogFile } from "./capability-score.mjs";
+import { nodeSupportsSigstore, validateCatalogFile, verifyCommittedNativeTurn } from "./capability-score.mjs";
 import { capabilityEvidenceForValidatedResult, runtimeCasesForInstalledSkill } from "./eval.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -213,6 +213,24 @@ function rollout({ sourceCase, trial, sourceKind, result = "pass", unverified = 
 const goldenCases = parseYaml(await readFile(path.resolve("evals/cases/golden.yaml"), "utf8"));
 const holdoutCases = parseYaml(await readFile(path.resolve("evals/cases/holdout.yaml"), "utf8"));
 const committedCases = [...goldenCases, ...holdoutCases];
+const contradictoryVerificationCase = committedCases.find((testCase) =>
+  testCase.metadata.observations.capability.case_id === "ver-04-negative");
+const exactVerificationOutput = deterministicOutput(contradictoryVerificationCase);
+await verifyCommittedNativeTurn({
+  repositoryRoot: repository,
+  prompt: contradictoryVerificationCase.vars.prompt,
+  output: exactVerificationOutput,
+  observedRawItemTypes: ["command_execution"],
+  observedSkillActivation: "used",
+});
+await assert.rejects(() => verifyCommittedNativeTurn({
+  repositoryRoot: repository,
+  prompt: contradictoryVerificationCase.vars.prompt,
+  output: `${exactVerificationOutput}\ncandidate_acceptance: admitted`,
+  observedRawItemTypes: ["command_execution"],
+  observedSkillActivation: "used",
+}), /fails a committed equals assertion/,
+"verification receipts must reject a contradictory authority suffix");
 const committedCapabilityIds = new Set(committedCases.map((testCase) =>
   testCase.metadata.observations.capability.id));
 const uncommittedCapability = catalog.capabilities.find((row) => !committedCapabilityIds.has(row.id));

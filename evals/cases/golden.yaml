@@ -233,6 +233,218 @@
         - "near_miss: bounded-hub-only-control"
         - "recovery: restore-wave-without-loss-or-duplicate"
 
+- description: "[full] exact candidate verification uses real consumer and authoritative gates"
+  metadata:
+    observations: { capability: { id: VER-01, scenario: positive, case_id: ver-01-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A committed parser candidate has one production CLI consumer, a native
+      owner regression, a repository root gate, and a clean worktree. Return the exact verification
+      sequence and evidence maturity without changing the candidate.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        candidate_identity: exact-committed
+        real_consumer: exercise-production-cli
+        owner_boundary_regressions: run-smallest-authoritative
+        complete_diff: inspect
+        root_gate: required
+        git_diff_check: required
+        workspace_drift: forbidden
+        static_closure_is_dynamic: false
+
+- description: "[full] green partial checks cannot replace a failing consumer"
+  metadata:
+    observations: { capability: { id: VER-01, scenario: negative, case_id: ver-01-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Unit tests, import reachability, and lexical checks are green, but the
+      production CLI consumer rejects the candidate and the root gate was not run. Classify candidate
+      acceptance and the partial evidence without attempting delivery.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        consumer_result: failed
+        partial_green_checks: non-authorizing
+        root_gate: missing
+        candidate_acceptance: frozen
+        delivery: forbidden
+        static_reachability: not-dynamic-proof
+
+- description: "[full] candidate drift invalidates only affected verification evidence"
+  metadata:
+    observations: { capability: { id: VER-01, scenario: recovery, case_id: ver-01-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. After a successful verification pass, the candidate gains one commit
+      changing the parser boundary while an unrelated immutable license check is unchanged. Return the
+      bounded recovery before acceptance.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        old_candidate_evidence: stale-for-affected-surface
+        parser_consumer: rerun
+        affected_owner_regressions: rerun
+        complete_diff_and_root_gate: rerun
+        workspace_drift_check: rerun
+        unrelated_immutable_evidence: retain-if-identity-matches
+        acceptance_before_rebind: forbidden
+
+- description: "[full] test evidence follows consumer and public oracle authority"
+  metadata:
+    observations: { capability: { id: VER-02, scenario: positive, case_id: ver-02-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A public CLI contract defines one malformed-input failure. The maintained
+      native test owner has a positive case and a refuting malformed case that both reach the CLI. Return
+      the test-integrity admission and maturity boundary.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        authority_order: consumer-contract-before-test
+        test_owner: narrowest-maintained-native
+        public_behavior_oracle: required
+        positive_case: reaches-sut
+        refuting_case: reaches-sut
+        test_evidence: reachable
+        dynamic_evidence: unavailable
+        stable_claim: unavailable-without-recurrence
+
+- description: "[full] structural proxies and harness failures are not behavior proof"
+  metadata:
+    observations: { capability: { id: VER-02, scenario: negative, case_id: ver-02-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A deletion is justified only by import reachability, coverage counts, and
+      snapshot presence. Its negative fixture fails in setup before the system under test starts. Return
+      the evidence and deletion decision.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        structural_proxies: insufficient
+        sut_reached: false
+        behavior_evidence: unavailable
+        safe_deletion_proved: false
+        unique_failure_signal: unproved
+        test_deletion: preserve
+
+- description: "[full] obsolete assertion repair preserves unique failure signals"
+  metadata:
+    observations: { capability: { id: VER-02, scenario: recovery, case_id: ver-02-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A test assertion contradicts the current public consumer contract after
+      an authorized behavior change. The test also owns a unique malformed-input signal. Return the
+      smallest recovery without weakening that signal.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        signal_classification: obsolete-assertion
+        higher_authority: current-consumer-contract
+        repair_or_remove_assertion: required
+        unique_failure_signal: preserve
+        superseding_oracle: required
+        positive_and_refuting_cases: rerun
+        weaken_test_without-counterfactual: forbidden
+
+- description: "[full] fixed lens taxonomy leaves material risks uncovered"
+  metadata:
+    observations: { capability: { id: VER-03, scenario: negative, case_id: ver-03-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_evaluator_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Main assigns only the common authority lens to a payment change even
+      though concurrency and retry idempotency affect separate contracts. It plans to accept by reviewer
+      majority. Return the review-admission decision without launching reviewers.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        fixed_lens_taxonomy: insufficient
+        concurrency_risk: uncovered
+        idempotency_risk: uncovered
+        review_admission: frozen
+        reviewer_majority_authority: false
+        required_action: complete-or-split-risk-map
+
+- description: "[full] risk-map challenge recovers project-specific coverage"
+  metadata:
+    observations: { capability: { id: VER-03, scenario: recovery, case_id: ver-03-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_evaluator_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A pre-review scope challenge finds three independent material risks in a
+      divisible candidate. Main narrows it into an authorization slice and a retry/concurrency slice.
+      Return how the coverage map and reviewer set recover.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        scope_challenge: advisory
+        main_coverage_authority: retained
+        candidate_action: split
+        authorization_slice_lens: contract-bound
+        retry_concurrency_slice_lenses: distinct-falsifiable
+        sibling_results_shared: false
+        uncovered_risk_after_split: none
+        coverage_complete_before_launch: required
+
+- description: "[full] independent evaluator is evidence-only and Main reproduces findings"
+  metadata:
+    observations: { capability: { id: VER-04, scenario: positive, case_id: ver-04-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_evaluator_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A fresh read-only evaluator receives one exact frozen candidate, neutral
+      control, complete Frame and Plan, immutable evidence, and one falsifiable lens. It returns one
+      material finding without mutation. Return Main's fan-in and acceptance boundary.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        reviewer_authority: evidence-only
+        candidate_and_control_identity: re-resolve
+        mutation_observation: none
+        post_return_identity_and_fingerprint_comparison: required
+        finding_status: lead
+        main_consumer_reproduction: required
+        reviewer_count_decides: false
+        acceptance_after-review-alone: forbidden
+
+- description: "[full] wrong identity or reviewer mutation invalidates the return"
+  metadata:
+    observations: { capability: { id: VER-04, scenario: negative, case_id: ver-04-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_evaluator_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A reviewer reports no finding from the wrong candidate tree, lacks the
+      neutral control, and its inspection changed the worktree. Another reviewer votes to accept. Return
+      the only valid evaluator and acceptance disposition.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        review_status: unsupported
+        wrong_candidate_identity: invalid
+        missing_neutral_control: invalid
+        reviewer_visible_mutation: invalid
+        no_finding_authority: none
+        reviewer_vote_authority: false
+        candidate_acceptance: frozen
+        automatic_retry: forbidden
+
 - description: "[full] evaluator admission and recovery boundaries"
   metadata:
     observations: { capability: { id: VER-04, scenario: recovery, case_id: evaluator-admission-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_evaluator_state] }
