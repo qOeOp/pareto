@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { trustedGitOptions, validateObservedScoreReport } from "./observe-score-capability.mjs";
 
@@ -173,13 +174,15 @@ try {
   assert.match(workflow, /eval-02-campaign-attestation\.json/);
 
   await mkdir(path.join(sourceRepository, "scripts"), { recursive: true });
+  await mkdir(path.join(sourceRepository, "evals"), { recursive: true });
   await mkdir(observations);
   await copyFile(path.resolve("scripts/observe-score-capability.mjs"), path.join(sourceRepository, "scripts", "observe-score-capability.mjs"));
   await copyFile(path.resolve("scripts/json.mjs"), path.join(sourceRepository, "scripts", "json.mjs"));
+  await copyFile(path.resolve("evals/capabilities.json"), path.join(sourceRepository, "evals", "capabilities.json"));
   await execFileAsync("git", ["-C", sourceRepository, "init", "--quiet"], { env: gitEnvironment });
   await execFileAsync("git", ["-C", sourceRepository, "config", "user.name", "EVAL-02 Observer Test"], { env: gitEnvironment });
   await execFileAsync("git", ["-C", sourceRepository, "config", "user.email", "eval02@example.invalid"], { env: gitEnvironment });
-  await execFileAsync("git", ["-C", sourceRepository, "add", "scripts"], { env: gitEnvironment });
+  await execFileAsync("git", ["-C", sourceRepository, "add", "scripts", "evals/capabilities.json"], { env: gitEnvironment });
   await execFileAsync("git", ["-C", sourceRepository, "commit", "--quiet", "-m", "observer"], { env: gitEnvironment });
   await execFileAsync("git", ["clone", "--quiet", sourceRepository, repository], { env: gitEnvironment });
   await execFileAsync("git", ["-c", "core.autocrlf=true", "clone", "--quiet", sourceRepository, windowsRepository], { env: gitEnvironment });
@@ -192,6 +195,19 @@ try {
     ...trustedGitOptions("win32"), "-C", windowsRepository, "status", "--porcelain=v1", "--untracked-files=all",
   ], { encoding: "utf8", env: observerGitEnvironment });
   assert.equal(autocrlfStatus.stdout, "");
+  const windowsCommit = (await execFileAsync("git", ["-C", windowsRepository, "rev-parse", "HEAD"], {
+    encoding: "utf8", env: observerGitEnvironment,
+  })).stdout.trim();
+  const windowsModule = await import(pathToFileURL(path.join(
+    windowsRepository, "scripts", "observe-score-capability.mjs",
+  )).href);
+  const committedCatalog = windowsModule.committedCatalogBytes(windowsCommit);
+  const gitCatalog = (await execFileAsync("git", ["-C", windowsRepository, "show", `${windowsCommit}:evals/capabilities.json`], {
+    encoding: null, env: observerGitEnvironment,
+  })).stdout;
+  const worktreeCatalog = await readFile(path.join(windowsRepository, "evals", "capabilities.json"));
+  assert.equal(sha(committedCatalog), sha(gitCatalog));
+  assert.notEqual(sha(committedCatalog), sha(worktreeCatalog));
   const observer = {
     commit: await git(["rev-parse", "HEAD"]),
     script_blob: await git(["rev-parse", "HEAD:scripts/observe-score-capability.mjs"]),

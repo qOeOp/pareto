@@ -98,6 +98,26 @@ function git(...args) {
   return result.stdout.trim();
 }
 
+function gitBytes(...args) {
+  const result = spawnSync(trustedGit, [...trustedGitOptions(), "-C", root, ...args], {
+    encoding: null,
+    env: gitEnvironment,
+    maxBuffer: 2 * 1024 * 1024,
+    timeout: 30_000,
+  });
+  if (result.status !== 0 || result.error || result.signal || !Buffer.isBuffer(result.stdout)) {
+    fail("observer Git blob authority is unavailable");
+  }
+  return result.stdout;
+}
+
+export function committedCatalogBytes(commit) {
+  if (!oidPattern.test(commit)) fail("observer commit identity is invalid");
+  const bytes = gitBytes("show", `${commit}:evals/capabilities.json`);
+  if (bytes.length < 1 || bytes.length > 1024 * 1024) fail("capability catalog blob is invalid");
+  return bytes;
+}
+
 function normalizedRepository(value) {
   return value
     .replace(/^git@github\.com:/, "https://github.com/")
@@ -236,13 +256,13 @@ function parsedReport(result, candidate, mode, catalog, catalogSha256) {
 async function observe({ sourceCampaignDir, output }) {
   const observer = observerIdentity();
   const subject = subjectIdentity(observer);
-  const catalog = await safeFile(root, "evals/capabilities.json", "capability catalog", 1024 * 1024);
   const campaign = await safeFile(sourceCampaignDir, "ins-01-campaign.json", "source campaign");
   const bundle = await safeFile(sourceCampaignDir, "ins-01-campaign-attestation.json", "source campaign attestation");
   parseJson(campaign.bytes, "source campaign");
   parseJson(bundle.bytes, "source campaign attestation");
-  const catalogValue = parseJson(catalog.bytes, "capability catalog");
-  const catalogSha256 = digest(catalog.bytes);
+  const catalogBytes = committedCatalogBytes(observer.commit);
+  const catalogValue = parseJson(catalogBytes, "capability catalog");
+  const catalogSha256 = digest(catalogBytes);
   const candidate = { repository: expectedRepository, commit: subject.commit, tree: subject.tree };
   const baseEvidence = {
     schema_version: 2,
