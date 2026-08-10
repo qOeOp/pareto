@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chmod, cp, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -29,6 +29,16 @@ function canonicalLine(value) {
   return `${JSON.stringify(normalize(value))}\n`;
 }
 
+async function makeReadOnly(path) {
+  const stat = await lstat(path);
+  if (stat.isDirectory()) {
+    for (const name of await readdir(path)) await makeReadOnly(join(path, name));
+    await chmod(path, 0o555);
+  } else if (stat.isFile()) {
+    await chmod(path, 0o444);
+  }
+}
+
 try {
   await mkdir(codexRoot, { recursive: true });
   await writeFile(join(codexRoot, "hooks.json"), `${JSON.stringify({
@@ -47,6 +57,51 @@ try {
   assert.equal(result.status, 0, result.stderr);
   result = spawnSync(process.execPath, [...hookedArgv, "--check"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
+  const installedSkill = join(agentsRoot, "skills", "run-bounded-mission");
+  await makeReadOnly(installedSkill);
+  result = spawnSync(process.execPath, hookedArgv, { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(
+    (await readdir(join(agentsRoot, "skills"))).filter((name) => name.startsWith("run-bounded-mission.backup-")),
+    [],
+  );
+  assert.deepEqual((await readdir(agentsRoot)).filter((name) => name.startsWith(".run-bounded-mission.")), []);
+  result = spawnSync(process.execPath, [...hookedArgv, "--check"], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const unresolvedCustody = join(agentsRoot, ".run-bounded-mission.backup-fixture");
+  await mkdir(unresolvedCustody);
+  result = spawnSync(process.execPath, hookedArgv, { encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /unresolved Codex install custody/);
+  result = spawnSync(process.execPath, [...hookedArgv, "--check"], { encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /unresolved Codex install custody/);
+  await rm(unresolvedCustody, { recursive: true });
+  if (process.platform === "darwin") {
+    const protectedFile = join(installedSkill, "SKILL.md");
+    const readOnlySibling = join(installedSkill, "agents", "openai.yaml");
+    await chmod(protectedFile, 0o644);
+    await writeFile(protectedFile, "protected previous install\n");
+    await chmod(readOnlySibling, 0o444);
+    await chmod(installedSkill, 0o555);
+    assert.equal(spawnSync("chflags", ["uchg", protectedFile]).status, 0);
+    try {
+      result = spawnSync(process.execPath, hookedArgv, { encoding: "utf8" });
+      assert.notEqual(result.status, 0);
+      assert.equal(await readFile(protectedFile, "utf8"), "protected previous install\n");
+      assert.equal((await lstat(installedSkill)).mode & 0o777, 0o555);
+      assert.equal((await lstat(readOnlySibling)).mode & 0o777, 0o444);
+      assert.deepEqual(
+        (await readdir(join(agentsRoot, "skills"))).filter((name) => /run-bounded-mission\.(backup|install|conflict)-/.test(name)),
+        [],
+      );
+      assert.deepEqual((await readdir(agentsRoot)).filter((name) => name.startsWith(".run-bounded-mission.")), []);
+    } finally {
+      assert.equal(spawnSync("chflags", ["nouchg", protectedFile]).status, 0);
+    }
+    result = spawnSync(process.execPath, hookedArgv, { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  }
   const installedHooks = JSON.parse(await readFile(join(codexRoot, "hooks.json"), "utf8"));
   assert.equal(installedHooks.hooks.UserPromptSubmit[0].hooks[0].command, "node preserved-hook.mjs");
   assert.equal(installedHooks.hooks.SessionStart.length, 2);

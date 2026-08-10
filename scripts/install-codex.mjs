@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, lstat, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -129,26 +129,116 @@ async function ownedAgentManifest(root) {
   return `${entries.join("\n")}\n`;
 }
 
+async function assertNoInstallCustody(agentsRoot) {
+  const pending = [];
+  for (const [root, pattern] of [
+    [agentsRoot, /^\.run-bounded-mission\.(backup|conflict)-/],
+    [join(agentsRoot, "skills"), /^run-bounded-mission\.(backup|install|conflict)-/],
+  ]) {
+    try {
+      for (const name of await readdir(root)) if (pattern.test(name)) pending.push(join(root, name));
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+  if (pending.length > 0) throw new Error(`unresolved Codex install custody: ${pending.sort().join(", ")}`);
+}
+
+async function makeOwnedDirectoryWritable(root, path = root, relative = "", changedModes = []) {
+  const stat = await lstat(path);
+  const mode = stat.mode & 0o777;
+  if (stat.isDirectory()) {
+    const writableMode = mode | 0o700;
+    await chmod(path, writableMode);
+    if (writableMode !== mode) changedModes.push({ mode, relative });
+    for (const name of await readdir(path)) {
+      await makeOwnedDirectoryWritable(root, join(path, name), relative ? `${relative}/${name}` : name, changedModes);
+    }
+  } else if (stat.isFile()) {
+    const writableMode = mode | 0o600;
+    await chmod(path, writableMode);
+    if (writableMode !== mode) changedModes.push({ mode, relative });
+  }
+  return changedModes;
+}
+
+async function restoreModes(root, changedModes) {
+  for (const entry of changedModes.toReversed()) {
+    await chmod(entry.relative ? join(root, entry.relative) : root, entry.mode);
+  }
+}
+
+async function restoreDirectoryBackup(backup, destination, conflict) {
+  try {
+    await rename(backup, destination);
+    return undefined;
+  } catch (restoreError) {
+    try {
+      await lstat(destination);
+    } catch (destinationError) {
+      if (destinationError.code === "ENOENT") throw restoreError;
+      throw destinationError;
+    }
+    await rename(destination, conflict);
+    try {
+      await rename(backup, destination);
+    } catch (secondRestoreError) {
+      try {
+        await rename(conflict, destination);
+      } catch {
+        // Preserve both paths for explicit recovery when neither rollback can complete.
+      }
+      throw secondRestoreError;
+    }
+    return conflict;
+  }
+}
+
 async function replaceDirectory(source, destination) {
   await mkdir(dirname(destination), { recursive: true });
   const suffix = `${process.pid}-${Date.now()}`;
   const temporary = `${destination}.install-${suffix}`;
-  const backup = `${destination}.backup-${suffix}`;
+  const custodyRoot = dirname(dirname(destination));
+  const backup = join(custodyRoot, `.run-bounded-mission.backup-${suffix}`);
+  const conflict = join(custodyRoot, `.run-bounded-mission.conflict-${suffix}`);
   await cp(source, temporary, { recursive: true, force: false, errorOnExist: true });
   let hadDestination = false;
+  let changedModes = [];
   try {
-    await rename(destination, backup);
+    await lstat(destination);
     hadDestination = true;
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
   }
+  if (hadDestination) {
+    try {
+      await makeOwnedDirectoryWritable(destination, destination, "", changedModes);
+      await rename(destination, backup);
+    } catch (error) {
+      await restoreModes(destination, changedModes);
+      await rm(temporary, { recursive: true, force: true });
+      throw error;
+    }
+  }
   try {
     await rename(temporary, destination);
-    if (hadDestination) await rm(backup, { recursive: true, force: true });
   } catch (error) {
-    if (hadDestination) await rename(backup, destination);
+    const preservedConflict = hadDestination
+      ? await restoreDirectoryBackup(backup, destination, conflict)
+      : undefined;
+    if (hadDestination) await restoreModes(destination, changedModes);
     await rm(temporary, { recursive: true, force: true });
+    if (preservedConflict) {
+      throw new Error(`Codex install destination collision preserved at ${preservedConflict}`, { cause: error });
+    }
     throw error;
+  }
+  if (hadDestination) {
+    try {
+      await rm(backup, { recursive: true, force: true });
+    } catch (error) {
+      process.stderr.write(`Codex install preserved prior backup after cleanup failure: ${backup} (${error.code ?? "unknown"})\n`);
+    }
   }
 }
 
@@ -325,6 +415,7 @@ async function verify(sourceSkill, destinationSkill, sourceAgents, destinationAg
 }
 
 const options = parseArguments(process.argv.slice(2));
+await assertNoInstallCustody(options.agentsRoot);
 const identity = await verifyLock(options.lock);
 const sourceSkill = join(repositoryRoot, "skills", "run-bounded-mission");
 const sourceAgents = join(repositoryRoot, "codex", "agents");
