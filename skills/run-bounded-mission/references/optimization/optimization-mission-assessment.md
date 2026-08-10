@@ -18,6 +18,10 @@ dispatch/return/fan-in communications, elapsed/exposed tokens, correction, and r
 comparisons also load `../execution/execution-mission-routing-policy.md`; missing host telemetry makes
 only its dependent comparison unavailable.
 
+Use Pareto concentration only to order necessity tests from comparable consumer-benefit and
+observed/estimated cost evidence. Without comparable telemetry, concentration is `unavailable`; an
+ordinary no-signal result adds no loading and cannot be replaced by scores, counts, churn, or aesthetics.
+
 Reassess the exact integrated candidate with the same rubric and controls. Changed or unknown controls
 make the delta not comparable; they do not permit baseline edits. Scores rise only with stronger
 consumer evidence, never file/process/test growth. Report regressions and remaining gaps; a matrix
