@@ -40,6 +40,10 @@ await writeFile(path.join(repository, "fixture.txt"), "candidate\n");
 await git(["add", "evals/capabilities.json", "scripts", "fixture.txt"]);
 await git(["commit", "--quiet", "-m", "candidate"]);
 const candidate = { repository: repositoryUrl, commit: await git(["rev-parse", "HEAD"]), tree: await git(["rev-parse", "HEAD^{tree}"]) };
+const { stdout: committedCatalogBytes } = await execFileAsync("git", ["-C", repository, "show", `${candidate.commit}:evals/capabilities.json`], {
+  encoding: null,
+  env: gitEnvironment,
+});
 const { scoreEvidence } = await import(pathToFileURL(path.join(repository, "scripts", "capability-score.mjs")).href);
 
 function rollout({ capabilityId, scenario, trial, sourceKind, result = "pass", unverified = false }) {
@@ -136,7 +140,7 @@ async function fixture(name, { weakCapability, gap, selfReview = false, duplicat
   if (duplicateObservation) observations.push(structuredClone(observations[0]));
   const evidence = {
     schema_version: 1,
-    catalog_sha256: sha(catalogBytes),
+    catalog_sha256: sha(committedCatalogBytes),
     candidate,
     attempt_inventory: { status: "unavailable", locator: "provider attestation unavailable" },
     observations,
@@ -214,7 +218,7 @@ try {
   const emptyEvidencePath = path.join(temporaryRoot, "empty-evidence.json");
   await writeFile(emptyEvidencePath, `${JSON.stringify({
     schema_version: 1,
-    catalog_sha256: sha(catalogBytes),
+    catalog_sha256: sha(committedCatalogBytes),
     candidate,
     attempt_inventory: { status: "unavailable", locator: "provider attestation unavailable" },
     observations: [],

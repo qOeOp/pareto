@@ -70,7 +70,7 @@ async function gitBytes(repositoryRoot, args) {
   return stdout;
 }
 
-async function verifyCandidate(repositoryRoot, candidate, catalogBytes) {
+async function verifyCandidate(repositoryRoot, candidate) {
   const resolvedRoot = path.resolve(repositoryRoot);
   const actualRoot = await git(resolvedRoot, ["rev-parse", "--show-toplevel"]);
   if (await realpath(actualRoot) !== await realpath(resolvedRoot)) fail("candidate repository root is not exact");
@@ -84,11 +84,11 @@ async function verifyCandidate(repositoryRoot, candidate, catalogBytes) {
   if (await git(resolvedRoot, ["rev-parse", "HEAD"]) !== candidate.commit) fail("candidate must be the exact checkout HEAD");
   if (await git(resolvedRoot, ["status", "--porcelain=v1", "--untracked-files=all"])) fail("candidate checkout must be clean");
   const committedCatalog = await gitBytes(resolvedRoot, ["show", `${candidate.commit}:evals/capabilities.json`]).catch(() => null);
-  if (!committedCatalog || !committedCatalog.equals(catalogBytes)) fail("capability catalog is not the exact candidate blob");
+  if (!committedCatalog) fail("capability catalog is not available from the exact candidate blob");
+  return committedCatalog;
 }
 
-async function readUniqueJson(file, label) {
-  const bytes = await readFile(file);
+function parseUniqueJson(bytes, label) {
   const source = bytes.toString("utf8");
   rejectDuplicateJsonObjectMembers(source, label);
   let value;
@@ -98,6 +98,10 @@ async function readUniqueJson(file, label) {
     fail(`${label} is invalid JSON: ${error.message}`);
   }
   return { bytes, value };
+}
+
+async function readUniqueJson(file, label) {
+  return parseUniqueJson(await readFile(file), label);
 }
 
 function validateCatalog(catalog) {
@@ -260,17 +264,15 @@ function scoreCapability(capability, observations, gaps, requirements, localTrac
 
 export async function scoreEvidence({ evidencePath }) {
   if (!evidencePath) fail("evidence path is required");
-  const [{ bytes: catalogBytes, value: catalog }, { value: evidence }] = await Promise.all([
-    readUniqueJson(defaultCatalogPath, "capability catalog"),
-    readUniqueJson(evidencePath, "capability evidence"),
-  ]);
-  const capabilities = validateCatalog(catalog);
+  const { value: evidence } = await readUniqueJson(evidencePath, "capability evidence");
   exactKeys(evidence, ["schema_version", "catalog_sha256", "candidate", "attempt_inventory", "observations", "open_gaps"], "evidence");
-  if (evidence.schema_version !== 1 || evidence.catalog_sha256 !== digest(catalogBytes)) fail("evidence catalog binding is stale or invalid");
   exactKeys(evidence.candidate, ["repository", "commit", "tree"], "candidate");
   atom(evidence.candidate.repository, "candidate repository");
   if (!/^[a-f0-9]{40}$/.test(evidence.candidate.commit) || !/^[a-f0-9]{40}$/.test(evidence.candidate.tree)) fail("candidate Git identity is invalid");
-  await verifyCandidate(root, evidence.candidate, catalogBytes);
+  const catalogBytes = await verifyCandidate(root, evidence.candidate);
+  const { value: catalog } = parseUniqueJson(catalogBytes, "capability catalog");
+  const capabilities = validateCatalog(catalog);
+  if (evidence.schema_version !== 1 || evidence.catalog_sha256 !== digest(catalogBytes)) fail("evidence catalog binding is stale or invalid");
   exactKeys(evidence.attempt_inventory, ["status", "locator"], "attempt inventory");
   if (evidence.attempt_inventory.status !== "unavailable") fail("provider-attested attempt inventory is not supported by this scorer");
   atom(evidence.attempt_inventory.locator, "attempt inventory locator");
