@@ -623,7 +623,7 @@ try {
     { encoding: "utf8", ...options },
   );
   const baseValidation = await runProductionValidator();
-  assert.match(baseValidation.stdout, /Validated 1 Skill and 20 executable cases; committed baselines are disabled/);
+  assert.match(baseValidation.stdout, /Validated 1 Skill and 23 executable cases; committed baselines are disabled/);
 
   const baselineRoot = path.join(validatorFixture, "evals", "baselines");
   await mkdir(baselineRoot);

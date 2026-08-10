@@ -23,6 +23,15 @@ const scenarios = new Set(["positive", "negative", "recovery"]);
 const goalStatuses = new Set(["active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"]);
 const shaPattern = /^sha256:[a-f0-9]{64}$/;
 const threadPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const rawItemTypeByNativeType = new Map([
+  ["commandExecution", "command_execution"], ["fileChange", "file_change"],
+  ["mcpToolCall", "mcp_tool_call"], ["dynamicToolCall", "mcp_tool_call"],
+  ["agentMessage", "agent_message"], ["reasoning", "reasoning"],
+  ["webSearch", "web_search"], ["plan", "todo_list"], ["error", "error"],
+]);
+const passiveNativeItemTypes = new Set([
+  "userMessage", "hookPrompt", "agentMessage", "plan", "reasoning", "webSearch", "imageView", "sleep",
+]);
 const deterministicArtifactCache = new Map();
 const expectedCapabilityIds = new Set([
   "KRN-01", "KRN-02", "PLN-01", "PLN-02", "PLN-03", "PLN-04", "PLN-05", "ORC-01", "ORC-02",
@@ -192,14 +201,84 @@ async function committedCapabilityCases(repositoryRoot, candidate, capabilities)
       const binding = capabilityCaseBinding(testCase, `committed case ${file}`);
       if (!capabilities.has(binding.id) || cases.has(binding.case_id)) fail(`committed capability case is unknown or duplicated: ${binding.case_id}`);
       cases.set(binding.case_id, {
+        assertions: (testCase.assert ?? []).filter((assertion) =>
+          assertion.type !== "skill-used" && assertion.type !== "not-skill-used"),
         binding,
         control_sha256: digest(Buffer.from(JSON.stringify(canonical(testCase)))),
         oracle: testCase.metadata.observations.behavioral_oracle,
         prompt: testCase?.vars?.prompt,
+        required_raw_item_types: testCase.metadata.observations.required_raw_item_types,
+        skill_activation: testCase.metadata.observations.skill_activation,
       });
     }
   }
   return cases;
+}
+
+function verifyDeterministicText(output, assertions, label) {
+  if (typeof output !== "string" || output.length === 0) fail(`${label} has no terminal output`);
+  if (!Array.isArray(assertions) || assertions.length === 0) fail(`${label} has no committed deterministic assertions`);
+  for (const assertion of assertions) {
+    if (assertion?.type === "contains" && typeof assertion.value === "string") {
+      if (!output.includes(assertion.value)) fail(`${label} fails a committed contains assertion`);
+      continue;
+    }
+    if (assertion?.type === "contains-all" && Array.isArray(assertion.value) &&
+        assertion.value.length > 0 && assertion.value.every((value) => typeof value === "string")) {
+      if (assertion.value.some((value) => !output.includes(value))) fail(`${label} fails a committed contains-all assertion`);
+      continue;
+    }
+    if (assertion?.type === "not-contains" && typeof assertion.value === "string") {
+      if (output.includes(assertion.value)) fail(`${label} fails a committed not-contains assertion`);
+      continue;
+    }
+    if (assertion?.type === "equals" && typeof assertion.value === "string") {
+      if (output !== assertion.value) fail(`${label} fails a committed equals assertion`);
+      continue;
+    }
+    fail(`${label} uses an unsupported deterministic assertion`);
+  }
+}
+
+export async function verifyCommittedNativeTurn({ repositoryRoot, prompt, output, observedRawItemTypes, observedSkillActivation }) {
+  const origin = normalizedRepository(await git(repositoryRoot, ["remote", "get-url", "origin"]));
+  const commit = await git(repositoryRoot, ["rev-parse", "HEAD"]);
+  const tree = await git(repositoryRoot, ["rev-parse", "HEAD^{tree}"]);
+  const candidate = { repository: origin, commit, tree };
+  const catalogBytes = await verifyCandidate(repositoryRoot, candidate);
+  const { value: catalog } = parseUniqueJson(catalogBytes, "capability catalog");
+  const capabilities = validateCatalog(catalog);
+  const cases = await committedCapabilityCases(repositoryRoot, candidate, capabilities);
+  const matching = [...cases.values()].filter((entry) => entry.prompt === prompt);
+  if (matching.length !== 1) fail("native turn prompt does not match exactly one committed capability case");
+  const committedCase = matching[0];
+  verifyDeterministicText(output, committedCase.assertions, "native terminal output");
+  if (!Array.isArray(observedRawItemTypes) || observedRawItemTypes.some((type) => typeof type !== "string") ||
+      new Set(observedRawItemTypes).size !== observedRawItemTypes.length) fail("native raw item observations are malformed");
+  if (committedCase.required_raw_item_types.some((type) => !observedRawItemTypes.includes(type))) {
+    fail("native turn is missing a committed required raw item type");
+  }
+  const expectedSkillActivation = committedCase.skill_activation?.expected;
+  if (committedCase.skill_activation?.status !== "dynamic_heuristic" ||
+      !["used", "not_used"].includes(expectedSkillActivation) ||
+      !["used", "not_used"].includes(observedSkillActivation) ||
+      expectedSkillActivation !== observedSkillActivation) {
+    fail("native turn contradicts the committed Skill activation oracle");
+  }
+  const result = canonical({
+    schema: "rbm-capability-result/v1",
+    capability_id: committedCase.binding.id,
+    scenario: committedCase.binding.scenario,
+    case_id: committedCase.binding.case_id,
+    candidate: { commit: candidate.commit, tree: candidate.tree },
+    result: "pass",
+    oracle: committedCase.oracle,
+    control_sha256: committedCase.control_sha256,
+    unavailable_evidence: [],
+    material_gaps: [],
+    mutation_observation: "none",
+  });
+  return { candidate, committedCase, result };
 }
 
 function verifyResultAgainstCase(result, committedCase, label) {
@@ -373,10 +452,10 @@ async function parseDeterministicEvalTrace(bytes, artifactPath, observation, can
 function parseNativeTrace(bytes, observation, candidate, committedCase) {
   const { value: envelope } = parseUniqueJson(bytes, "native evidence");
   exactKeys(envelope, ["schema", "content_sha256", "payload"], "native evidence envelope");
-  if (envelope.schema !== "rbm-native-evidence-envelope/v3" || !shaPattern.test(envelope.content_sha256)) fail("native evidence envelope is invalid");
+  if (envelope.schema !== "rbm-native-evidence-envelope/v4" || !shaPattern.test(envelope.content_sha256)) fail("native evidence envelope is invalid");
   const payload = envelope.payload;
-  exactKeys(payload, ["schema", "authority", "executable", "host", "thread", "turn", "goal", "expectation", "binding", "result"], "native evidence payload");
-  if (payload.schema !== "rbm-native-evidence/v3" || payload.authority !== "local_interface_observation" || payload.result !== "matched") fail("native evidence authority or result is invalid");
+  exactKeys(payload, ["schema", "authority", "executable", "host", "thread", "turn", "goal", "expectation", "binding", "oracle", "result"], "native evidence payload");
+  if (payload.schema !== "rbm-native-evidence/v4" || payload.authority !== "local_interface_observation" || payload.result !== "matched") fail("native evidence authority or result is invalid");
   if (envelope.content_sha256 !== digest(Buffer.from(JSON.stringify(canonical(payload))))) fail("native evidence content digest is invalid");
   exactKeys(payload.executable, ["sha256", "server_version"], "native executable");
   if (!shaPattern.test(payload.executable.sha256) || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(payload.executable.server_version)) fail("native executable identity is invalid");
@@ -386,13 +465,21 @@ function parseNativeTrace(bytes, observation, candidate, committedCase) {
   exactKeys(payload.thread.source, ["kind", "sha256"], "native thread source");
   if (!threadPattern.test(payload.thread.id) || (payload.thread.parent_thread_id !== null && !threadPattern.test(payload.thread.parent_thread_id)) || !shaPattern.test(payload.thread.session_id_sha256) || !shaPattern.test(payload.thread.cwd_sha256) || !shaPattern.test(payload.thread.source.sha256)) fail("native thread identity is invalid");
   for (const key of ["cli_version", "status"]) atom(payload.thread[key], `native thread ${key}`);
-  exactKeys(payload.turn, ["id", "status", "items", "prompt_sha256", "capability_result_sha256"], "native turn");
+  exactKeys(payload.turn, ["id", "status", "items", "prompt_sha256", "output_sha256", "oracle_result_sha256"], "native turn");
   if (!threadPattern.test(payload.turn.id) || payload.turn.status !== "completed" || !Array.isArray(payload.turn.items) || payload.turn.items.length < 2 ||
-      !shaPattern.test(payload.turn.prompt_sha256) || !shaPattern.test(payload.turn.capability_result_sha256)) fail("native turn identity is invalid");
+      !shaPattern.test(payload.turn.prompt_sha256) || !shaPattern.test(payload.turn.output_sha256) ||
+      !shaPattern.test(payload.turn.oracle_result_sha256)) fail("native turn identity is invalid");
   for (const item of payload.turn.items) {
-    exactKeys(item, ["id_sha256", "type"], "native turn item");
+    exactKeys(item, ["id_sha256", "raw_type", "skill_read", "terminal_state", "type"], "native turn item");
     if (!shaPattern.test(item.id_sha256)) fail("native turn item identity is invalid");
     atom(item.type, "native turn item type");
+    const actionable = item.type === "commandExecution";
+    if ((!passiveNativeItemTypes.has(item.type) && !actionable) ||
+        item.raw_type !== (rawItemTypeByNativeType.get(item.type) ?? null) || typeof item.skill_read !== "boolean" ||
+        (item.skill_read && item.type !== "commandExecution") ||
+        (actionable ? item.terminal_state !== "completed" : item.terminal_state !== null)) {
+      fail("native turn item observation is invalid");
+    }
   }
   if (payload.turn.items.filter((item) => item.type === "userMessage").length !== 1 || payload.turn.items.at(-1).type !== "agentMessage") fail("native turn item sequence is invalid");
   exactKeys(payload.expectation, ["goal_status", "objective_sha256"], "native expectation");
@@ -412,6 +499,20 @@ function parseNativeTrace(bytes, observation, candidate, committedCase) {
   if (payload.binding.candidate.commit !== candidate.commit || payload.binding.candidate.tree !== candidate.tree) fail("native binding does not match candidate");
   if (payload.binding.control_sha256 !== committedCase.control_sha256 || payload.binding.oracle !== committedCase.oracle) fail("native binding does not match committed case control");
   if (payload.turn.prompt_sha256 !== digest(Buffer.from(committedCase.prompt))) fail("native turn prompt digest does not match committed case");
+  exactKeys(payload.oracle, ["assertions_sha256", "expected_skill_activation", "observed_skill_activation", "required_raw_item_types", "observed_raw_item_types"], "native oracle");
+  const projectedRawTypes = [...new Set(payload.turn.items.map((item) => item.raw_type).filter(Boolean))];
+  const projectedActivation = payload.turn.items.some((item) => item.skill_read) ? "used" : "not_used";
+  if (payload.oracle.assertions_sha256 !== digest(Buffer.from(JSON.stringify(canonical(committedCase.assertions)))) ||
+      payload.oracle.expected_skill_activation !== committedCase.skill_activation.expected ||
+      payload.oracle.observed_skill_activation !== committedCase.skill_activation.expected ||
+      payload.oracle.observed_skill_activation !== projectedActivation ||
+      JSON.stringify(payload.oracle.required_raw_item_types) !== JSON.stringify(committedCase.required_raw_item_types) ||
+      !Array.isArray(payload.oracle.observed_raw_item_types) ||
+      new Set(payload.oracle.observed_raw_item_types).size !== payload.oracle.observed_raw_item_types.length ||
+      JSON.stringify(payload.oracle.observed_raw_item_types) !== JSON.stringify(projectedRawTypes) ||
+      payload.oracle.required_raw_item_types.some((type) => !payload.oracle.observed_raw_item_types.includes(type))) {
+    fail("native oracle does not match the committed case observations");
+  }
   const expectedResult = canonical({
     schema: "rbm-capability-result/v1",
     capability_id: payload.binding.capability_id,
@@ -425,7 +526,7 @@ function parseNativeTrace(bytes, observation, candidate, committedCase) {
     material_gaps: [],
     mutation_observation: "none",
   });
-  if (payload.turn.capability_result_sha256 !== digest(Buffer.from(JSON.stringify(expectedResult)))) fail("native terminal result digest is invalid");
+  if (payload.turn.oracle_result_sha256 !== digest(Buffer.from(JSON.stringify(expectedResult)))) fail("native derived result digest is invalid");
   const environment = `codex-app-server:${payload.host.user_agent}:${payload.host.platform_family}:${payload.host.platform_os}:${payload.executable.sha256}`;
   const producer = payload.thread.parent_thread_id ?? payload.thread.id;
   if (observation.environment_id !== environment || observation.observer_id !== payload.thread.id || observation.producer_id !== producer || observation.subject_id !== candidate.commit) fail("native principals do not match observation");
