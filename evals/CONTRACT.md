@@ -177,6 +177,29 @@ only and cannot raise a score. A later scorer candidate may consume a real bundl
 observer is canonical, independently reviewed, and invoked from that immutable revision.
 An attested campaign additionally requires a `main` dispatch whose subject commit equals the fixed
 observer commit; ancestor status or a caller-selected revision is insufficient.
+Evidence schema v2 may reference the campaign JSON and Sigstore bundle as external, content-addressed
+files. A fresh child of the absolute current Node executable copies the package-lock-pinned Sigstore bundle, TUF,
+protobuf, core, and verifier packages into an ephemeral directory, rejects symlinks, and requires their complete
+file-tree digest to equal the reviewed candidate constant before importing them. The child receives no parent loader
+arguments and clears Node, Git, and dynamic-loader environment selectors. It reads the content-bound bundled
+`trusted_root.json` directly and does not run a TUF updater or make a network request. It then requires the exact
+repository, signer workflow, `main` ref, source commit,
+GitHub-hosted runner claims, CT log, and transparency log; then it independently replays the campaign envelope,
+SLSA subject, Git ancestry, observer/workflow blobs, and current installer, Skill, profile, and hook
+identities. A changed bundle, self-hosted runner, stale consumer surface, non-`main` signer, or caller
+invented scenario fails closed. One such Linux+Windows positive/negative/recovery campaign establishes
+one dynamic observation and scores 6, not representative coverage or 9.5. Repetition, variation, and
+independent observer requirements remain unavailable rather than being inferred from the signature.
+An attested campaign cannot share one scorer process with locally loaded Promptfoo, YAML, rollout, or
+native-trace observations; those evidence classes require separate manifests so writable runtime
+dependencies cannot precede the content-bound verifier.
+Repository object reads use the platform's protected absolute system Git path rather than `PATH`, disable replace
+objects, fsmonitor and untracked-cache shortcuts, isolate system/global config, and reject replace refs, grafts,
+alternates, assume-unchanged and skip-worktree entries. The Node and Git
+executables, same-principal processes, and local filesystem remain explicit host trust boundaries; this single
+fixed-observer campaign is therefore capped at 6 and cannot establish provider-attested completeness or the 9.5
+anchor. The parent owns the private verifier directory and removes it after success, child failure, or timeout; the
+child also removes it defensively. The child lets its exact JSON receipt drain normally instead of forcing process exit.
 The installer observer accepts only version-bound app-server notification schemas. Environment-local
 remote-control identity and structured config warnings are recorded by shape only; neither is a pass
 oracle, and the exact Skill discovery response plus installation counterfactuals must still pass.

@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
-import { validateCatalogFile } from "./capability-score.mjs";
+import { nodeSupportsSigstore, validateCatalogFile } from "./capability-score.mjs";
 import { capabilityEvidenceForValidatedResult, runtimeCasesForInstalledSkill } from "./eval.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -23,7 +23,7 @@ const uuid = (value) => {
 };
 const gitEnvironment = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name)));
 const repository = path.join(temporaryRoot, "repository");
-const repositoryUrl = "https://example.invalid/qoeop/skills";
+const repositoryUrl = "https://github.com/qoeop/pareto-fixture";
 
 async function git(args) {
   const { stdout } = await execFileAsync("git", ["-C", repository, ...args], {
@@ -41,14 +41,27 @@ await git(["remote", "add", "origin", `${repositoryUrl}.git`]);
 await mkdir(path.join(repository, "evals"), { recursive: true });
 await mkdir(path.join(repository, "evals", "cases"), { recursive: true });
 await mkdir(path.join(repository, "scripts"), { recursive: true });
+await mkdir(path.join(repository, ".github", "workflows"), { recursive: true });
+await mkdir(path.join(repository, "codex", "hooks"), { recursive: true });
+for (const packageName of ["bundle", "core", "protobuf-specs", "tuf", "verify"]) {
+  await cp(path.resolve("node_modules", "@sigstore", packageName),
+    path.join(repository, "node_modules", "@sigstore", packageName), { recursive: true });
+}
 await writeFile(path.join(repository, "evals", "capabilities.json"), catalogBytes);
 await copyFile(path.resolve("scripts/capability-score.mjs"), path.join(repository, "scripts", "capability-score.mjs"));
 await copyFile(path.resolve("scripts/eval.mjs"), path.join(repository, "scripts", "eval.mjs"));
 await copyFile(path.resolve("scripts/json.mjs"), path.join(repository, "scripts", "json.mjs"));
+await copyFile(path.resolve("scripts/observe-install-capability.mjs"), path.join(repository, "scripts", "observe-install-capability.mjs"));
+await copyFile(path.resolve("scripts/install-codex.mjs"), path.join(repository, "scripts", "install-codex.mjs"));
+await copyFile(path.resolve(".github/workflows/observe-install-capability.yml"), path.join(repository, ".github", "workflows", "observe-install-capability.yml"));
+await copyFile(path.resolve("codex/hooks/qoeop-trade-session-start.mjs"), path.join(repository, "codex", "hooks", "qoeop-trade-session-start.mjs"));
+await cp(path.resolve("codex/agents"), path.join(repository, "codex", "agents"), { recursive: true });
+await cp(path.resolve("skills/run-bounded-mission"), path.join(repository, "skills", "run-bounded-mission"), { recursive: true });
 await copyFile(path.resolve("evals/cases/golden.yaml"), path.join(repository, "evals", "cases", "golden.yaml"));
 await copyFile(path.resolve("evals/cases/holdout.yaml"), path.join(repository, "evals", "cases", "holdout.yaml"));
+await writeFile(path.join(repository, ".gitignore"), "node_modules/\n");
 await writeFile(path.join(repository, "fixture.txt"), "candidate\n");
-await git(["add", "evals", "scripts", "fixture.txt"]);
+await git(["add", ".github", ".gitignore", "codex", "evals", "scripts", "skills", "fixture.txt"]);
 await git(["commit", "--quiet", "-m", "candidate"]);
 const candidate = { repository: repositoryUrl, commit: await git(["rev-parse", "HEAD"]), tree: await git(["rev-parse", "HEAD^{tree}"]) };
 const { stdout: committedCatalogBytes } = await execFileAsync("git", ["-C", repository, "show", `${candidate.commit}:evals/capabilities.json`], {
@@ -315,7 +328,85 @@ async function fixture(name, { weakCapability, gap, selfReview = false, duplicat
   return { directory, evidencePath, runnerEvidencePath: generated.runnerEvidencePath };
 }
 
+async function attestedFixture(name) {
+  const directory = path.join(temporaryRoot, name);
+  await mkdir(directory, { recursive: true });
+  const object = async (objectPath) => git(["rev-parse", `${candidate.commit}:${objectPath}`]);
+  const observer = {
+    commit: candidate.commit,
+    script_blob: await object("scripts/observe-install-capability.mjs"),
+    tree: candidate.tree,
+  };
+  const subject = {
+    codex_agents_tree: await object("codex/agents"),
+    codex_session_hook_blob: await object("codex/hooks/qoeop-trade-session-start.mjs"),
+    commit: candidate.commit,
+    installer_blob: await object("scripts/install-codex.mjs"),
+    repository: repositoryUrl,
+    skill_tree: await object("skills/run-bounded-mission"),
+    tree: candidate.tree,
+  };
+  const payload = canonical({
+    schema: "pareto-capability-campaign/v1",
+    authority: "github_attestation_subject",
+    capability_id: "INS-01",
+    environments: ["linux", "win32"],
+    observations: [
+      { content_sha256: `sha256:${"1".repeat(64)}`, environment: "linux" },
+      { content_sha256: `sha256:${"2".repeat(64)}`, environment: "win32" },
+    ],
+    observer,
+    result: "pass",
+    scenarios: {
+      negative: "stale-lock-rejected-without-install-drift",
+      positive: "portable-skill-install-and-loader-discovery",
+      recovery: "installed-skill-drift-repaired-and-discovered",
+    },
+    subject,
+  });
+  const campaign = Buffer.from(`${JSON.stringify(canonical({
+    schema: "pareto-capability-campaign-envelope/v1",
+    content_sha256: sha(Buffer.from(JSON.stringify(payload))),
+    payload,
+  }))}\n`);
+  const bundle = Buffer.from(`${JSON.stringify({
+    mediaType: "application/vnd.dev.sigstore.bundle.v0.3+json",
+    dsseEnvelope: {
+      payload: Buffer.from("{}").toString("base64"),
+      payloadType: "application/vnd.in-toto+json",
+      signatures: [{ sig: "AA==" }],
+    },
+    verificationMaterial: { certificate: { rawBytes: "AA==" }, tlogEntries: [] },
+  })}\n`);
+  await writeFile(path.join(directory, "ins-01-campaign.json"), campaign);
+  await writeFile(path.join(directory, "attestation.json"), bundle);
+  const evidence = {
+    schema_version: 2,
+    catalog_sha256: sha(committedCatalogBytes),
+    candidate,
+    attempt_inventory: { status: "unavailable", locator: "provider attestation unavailable for non-observer capabilities" },
+    observations: [],
+    attested_campaigns: [{
+      campaign_path: "ins-01-campaign.json",
+      campaign_sha256: sha(campaign),
+      bundle_path: "attestation.json",
+      bundle_sha256: sha(bundle),
+    }],
+    open_gaps: [],
+  };
+  const evidencePath = path.join(directory, "evidence.json");
+  await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+  return { campaign, directory, evidence, evidencePath };
+}
+
 try {
+  assert.equal(nodeSupportsSigstore("22.22.1"), false);
+  assert.equal(nodeSupportsSigstore("22.22.2"), true);
+  assert.equal(nodeSupportsSigstore("23.9.9"), false);
+  assert.equal(nodeSupportsSigstore("24.14.9"), false);
+  assert.equal(nodeSupportsSigstore("24.15.0"), true);
+  assert.equal(nodeSupportsSigstore("25.0.0"), false);
+  assert.equal(nodeSupportsSigstore("26.0.0"), true);
   assert.match(await validateCatalogFile(catalogPath), /^sha256:[a-f0-9]{64}$/);
   const complete = await fixture("complete");
   const runnerOnlyScore = await scoreEvidence({ evidencePath: complete.runnerEvidencePath });
@@ -338,9 +429,136 @@ try {
     maturity: "absent",
     reason: "no_passing_evidence",
     observation_count: 0,
+    attested_campaign_count: 0,
     unavailable_count: 0,
     gap_count: 0,
   }, "a leaf without a committed case cannot be populated by invented trace labels");
+
+  const attested = await attestedFixture("attested-install");
+  await assert.rejects(
+    () => scoreEvidence(attested),
+    /Sigstore attestation verification failed/,
+    "caller-authored verifier output and unsigned bundles must never produce a dynamic score",
+  );
+
+  const loaderMarker = path.join(temporaryRoot, "loader-hook-observed");
+  const loaderHook = path.join(temporaryRoot, "loader-hook.mjs");
+  await writeFile(loaderHook, `
+    import { appendFileSync } from "node:fs";
+    import { registerHooks } from "node:module";
+    registerHooks({ load(url, context, nextLoad) {
+      if (url.includes("pareto-sigstore-runtime-")) appendFileSync(${JSON.stringify(loaderMarker)}, url);
+      return nextLoad(url, context);
+    } });
+  `);
+  await assert.rejects(
+    () => execFileAsync(process.execPath, ["--import", pathToFileURL(loaderHook).href,
+      path.join(repository, "scripts", "capability-score.mjs"), attested.evidencePath], {
+      encoding: "utf8",
+      env: process.env,
+    }),
+    (error) => error.code === 1 && /isolated Sigstore attestation verification failed/.test(error.stderr),
+  );
+  assert.equal(await lstat(loaderMarker).catch(() => null), null,
+    "a parent loader hook must not enter the isolated verifier process");
+
+  const fakeGitDirectory = path.join(temporaryRoot, "fake-git");
+  await mkdir(fakeGitDirectory);
+  const fakeGit = path.join(fakeGitDirectory, process.platform === "win32" ? "git.cmd" : "git");
+  await writeFile(fakeGit, process.platform === "win32" ? "@exit /b 99\r\n" : "#!/bin/sh\nexit 99\n");
+  if (process.platform !== "win32") await chmod(fakeGit, 0o755);
+  await assert.rejects(
+    () => execFileAsync(process.execPath,
+      [path.join(repository, "scripts", "capability-score.mjs"), complete.runnerEvidencePath], {
+        encoding: "utf8",
+        env: { ...process.env, PATH: fakeGitDirectory },
+      }),
+    (error) => error.code === 1 && JSON.parse(error.stdout).schema_version === 1,
+    "ambient PATH Git replacement must not affect candidate authority",
+  );
+
+  const replacementCommit = await git(["commit-tree", candidate.tree, "-m", "replacement"]);
+  await git(["replace", candidate.commit, replacementCommit]);
+  try {
+    await assert.rejects(() => scoreEvidence({ evidencePath: complete.runnerEvidencePath }), /contains replace refs/);
+  } finally {
+    await git(["replace", "-d", candidate.commit]);
+  }
+
+  await git(["update-index", "--assume-unchanged", "fixture.txt"]);
+  try {
+    await assert.rejects(
+      () => scoreEvidence({ evidencePath: complete.runnerEvidencePath }),
+      /index contains assume-unchanged or skip-worktree entries/,
+    );
+  } finally {
+    await git(["update-index", "--no-assume-unchanged", "fixture.txt"]);
+  }
+
+  const mixedAuthority = await attestedFixture("attested-install-mixed-authority");
+  mixedAuthority.evidence.observations = [{}];
+  await writeFile(mixedAuthority.evidencePath, `${JSON.stringify(mixedAuthority.evidence, null, 2)}\n`);
+  await assert.rejects(
+    () => scoreEvidence(mixedAuthority),
+    /cannot share a process with locally loaded observation runtimes/,
+  );
+
+  const tamperedRuntime = await attestedFixture("attested-install-tampered-runtime");
+  const runtimeFile = path.join(repository, "node_modules", "@sigstore", "verify", "dist", "index.js");
+  const runtimeBytes = await readFile(runtimeFile);
+  try {
+    await writeFile(runtimeFile, Buffer.concat([runtimeBytes, Buffer.from("\n// tampered\n")]));
+    const campaignEnvelope = JSON.parse(tamperedRuntime.campaign);
+    const campaignEntry = tamperedRuntime.evidence.attested_campaigns[0];
+    const runtimeExpectation = Buffer.from(JSON.stringify(canonical({
+      campaign_name: campaignEntry.campaign_path,
+      campaign_sha256: campaignEntry.campaign_sha256,
+      repository_slug: "qoeop/pareto-fixture",
+      source_commit: campaignEnvelope.payload.observer.commit,
+      workflow: ".github/workflows/observe-install-capability.yml",
+    }))).toString("base64");
+    const directRuntimeRoot = await mkdtemp(path.join(os.tmpdir(), "pareto-sigstore-runtime-"));
+    try {
+      await assert.rejects(
+        () => execFileAsync(process.execPath, [path.join(repository, "scripts", "capability-score.mjs"),
+          "--verify-sigstore", path.join(tamperedRuntime.directory, campaignEntry.bundle_path),
+          campaignEntry.bundle_sha256, runtimeExpectation, directRuntimeRoot], { encoding: "utf8", env: process.env }),
+        (error) => error.code === 1 && /Sigstore runtime content does not match the frozen dependency closure/.test(error.stderr),
+        "an ignored live verifier mutation must fail before import",
+      );
+    } finally {
+      await rm(directRuntimeRoot, { force: true, recursive: true });
+    }
+  } finally {
+    await writeFile(runtimeFile, runtimeBytes);
+  }
+
+  if (process.platform !== "win32") {
+    const symlinkedCampaign = await attestedFixture("attested-install-symlink");
+    const campaignPath = path.join(symlinkedCampaign.directory, "ins-01-campaign.json");
+    const campaignBytes = await readFile(campaignPath);
+    await rm(campaignPath);
+    await writeFile(path.join(symlinkedCampaign.directory, "campaign-target.json"), campaignBytes);
+    await symlink("campaign-target.json", campaignPath);
+    await assert.rejects(() => scoreEvidence(symlinkedCampaign), /attested campaign is missing or unsafe/);
+  }
+
+  const changedCampaign = await attestedFixture("attested-install-changed");
+  const changedEnvelope = JSON.parse(changedCampaign.campaign);
+  changedEnvelope.payload.scenarios.negative = "caller-invented-negative";
+  changedEnvelope.content_sha256 = sha(Buffer.from(JSON.stringify(canonical(changedEnvelope.payload))));
+  const changedBytes = Buffer.from(`${JSON.stringify(canonical(changedEnvelope))}\n`);
+  await writeFile(path.join(changedCampaign.directory, "ins-01-campaign.json"), changedBytes);
+  changedCampaign.evidence.attested_campaigns[0].campaign_sha256 = sha(changedBytes);
+  await writeFile(changedCampaign.evidencePath, `${JSON.stringify(changedCampaign.evidence, null, 2)}\n`);
+  await assert.rejects(() => scoreEvidence(changedCampaign), /campaign semantics are invalid/);
+
+  const changedBundle = await attestedFixture("attested-install-bundle");
+  const changedBundleBytes = Buffer.from("{}\n");
+  await writeFile(path.join(changedBundle.directory, "attestation.json"), changedBundleBytes);
+  changedBundle.evidence.attested_campaigns[0].bundle_sha256 = sha(changedBundleBytes);
+  await writeFile(changedBundle.evidencePath, `${JSON.stringify(changedBundle.evidence, null, 2)}\n`);
+  await assert.rejects(() => scoreEvidence(changedBundle), /Sigstore attestation/);
 
   const weakId = committedCases[0].metadata.observations.capability.id;
   const weak = await fixture("weak", { weakCapability: weakId });
@@ -375,6 +593,15 @@ try {
   const corruptEvidence = JSON.parse(await readFile(corrupt.evidencePath, "utf8"));
   await writeFile(path.join(corrupt.directory, corruptEvidence.observations[0].artifact_path), "tampered\n");
   await assert.rejects(() => scoreEvidence(corrupt), /digest mismatch/);
+
+  const escaped = await fixture("escaped-artifact");
+  const escapedEvidence = JSON.parse(await readFile(escaped.evidencePath, "utf8"));
+  const escapedObservation = escapedEvidence.observations[0];
+  const outsideArtifact = path.join(temporaryRoot, "outside-artifact.json");
+  await copyFile(path.join(escaped.directory, escapedObservation.artifact_path), outsideArtifact);
+  escapedObservation.artifact_path = outsideArtifact;
+  await writeFile(escaped.evidencePath, `${JSON.stringify(escapedEvidence, null, 2)}\n`);
+  await assert.rejects(() => scoreEvidence(escaped), /path must be relative/);
 
   const wrongCase = await fixture("wrong-case");
   const wrongCaseEvidence = JSON.parse(await readFile(wrongCase.evidencePath, "utf8"));

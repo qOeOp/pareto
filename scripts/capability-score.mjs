@@ -1,22 +1,32 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { lstat, readFile, realpath } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
-import { parse as parseYaml } from "yaml";
-import {
-  CANONICAL_PROVIDER_ID,
-  readHoldoutIdentity,
-  runtimeCasesForInstalledSkill,
-  validateResultArtifact,
-} from "./eval.mjs";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const defaultCatalogPath = path.join(root, "evals", "capabilities.json");
 const execFileAsync = promisify(execFile);
-const gitEnvironment = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name)));
+const cleanProcessEnvironment = Object.fromEntries(Object.entries(process.env).filter(([name]) =>
+  !/^(?:GIT_|NODE_|DYLD_|LD_)/i.test(name)));
+const gitEnvironment = {
+  ...cleanProcessEnvironment,
+  // Git for Windows does not accept Node's `\\.\nul` spelling here; its
+  // native null-device pathname is the reserved DOS name `NUL`.
+  GIT_CONFIG_GLOBAL: process.platform === "win32" ? "NUL" : os.devNull,
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_NO_REPLACE_OBJECTS: "1",
+  GIT_OPTIONAL_LOCKS: "0",
+};
+const trustedGitPath = process.platform === "win32" ? "C:\\Program Files\\Git\\cmd\\git.exe" : "/usr/bin/git";
+const trustedGitOptions = [
+  "-c", "core.fsmonitor=false",
+  "-c", "core.untrackedCache=false",
+  ...(process.platform === "win32" ? ["-c", "core.autocrlf=true"] : []),
+];
 const sourceKinds = new Set(["deterministic_replay", "native_trace", "independent_review"]);
 const results = new Set(["pass", "fail", "unavailable"]);
 const scenarios = new Set(["positive", "negative", "recovery"]);
@@ -33,6 +43,24 @@ const passiveNativeItemTypes = new Set([
   "userMessage", "hookPrompt", "agentMessage", "plan", "reasoning", "webSearch", "imageView", "sleep",
 ]);
 const deterministicArtifactCache = new Map();
+let evaluationRuntimePromise;
+const attestedCampaignScore = 6;
+const installCampaignCapability = "INS-01";
+const installCampaignWorkflow = ".github/workflows/observe-install-capability.yml";
+const sigstoreMirror = "https://tuf-repo-cdn.sigstore.dev";
+const sigstoreRuntimePackages = Object.freeze([
+  "@sigstore/bundle",
+  "@sigstore/core",
+  "@sigstore/protobuf-specs",
+  "@sigstore/tuf",
+  "@sigstore/verify",
+]);
+const sigstoreRuntimeSha256 = "sha256:838b9f970235f6b1c02ff198430cacf9ce30f5b0259dd0e7404d4e35b106a8d3";
+const installCampaignScenarios = Object.freeze({
+  negative: "stale-lock-rejected-without-install-drift",
+  positive: "portable-skill-install-and-loader-discovery",
+  recovery: "installed-skill-drift-repaired-and-discovered",
+});
 const expectedCapabilityIds = new Set([
   "KRN-01", "KRN-02", "PLN-01", "PLN-02", "PLN-03", "PLN-04", "PLN-05", "ORC-01", "ORC-02",
   "ORC-03", "ORC-04", "ORC-05", "ORC-06", "EXE-01", "EXE-02", "VER-01", "VER-02", "VER-03",
@@ -71,6 +99,14 @@ function canonical(value) {
   return value;
 }
 
+async function evaluationRuntime() {
+  evaluationRuntimePromise ??= Promise.all([import("yaml"), import("./eval.mjs")]).then(([yaml, evaluation]) => ({
+    parseYaml: yaml.parse,
+    ...evaluation,
+  }));
+  return evaluationRuntimePromise;
+}
+
 function normalizedRepository(value) {
   return value
     .replace(/^git@github\.com:/, "https://github.com/")
@@ -78,8 +114,26 @@ function normalizedRepository(value) {
     .replace(/\.git$/, "");
 }
 
+function githubRepositorySlug(repository) {
+  const match = /^https:\/\/github\.com\/([^/]+)\/([^/]+)$/.exec(normalizedRepository(repository));
+  if (!match) fail("attested campaign requires one GitHub repository origin");
+  return `${match[1]}/${match[2]}`;
+}
+
+function signerOID(signer, oid) {
+  return signer?.identity?.oids?.find((entry) => entry?.oid?.id?.join(".") === oid)?.value;
+}
+
+function derUtf8(value) {
+  const bytes = Buffer.from(value);
+  if (bytes.length > 127) fail("attestation identity value is too long");
+  return Buffer.concat([Buffer.from([0x0c, bytes.length]), bytes]);
+}
+
 async function git(repositoryRoot, args) {
-  const { stdout } = await execFileAsync("git", ["-C", repositoryRoot, ...args], {
+  const info = await lstat(trustedGitPath).catch(() => null);
+  if (!info?.isFile() || info.isSymbolicLink()) fail("trusted system Git executable is unavailable");
+  const { stdout } = await execFileAsync(trustedGitPath, [...trustedGitOptions, "-C", repositoryRoot, ...args], {
     encoding: "utf8",
     env: gitEnvironment,
     maxBuffer: 1024 * 1024,
@@ -88,7 +142,9 @@ async function git(repositoryRoot, args) {
 }
 
 async function gitBytes(repositoryRoot, args) {
-  const { stdout } = await execFileAsync("git", ["-C", repositoryRoot, ...args], {
+  const info = await lstat(trustedGitPath).catch(() => null);
+  if (!info?.isFile() || info.isSymbolicLink()) fail("trusted system Git executable is unavailable");
+  const { stdout } = await execFileAsync(trustedGitPath, [...trustedGitOptions, "-C", repositoryRoot, ...args], {
     encoding: null,
     env: gitEnvironment,
     maxBuffer: 16 * 1024 * 1024,
@@ -96,10 +152,29 @@ async function gitBytes(repositoryRoot, args) {
   return stdout;
 }
 
+async function rejectMutableGitAuthority(repositoryRoot) {
+  if (await git(repositoryRoot, ["for-each-ref", "--format=%(refname)", "refs/replace"])) {
+    fail("candidate repository contains replace refs");
+  }
+  for (const gitPath of ["info/grafts", "objects/info/alternates", "objects/info/http-alternates"]) {
+    const locator = await git(repositoryRoot, ["rev-parse", "--git-path", gitPath]);
+    const file = path.isAbsolute(locator) ? locator : path.resolve(repositoryRoot, locator);
+    const info = await lstat(file).catch(() => null);
+    if (info && (info.isSymbolicLink() || !info.isFile() || info.size > 0)) {
+      fail(`candidate repository contains mutable Git authority: ${gitPath}`);
+    }
+  }
+  const indexFlags = await git(repositoryRoot, ["ls-files", "-v", "--"]);
+  if (indexFlags && indexFlags.split("\n").some((line) => line[0] !== "H")) {
+    fail("candidate index contains assume-unchanged or skip-worktree entries");
+  }
+}
+
 async function verifyCandidate(repositoryRoot, candidate) {
   const resolvedRoot = path.resolve(repositoryRoot);
   const actualRoot = await git(resolvedRoot, ["rev-parse", "--show-toplevel"]);
   if (await realpath(actualRoot) !== await realpath(resolvedRoot)) fail("candidate repository root is not exact");
+  await rejectMutableGitAuthority(resolvedRoot);
   const actualRepository = await git(resolvedRoot, ["remote", "get-url", "origin"]);
   if (normalizedRepository(actualRepository) !== normalizedRepository(candidate.repository)) {
     fail("candidate repository does not match origin");
@@ -128,6 +203,96 @@ function parseUniqueJson(bytes, label) {
 
 async function readUniqueJson(file, label) {
   return parseUniqueJson(await readFile(file), label);
+}
+
+async function boundedEvidenceFile(evidenceDirectory, relativePath, expectedDigest, label) {
+  atom(relativePath, `${label} path`);
+  if (path.isAbsolute(relativePath)) fail(`${label} path must be relative`);
+  const directory = await realpath(evidenceDirectory);
+  const file = path.resolve(directory, relativePath);
+  const sourceInfo = await lstat(file).catch(() => null);
+  if (!sourceInfo?.isFile() || sourceInfo.isSymbolicLink() || sourceInfo.size > 4 * 1024 * 1024) {
+    fail(`${label} is missing or unsafe`);
+  }
+  const resolved = await realpath(file).catch(() => "");
+  const relative = resolved ? path.relative(directory, resolved) : "";
+  if (!resolved || relative === "" || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    fail(`${label} path escapes the evidence directory`);
+  }
+  const bytes = await readFile(resolved);
+  if (digest(bytes) !== expectedDigest) fail(`${label} digest mismatch`);
+  return { bytes, path: resolved };
+}
+
+export function nodeSupportsSigstore(version = process.versions.node) {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:-|$)/.exec(version);
+  if (!match) return false;
+  const [, majorText, minorText, patchText] = match;
+  const [major, minor, patch] = [majorText, minorText, patchText].map(Number);
+  return (major === 22 && (minor > 22 || (minor === 22 && patch >= 2))) ||
+    (major === 24 && (minor > 15 || (minor === 15 && patch >= 0))) || major >= 26;
+}
+
+async function copyRuntimeTree(sourceRoot, destinationRoot) {
+  const hash = createHash("sha256");
+  const visit = async (relativeDirectory) => {
+    const sourceDirectory = path.join(sourceRoot, relativeDirectory);
+    const destinationDirectory = path.join(destinationRoot, relativeDirectory);
+    await mkdir(destinationDirectory, { recursive: true });
+    const entries = await readdir(sourceDirectory, { withFileTypes: true });
+    entries.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+    for (const entry of entries) {
+      const relative = path.posix.join(relativeDirectory.split(path.sep).join("/"), entry.name);
+      const source = path.join(sourceRoot, relativeDirectory, entry.name);
+      const destination = path.join(destinationRoot, relativeDirectory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(path.join(relativeDirectory, entry.name));
+        continue;
+      }
+      if (!entry.isFile() || entry.isSymbolicLink()) fail("Sigstore runtime contains an unsafe entry");
+      const bytes = await readFile(source);
+      hash.update(relative).update("\0").update(String(bytes.length)).update("\0").update(bytes);
+      await writeFile(destination, bytes, { flag: "wx", mode: 0o600 });
+    }
+  };
+  for (const packageName of sigstoreRuntimePackages) {
+    await visit(path.join("node_modules", ...packageName.split("/")));
+  }
+  return `sha256:${hash.digest("hex")}`;
+}
+
+async function verifiedSigstoreRuntime(temporaryRoot) {
+  if (!nodeSupportsSigstore()) fail("Node runtime is unsupported by the pinned Sigstore verifier");
+  const resolvedRoot = await realpath(temporaryRoot).catch(() => "");
+  const rootInfo = resolvedRoot ? await lstat(resolvedRoot).catch(() => null) : null;
+  if (!rootInfo?.isDirectory() || rootInfo.isSymbolicLink() ||
+      await realpath(path.dirname(resolvedRoot)).catch(() => "") !== await realpath(os.tmpdir()) ||
+      !path.basename(resolvedRoot).startsWith("pareto-sigstore-runtime-")) {
+    fail("Sigstore runtime custody root is invalid");
+  }
+  try {
+    const actualDigest = await copyRuntimeTree(root, resolvedRoot);
+    if (actualDigest !== sigstoreRuntimeSha256) fail("Sigstore runtime content does not match the frozen dependency closure");
+    const moduleRoot = path.join(resolvedRoot, "node_modules");
+    const bundleModule = await import(pathToFileURL(path.join(moduleRoot, "@sigstore/bundle/dist/index.js")).href);
+    const protobufModule = await import(pathToFileURL(path.join(moduleRoot, "@sigstore/protobuf-specs/dist/index.js")).href);
+    const verifyModule = await import(pathToFileURL(path.join(moduleRoot, "@sigstore/verify/dist/index.js")).href);
+    const seeds = JSON.parse(await readFile(path.join(moduleRoot, "@sigstore/tuf/seeds.json"), "utf8"));
+    const trustedRootText = Buffer.from(seeds?.[sigstoreMirror]?.targets?.["trusted_root.json"] ?? "", "base64").toString("utf8");
+    if (!trustedRootText) fail("Sigstore offline trusted root is unavailable");
+    const trustedRoot = protobufModule.TrustedRoot.fromJSON(JSON.parse(trustedRootText));
+    return {
+      bundleFromJSON: bundleModule.bundleFromJSON,
+      trustedRoot,
+      toSignedEntity: verifyModule.toSignedEntity,
+      toTrustMaterial: verifyModule.toTrustMaterial,
+      Verifier: verifyModule.Verifier,
+      dispose: () => rm(resolvedRoot, { force: true, recursive: true }),
+    };
+  } catch (error) {
+    await rm(resolvedRoot, { force: true, recursive: true });
+    throw error;
+  }
 }
 
 function validateCatalog(catalog) {
@@ -191,6 +356,7 @@ function capabilityCaseBinding(testCase, label) {
 }
 
 async function committedCapabilityCases(repositoryRoot, candidate, capabilities) {
+  const { parseYaml } = await evaluationRuntime();
   const cases = new Map();
   for (const file of ["evals/cases/golden.yaml", "evals/cases/holdout.yaml"]) {
     const bytes = await gitBytes(repositoryRoot, ["show", `${candidate.commit}:${file}`]).catch(() => null);
@@ -369,6 +535,8 @@ async function validatedDeterministicArtifact(bytes, artifactPath, candidate) {
   const cacheKey = `${artifactPath}\u0000${digest(bytes)}\u0000${candidate.commit}\u0000${candidate.tree}`;
   if (deterministicArtifactCache.has(cacheKey)) return deterministicArtifactCache.get(cacheKey);
   const validation = (async () => {
+  const { CANONICAL_PROVIDER_ID, readHoldoutIdentity, runtimeCasesForInstalledSkill, validateResultArtifact, parseYaml } =
+    await evaluationRuntime();
   const { value: artifact } = parseUniqueJson(bytes, "Promptfoo capability evidence");
   const repeat = artifact?.runtimeOptions?.repeat;
   const suite = repeat === 1 ? "smoke" : repeat === 2 ? "full" : repeat === 3 ? "holdout" : null;
@@ -534,16 +702,207 @@ function parseNativeTrace(bytes, observation, candidate, committedCase) {
 }
 
 async function validateArtifact(observation, evidenceDirectory, candidate, committedCase) {
-  const artifactPath = path.resolve(evidenceDirectory, observation.artifact_path);
-  const info = await lstat(artifactPath).catch(() => null);
-  if (!info?.isFile() || info.isSymbolicLink()) fail(`evidence artifact is missing or unsafe: ${observation.artifact_path}`);
-  const bytes = await readFile(artifactPath);
-  if (digest(bytes) !== observation.content_sha256) fail(`evidence artifact digest mismatch: ${observation.artifact_path}`);
+  const artifact = await boundedEvidenceFile(
+    evidenceDirectory, observation.artifact_path, observation.content_sha256, "evidence artifact",
+  );
   if (observation.source_kind === "deterministic_replay" && observation.result === "pass") {
-    return parseDeterministicEvalTrace(bytes, artifactPath, observation, candidate);
+    return parseDeterministicEvalTrace(artifact.bytes, artifact.path, observation, candidate);
   }
-  if (observation.source_kind === "native_trace" && observation.result === "pass") return parseNativeTrace(bytes, observation, candidate, committedCase);
-  return parseRolloutTrace(bytes, observation, candidate, committedCase);
+  if (observation.source_kind === "native_trace" && observation.result === "pass") {
+    return parseNativeTrace(artifact.bytes, observation, candidate, committedCase);
+  }
+  return parseRolloutTrace(artifact.bytes, observation, candidate, committedCase);
+}
+
+async function gitIdentityAt(commit, objectPath) {
+  return git(root, ["rev-parse", `${commit}:${objectPath}`]).catch(() => "");
+}
+
+async function verifySigstoreBundleFile(bundlePath, bundleSha256, expected, runtimeRoot) {
+  exactKeys(expected, ["campaign_name", "campaign_sha256", "repository_slug", "source_commit", "workflow"], "Sigstore expectation");
+  if (!shaPattern.test(bundleSha256) || !shaPattern.test(expected.campaign_sha256) ||
+      !/^[a-f0-9]{40}$/.test(expected.source_commit) || !/^[^/]+\/[^/]+$/.test(expected.repository_slug) ||
+      expected.workflow !== installCampaignWorkflow || path.basename(expected.campaign_name) !== expected.campaign_name) {
+    fail("Sigstore expectation is invalid");
+  }
+  const bundleBytes = await readFile(bundlePath);
+  if (digest(bundleBytes) !== bundleSha256) fail("Sigstore attestation bundle digest mismatch");
+  const { value: bundle } = parseUniqueJson(bundleBytes, "Sigstore attestation bundle");
+  exactKeys(bundle, ["mediaType", "dsseEnvelope", "verificationMaterial"], "Sigstore attestation bundle");
+  if (bundle.mediaType !== "application/vnd.dev.sigstore.bundle.v0.3+json" ||
+      bundle.dsseEnvelope?.payloadType !== "application/vnd.in-toto+json" ||
+      typeof bundle.dsseEnvelope?.payload !== "string" || !Array.isArray(bundle.dsseEnvelope?.signatures) ||
+      bundle.dsseEnvelope.signatures.length !== 1) {
+    fail("Sigstore attestation bundle shape is invalid");
+  }
+
+  const runtime = await verifiedSigstoreRuntime(runtimeRoot);
+  let signer;
+  try {
+    const verifier = new runtime.Verifier(runtime.toTrustMaterial(runtime.trustedRoot), {
+      ctlogThreshold: 1,
+      tlogThreshold: 1,
+    });
+    signer = verifier.verify(runtime.toSignedEntity(runtime.bundleFromJSON(bundle)));
+  } catch {
+    fail("Sigstore attestation verification failed");
+  } finally {
+    await runtime.dispose();
+  }
+
+  const repositoryURL = `https://github.com/${expected.repository_slug}`;
+  const signerURI = `${repositoryURL}/${expected.workflow}@refs/heads/main`;
+  const rawOIDClaims = new Map([
+    ["1.3.6.1.4.1.57264.1.2", "workflow_dispatch"],
+    ["1.3.6.1.4.1.57264.1.3", expected.source_commit],
+    ["1.3.6.1.4.1.57264.1.4", "observe-install-capability"],
+    ["1.3.6.1.4.1.57264.1.5", expected.repository_slug],
+    ["1.3.6.1.4.1.57264.1.6", "refs/heads/main"],
+  ]);
+  const utf8OIDClaims = new Map([
+    ["1.3.6.1.4.1.57264.1.9", signerURI],
+    ["1.3.6.1.4.1.57264.1.10", expected.source_commit],
+    ["1.3.6.1.4.1.57264.1.11", "github-hosted"],
+    ["1.3.6.1.4.1.57264.1.12", repositoryURL],
+    ["1.3.6.1.4.1.57264.1.13", expected.source_commit],
+    ["1.3.6.1.4.1.57264.1.14", "refs/heads/main"],
+    ["1.3.6.1.4.1.57264.1.18", signerURI],
+    ["1.3.6.1.4.1.57264.1.19", expected.source_commit],
+    ["1.3.6.1.4.1.57264.1.20", "workflow_dispatch"],
+    ["1.3.6.1.4.1.57264.1.22", "public"],
+  ]);
+  if (signer?.identity?.subjectAlternativeName !== signerURI ||
+      signer?.identity?.extensions?.issuer !== "https://token.actions.githubusercontent.com" ||
+      [...rawOIDClaims].some(([oid, value]) => !signerOID(signer, oid)?.equals(Buffer.from(value))) ||
+      [...utf8OIDClaims].some(([oid, value]) => !signerOID(signer, oid)?.equals(derUtf8(value)))) {
+    fail("Sigstore signer claims do not match the GitHub-hosted main workflow");
+  }
+
+  const statementBytes = Buffer.from(bundle.dsseEnvelope.payload, "base64");
+  if (statementBytes.toString("base64") !== bundle.dsseEnvelope.payload) fail("Sigstore statement encoding is invalid");
+  const { value: statement } = parseUniqueJson(statementBytes, "Sigstore attestation statement");
+  const statementSubject = statement?.subject;
+  const build = statement?.predicate?.buildDefinition;
+  const dependency = build?.resolvedDependencies;
+  const campaignHex = expected.campaign_sha256.slice("sha256:".length);
+  if (statement?._type !== "https://in-toto.io/Statement/v1" || statement?.predicateType !== "https://slsa.dev/provenance/v1" ||
+      !Array.isArray(statementSubject) || statementSubject.length !== 1 || statementSubject[0]?.name !== expected.campaign_name ||
+      statementSubject[0]?.digest?.sha256 !== campaignHex ||
+      build?.externalParameters?.workflow?.path !== expected.workflow ||
+      build?.externalParameters?.workflow?.ref !== "refs/heads/main" ||
+      normalizedRepository(build?.externalParameters?.workflow?.repository ?? "") !== repositoryURL ||
+      build?.internalParameters?.github?.runner_environment !== "github-hosted" ||
+      !Array.isArray(dependency) || dependency.length !== 1 || dependency[0]?.digest?.gitCommit !== expected.source_commit ||
+      dependency[0]?.uri !== `git+${repositoryURL}@refs/heads/main`) {
+    fail("Sigstore attestation statement does not match the campaign authority");
+  }
+  return { schema: "pareto-sigstore-verification/v1", bundle_sha256: bundleSha256 };
+}
+
+async function verifySigstoreInChild(bundleFile, entry, expected) {
+  const encoded = Buffer.from(JSON.stringify(canonical(expected))).toString("base64");
+  const script = fileURLToPath(import.meta.url);
+  const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), "pareto-sigstore-runtime-"));
+  let stdout;
+  try {
+    ({ stdout } = await execFileAsync(process.execPath,
+      [script, "--verify-sigstore", bundleFile.path, entry.bundle_sha256, encoded, runtimeRoot], {
+      cwd: root,
+      encoding: "utf8",
+      env: cleanProcessEnvironment,
+      maxBuffer: 1024 * 1024,
+      timeout: 30_000,
+      }));
+  } catch {
+    fail("isolated Sigstore attestation verification failed");
+  } finally {
+    await rm(runtimeRoot, { force: true, recursive: true });
+  }
+  const { value: receipt } = parseUniqueJson(Buffer.from(stdout), "isolated Sigstore verification receipt");
+  exactKeys(receipt, ["bundle_sha256", "schema"], "isolated Sigstore verification receipt");
+  if (receipt.schema !== "pareto-sigstore-verification/v1" || receipt.bundle_sha256 !== entry.bundle_sha256) {
+    fail("isolated Sigstore verification receipt is invalid");
+  }
+}
+
+async function verifyInstallCampaign(entry, evidenceDirectory, candidate) {
+  exactKeys(entry, ["campaign_path", "campaign_sha256", "bundle_path", "bundle_sha256"], "attested campaign");
+  if (!shaPattern.test(entry.campaign_sha256) || !shaPattern.test(entry.bundle_sha256)) {
+    fail("attested campaign digests are invalid");
+  }
+  const campaignFile = await boundedEvidenceFile(
+    evidenceDirectory, entry.campaign_path, entry.campaign_sha256, "attested campaign",
+  );
+  const bundleFile = await boundedEvidenceFile(
+    evidenceDirectory, entry.bundle_path, entry.bundle_sha256, "attestation bundle",
+  );
+  const { value: envelope } = parseUniqueJson(campaignFile.bytes, "attested campaign");
+  exactKeys(envelope, ["schema", "content_sha256", "payload"], "attested campaign envelope");
+  if (envelope.schema !== "pareto-capability-campaign-envelope/v1" || !shaPattern.test(envelope.content_sha256)) {
+    fail("attested campaign envelope is invalid");
+  }
+  const payload = envelope.payload;
+  exactKeys(payload, ["schema", "authority", "capability_id", "environments", "observations", "observer", "result", "scenarios", "subject"], "attested campaign payload");
+  if (envelope.content_sha256 !== digest(Buffer.from(JSON.stringify(canonical(payload)))) ||
+      payload.schema !== "pareto-capability-campaign/v1" ||
+      payload.authority !== "github_attestation_subject" || payload.capability_id !== installCampaignCapability ||
+      payload.result !== "pass" || JSON.stringify(payload.environments) !== JSON.stringify(["linux", "win32"]) ||
+      JSON.stringify(canonical(payload.scenarios)) !== JSON.stringify(canonical(installCampaignScenarios))) {
+    fail("attested campaign semantics are invalid");
+  }
+  if (!Array.isArray(payload.observations) || payload.observations.length !== 2 ||
+      payload.observations.some((row, index) => {
+        exactKeys(row, ["content_sha256", "environment"], `attested campaign observation ${index + 1}`);
+        return !shaPattern.test(row.content_sha256);
+      }) ||
+      JSON.stringify(payload.observations.map((row) => row.environment)) !== JSON.stringify(["linux", "win32"])) {
+    fail("attested campaign observations are invalid");
+  }
+  exactKeys(payload.observer, ["commit", "script_blob", "tree"], "attested campaign observer");
+  exactKeys(payload.subject, ["repository", "commit", "tree", "skill_tree", "codex_agents_tree", "codex_session_hook_blob", "installer_blob"], "attested campaign subject");
+  const sourceCommit = payload.observer.commit;
+  if (!/^[a-f0-9]{40}$/.test(sourceCommit) || payload.subject.commit !== sourceCommit ||
+      payload.subject.tree !== payload.observer.tree || normalizedRepository(payload.subject.repository) !== normalizedRepository(candidate.repository)) {
+    fail("attested campaign source identity is invalid");
+  }
+  const sourceTree = await git(root, ["rev-parse", `${sourceCommit}^{tree}`]).catch(() => "");
+  const ancestry = await execFileAsync(trustedGitPath,
+    [...trustedGitOptions, "-C", root, "merge-base", "--is-ancestor", sourceCommit, candidate.commit], {
+    encoding: "utf8", env: gitEnvironment,
+  }).then(() => true, () => false);
+  const sourceObjects = {
+    script_blob: await gitIdentityAt(sourceCommit, "scripts/observe-install-capability.mjs"),
+    skill_tree: await gitIdentityAt(sourceCommit, "skills/run-bounded-mission"),
+    codex_agents_tree: await gitIdentityAt(sourceCommit, "codex/agents"),
+    codex_session_hook_blob: await gitIdentityAt(sourceCommit, "codex/hooks/qoeop-trade-session-start.mjs"),
+    installer_blob: await gitIdentityAt(sourceCommit, "scripts/install-codex.mjs"),
+  };
+  if (!ancestry || sourceTree !== payload.observer.tree || sourceObjects.script_blob !== payload.observer.script_blob ||
+      Object.entries(sourceObjects).some(([key, value]) => key !== "script_blob" && value !== payload.subject[key])) {
+    fail("attested campaign does not match its immutable Git source");
+  }
+  const currentObjects = {
+    workflow: await gitIdentityAt(candidate.commit, installCampaignWorkflow),
+    source_workflow: await gitIdentityAt(sourceCommit, installCampaignWorkflow),
+    script_blob: await gitIdentityAt(candidate.commit, "scripts/observe-install-capability.mjs"),
+    skill_tree: await gitIdentityAt(candidate.commit, "skills/run-bounded-mission"),
+    codex_agents_tree: await gitIdentityAt(candidate.commit, "codex/agents"),
+    codex_session_hook_blob: await gitIdentityAt(candidate.commit, "codex/hooks/qoeop-trade-session-start.mjs"),
+    installer_blob: await gitIdentityAt(candidate.commit, "scripts/install-codex.mjs"),
+  };
+  if (!currentObjects.workflow || currentObjects.workflow !== currentObjects.source_workflow ||
+      Object.entries(sourceObjects).some(([key, value]) => currentObjects[key] !== value)) {
+    fail("attested campaign is stale for the current install consumer");
+  }
+
+  await verifySigstoreInChild(bundleFile, entry, {
+    campaign_name: path.basename(campaignFile.path),
+    campaign_sha256: entry.campaign_sha256,
+    repository_slug: githubRepositorySlug(candidate.repository),
+    source_commit: sourceCommit,
+    workflow: installCampaignWorkflow,
+  });
+  return { capability_id: installCampaignCapability, score: attestedCampaignScore };
 }
 
 function validateObservation(observation, capabilities, requirements) {
@@ -558,7 +917,7 @@ function validateObservation(observation, capabilities, requirements) {
   }
 }
 
-function scoreCapability(observations, gaps, localTraceCeiling) {
+function scoreCapability(observations, gaps, localTraceCeiling, attestedCampaigns) {
   const passed = observations.filter((entry) => entry.result === "pass" && entry.source_verified === true);
   const unverifiedPass = observations.filter((entry) => entry.result === "pass" && entry.source_verified !== true);
   const failed = observations.filter((entry) => entry.result === "fail");
@@ -570,6 +929,9 @@ function scoreCapability(observations, gaps, localTraceCeiling) {
     return { score: 0, maturity: "contradicted", reason };
   }
   if (unavailable.length > 0) return { score: 0, maturity: "unavailable", reason: "unavailable_observation" };
+  if (attestedCampaigns.length > 0) {
+    return { score: attestedCampaignScore, maturity: "dynamic", reason: "single_attested_campaign" };
+  }
   if (passed.length === 0) return { score: 0, maturity: "absent", reason: "no_passing_evidence" };
   return { score: localTraceCeiling, maturity: "declared", reason: "local_writable_trace_has_no_provider_attestation" };
 }
@@ -577,19 +939,32 @@ function scoreCapability(observations, gaps, localTraceCeiling) {
 export async function scoreEvidence({ evidencePath }) {
   if (!evidencePath) fail("evidence path is required");
   const { value: evidence } = await readUniqueJson(evidencePath, "capability evidence");
-  exactKeys(evidence, ["schema_version", "catalog_sha256", "candidate", "attempt_inventory", "observations", "open_gaps"], "evidence");
+  if (evidence.schema_version === 1) {
+    exactKeys(evidence, ["schema_version", "catalog_sha256", "candidate", "attempt_inventory", "observations", "open_gaps"], "evidence");
+  } else if (evidence.schema_version === 2) {
+    exactKeys(evidence, ["schema_version", "catalog_sha256", "candidate", "attempt_inventory", "observations", "attested_campaigns", "open_gaps"], "evidence");
+  } else {
+    fail("evidence schema version is unsupported");
+  }
   exactKeys(evidence.candidate, ["repository", "commit", "tree"], "candidate");
   atom(evidence.candidate.repository, "candidate repository");
   if (!/^[a-f0-9]{40}$/.test(evidence.candidate.commit) || !/^[a-f0-9]{40}$/.test(evidence.candidate.tree)) fail("candidate Git identity is invalid");
   const catalogBytes = await verifyCandidate(root, evidence.candidate);
   const { value: catalog } = parseUniqueJson(catalogBytes, "capability catalog");
   const capabilities = validateCatalog(catalog);
-  const committedCases = await committedCapabilityCases(root, evidence.candidate, capabilities);
-  if (evidence.schema_version !== 1 || evidence.catalog_sha256 !== digest(catalogBytes)) fail("evidence catalog binding is stale or invalid");
+  if (evidence.catalog_sha256 !== digest(catalogBytes)) fail("evidence catalog binding is stale or invalid");
   exactKeys(evidence.attempt_inventory, ["status", "locator"], "attempt inventory");
   if (evidence.attempt_inventory.status !== "unavailable") fail("provider-attested attempt inventory is not supported by this scorer");
   atom(evidence.attempt_inventory.locator, "attempt inventory locator");
   if (!Array.isArray(evidence.observations) || !Array.isArray(evidence.open_gaps)) fail("evidence observations and gaps must be arrays");
+  const attestedCampaignEntries = evidence.schema_version === 2 ? evidence.attested_campaigns : [];
+  if (!Array.isArray(attestedCampaignEntries)) fail("attested campaigns must be an array");
+  if (attestedCampaignEntries.length > 0 && evidence.observations.length > 0) {
+    fail("attested campaigns cannot share a process with locally loaded observation runtimes");
+  }
+  const committedCases = evidence.observations.length > 0
+    ? await committedCapabilityCases(root, evidence.candidate, capabilities)
+    : new Map();
 
   const keys = new Set();
   const trialArtifacts = new Set();
@@ -611,6 +986,15 @@ export async function scoreEvidence({ evidencePath }) {
     observation.source_verified = await validateArtifact(observation, evidenceDirectory, evidence.candidate, committedCase);
   }
 
+  const attestedCampaigns = [];
+  const attestedCapabilities = new Set();
+  for (const entry of attestedCampaignEntries) {
+    const campaign = await verifyInstallCampaign(entry, evidenceDirectory, evidence.candidate);
+    if (attestedCapabilities.has(campaign.capability_id)) fail("evidence repeats one attested capability campaign");
+    attestedCapabilities.add(campaign.capability_id);
+    attestedCampaigns.push(campaign);
+  }
+
   const gapsByCapability = new Map();
   for (const gap of evidence.open_gaps) {
     exactKeys(gap, ["capability_id", "severity", "description", "locator"], "gap");
@@ -622,11 +1006,13 @@ export async function scoreEvidence({ evidencePath }) {
 
   const rows = [...capabilities.values()].map((capability) => {
     const observations = evidence.observations.filter((entry) => entry.capability_id === capability.id);
+    const capabilityCampaigns = attestedCampaigns.filter((entry) => entry.capability_id === capability.id);
     const gaps = gapsByCapability.get(capability.id) ?? [];
     return {
       ...capability,
-      ...scoreCapability(observations, gaps, catalog.local_trace_ceiling),
+      ...scoreCapability(observations, gaps, catalog.local_trace_ceiling, capabilityCampaigns),
       observation_count: observations.length,
+      attested_campaign_count: capabilityCampaigns.length,
       unavailable_count: observations.filter((entry) => entry.result === "unavailable").length,
       gap_count: gaps.length,
     };
@@ -636,12 +1022,14 @@ export async function scoreEvidence({ evidencePath }) {
   const criticalBreaches = rows.filter((row) => row.critical && row.score < catalog.target_score).map((row) => row.id);
   const belowTarget = rows.filter((row) => row.score < catalog.target_score).map((row) => row.id);
   return {
-    schema_version: 1,
+    schema_version: evidence.schema_version,
     catalog_sha256: digest(catalogBytes),
     candidate: evidence.candidate,
     target_score: catalog.target_score,
-    evidence_ceiling: catalog.local_trace_ceiling,
-    evidence_limit: "provider_attested_attempt_inventory_unavailable",
+    evidence_ceiling: attestedCampaigns.length > 0 ? attestedCampaignScore : catalog.local_trace_ceiling,
+    evidence_limit: attestedCampaigns.length > 0
+      ? "single_attested_fixed_observer_campaign; varied_repetition_and_provider_attempt_inventory_unavailable"
+      : "provider_attested_attempt_inventory_unavailable",
     weighted_score: Number(weightedScore.toFixed(3)),
     minimum_score: minimumScore,
     eligible: weightedScore >= catalog.target_score && minimumScore >= catalog.target_score && criticalBreaches.length === 0,
@@ -660,12 +1048,21 @@ export async function validateCatalogFile(catalogPath = defaultCatalogPath) {
 const invokedAsMain = process.argv[1] &&
   await realpath(path.resolve(process.argv[1])).catch(() => "") === await realpath(fileURLToPath(import.meta.url));
 if (invokedAsMain) {
-  const evidencePath = process.argv[2];
   try {
-    if (process.argv.length > 3) fail("capability scorer accepts only one evidence path");
-    const report = await scoreEvidence({ evidencePath });
-    console.log(JSON.stringify(report, null, 2));
-    if (!report.eligible) process.exitCode = 1;
+    if (process.argv[2] === "--verify-sigstore") {
+      if (process.argv.length !== 7) fail("isolated Sigstore verifier arguments are invalid");
+      const expectationBytes = Buffer.from(process.argv[5], "base64");
+      if (expectationBytes.toString("base64") !== process.argv[5]) fail("isolated Sigstore expectation encoding is invalid");
+      const { value: expected } = parseUniqueJson(expectationBytes, "isolated Sigstore expectation");
+      const receipt = await verifySigstoreBundleFile(process.argv[3], process.argv[4], expected, process.argv[6]);
+      console.log(JSON.stringify(receipt));
+    } else {
+      const evidencePath = process.argv[2];
+      if (process.argv.length > 3) fail("capability scorer accepts only one evidence path");
+      const report = await scoreEvidence({ evidencePath });
+      console.log(JSON.stringify(report, null, 2));
+      if (!report.eligible) process.exitCode = 1;
+    }
   } catch (error) {
     console.error(error.message);
     process.exitCode = 1;

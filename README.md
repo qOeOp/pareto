@@ -33,7 +33,7 @@ the installed copy through the same pinned CLI.
 
 ## Validate and evaluate
 
-Node.js 22.22 or newer is required for repository development. Skill consumers do not need these
+Node.js `^22.22.2 || ^24.15.0 || >=26.0.0` is required for repository development. Skill consumers do not need these
 development dependencies; the conditional delivery-receipt path requires Go 1.25 or newer.
 
 ```bash
