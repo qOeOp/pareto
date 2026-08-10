@@ -1,6 +1,6 @@
 - description: "[holdout] stale source and dependency supersession"
   metadata:
-    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
+    observations: { capability: { id: PLN-05, scenario: recovery, case_id: stale-source-supersession }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission. A repository checkout is stale, one planned leaf has been superseded
@@ -20,7 +20,7 @@
 
 - description: "[holdout] Hub recovery after foreground leaf capture"
   metadata:
-    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state, conversation_compaction_state] }
+    observations: { capability: { id: ORC-04, scenario: recovery, case_id: hub-foreground-capture-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state, conversation_compaction_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission. A Hub spent several turns implementing a delegable leaf while children
@@ -40,7 +40,7 @@
 
 - description: "[holdout] terminal artifact custody preserves unique and prunable work"
   metadata:
-    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
+    observations: { capability: { id: DLV-04, scenario: positive, case_id: terminal-artifact-custody }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission at a terminal no-PR endpoint. The Mission created a clean worktree whose
@@ -64,7 +64,7 @@
 
 - description: "[holdout] repository selection cleanup invalidates evidence"
   metadata:
-    observations: { behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
+    observations: { capability: { id: OPT-01, scenario: recovery, case_id: repository-selection-cleanup }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
   vars:
     prompt: >-
       Use $run-bounded-mission. An evaluation repository contains unrelated legacy Skills that were
