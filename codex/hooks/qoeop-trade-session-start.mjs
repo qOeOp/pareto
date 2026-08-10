@@ -142,7 +142,7 @@ try {
   process.exit(0);
 }
 
-if (lock.schema_version !== 2 || normalizedRepository(lock.repository) !== "https://github.com/qOeOp/skills") {
+if (lock.schema_version !== 2 || normalizedRepository(lock.repository) !== "https://github.com/qOeOp/pareto") {
   output({ continue: false, stopReason: "The qOeOp/trade origin/main Skill pin is invalid." });
   process.exit(0);
 }

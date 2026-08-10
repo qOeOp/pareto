@@ -1,4 +1,4 @@
-# qOeOp Skills
+# Pareto
 
 A portable Agent Skills collection with deterministic validation and reproducible model evaluations.
 The repository keeps runtime skills under one authority, `skills/`, and evaluation assets under
@@ -9,9 +9,9 @@ The repository keeps runtime skills under one authority, `skills/`, and evaluati
 This repository distributes exactly one Skill: `run-bounded-mission`.
 
 ```bash
-npx -y skills@1.5.22 add qOeOp/skills --list
-npx -y skills@1.5.22 add qOeOp/skills --skill run-bounded-mission --agent codex --global --copy --yes
-npx -y skills@1.5.22 add qOeOp/skills --skill run-bounded-mission --agent claude-code --global --copy --yes
+npx -y skills@1.5.22 add qOeOp/pareto --list
+npx -y skills@1.5.22 add qOeOp/pareto --skill run-bounded-mission --agent codex --global --copy --yes
+npx -y skills@1.5.22 add qOeOp/pareto --skill run-bounded-mission --agent claude-code --global --copy --yes
 ```
 
 Codex projects that use the bundled custom agent roles should clone a pinned commit and run:

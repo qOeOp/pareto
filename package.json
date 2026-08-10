@@ -1,5 +1,5 @@
 {
-  "name": "@qoeop/skills",
+  "name": "@qoeop/pareto",
   "version": "0.1.0",
   "private": true,
   "description": "Portable Agent Skills with deterministic validation and reproducible evaluations",
