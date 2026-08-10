@@ -3,6 +3,7 @@ import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
+import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const skillRoot = path.join(root, "skills");
@@ -41,6 +42,16 @@ const forbiddenPublicEvidence = [
 
 function fail(message) {
   throw new Error(message);
+}
+
+async function readUniqueJson(relative, label) {
+  const source = await readFile(path.join(root, relative), "utf8");
+  rejectDuplicateJsonObjectMembers(source, label);
+  try {
+    return JSON.parse(source);
+  } catch {
+    fail(`${label}: expected valid JSON`);
+  }
 }
 
 function splitFrontmatter(source, file) {
@@ -95,9 +106,8 @@ async function validateSkills() {
   return { count: names.length, warnings };
 }
 
-function validatePromptfooCases(cases, { file, suites, count }) {
+function validatePromptfooCases(cases, { file, suites }) {
   if (!Array.isArray(cases)) fail(`${file}: cases must be an array`);
-  if (count !== undefined && cases.length !== count) fail(`${file}: expected exactly ${count} cases`);
   const descriptions = [];
   const capabilityCaseIds = new Set();
   for (const testCase of cases) {
@@ -163,6 +173,113 @@ function validatePromptfooCases(cases, { file, suites, count }) {
   return descriptions;
 }
 
+function validateScenarioDesigns(catalog, design, cases) {
+  validateExactKeys(design, new Set(["schema_version", "scenarios"]), "scenario design");
+  if (design.schema_version !== 1 || !Array.isArray(design.scenarios)) {
+    fail("scenario design identity is invalid");
+  }
+  if (!Array.isArray(catalog.capabilities) || catalog.capabilities.length !== 39) {
+    fail("capability catalog must retain exactly 39 leaves");
+  }
+  const capabilityIds = new Set();
+  for (const capability of catalog.capabilities) {
+    if (!/^[A-Z]{3,4}-\d{2}$/.test(capability.id) || capabilityIds.has(capability.id)) {
+      fail("capability catalog contains an invalid or duplicate leaf");
+    }
+    capabilityIds.add(capability.id);
+  }
+
+  const scenarios = new Set(["positive", "negative", "recovery"]);
+  const observerKinds = new Set([
+    "native_thread",
+    "fixed_real_consumer",
+    "external_authority",
+  ]);
+  const missingAuthorities = new Set([
+    "host_native_provenance",
+    "executed_model_effort_provenance",
+    "native_role_provenance",
+    "fixed_consumer_observer",
+    "external_effect_authority",
+    "cross_mission_recurrence_authority",
+    "provider_complete_attempt_inventory",
+    "scenario_consumer_binding",
+  ]);
+  const observerByMissingAuthority = new Map([
+    ["host_native_provenance", "native_thread"],
+    ["executed_model_effort_provenance", "native_thread"],
+    ["native_role_provenance", "native_thread"],
+    ["provider_complete_attempt_inventory", "native_thread"],
+    ["fixed_consumer_observer", "fixed_real_consumer"],
+    ["scenario_consumer_binding", "fixed_real_consumer"],
+    ["external_effect_authority", "external_authority"],
+    ["cross_mission_recurrence_authority", "external_authority"],
+  ]);
+  const slots = new Map();
+  const caseIds = new Map();
+  const implemented = 0;
+  for (const row of design.scenarios) {
+    validateExactOptionalKeys(row,
+      new Set(["capability_id", "scenario", "case_id", "observer_kind", "authority_status", "missing_authority"]),
+      new Set(["executable_suite"]), "scenario design row");
+    if (!capabilityIds.has(row.capability_id) || !scenarios.has(row.scenario) ||
+        !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(row.case_id) || !observerKinds.has(row.observer_kind)) {
+      fail("scenario design row contains an unknown identity");
+    }
+    const slot = `${row.capability_id}/${row.scenario}`;
+    if (slots.has(slot) || caseIds.has(row.case_id)) {
+      fail("scenario design contains a duplicate slot or case ID");
+    }
+    if (row.authority_status !== "authority_unavailable") {
+      fail("scenario design authority cannot be self-declared");
+    }
+    if (!missingAuthorities.has(row.missing_authority)) {
+      fail("unavailable scenario design requires one known missing authority");
+    }
+    if (observerByMissingAuthority.get(row.missing_authority) !== row.observer_kind) {
+      fail("scenario observer does not match its missing authority");
+    }
+    if (row.executable_suite !== undefined && !["golden", "holdout"].includes(row.executable_suite)) {
+      fail("scenario design executable suite is invalid");
+    }
+    slots.set(slot, row);
+    caseIds.set(row.case_id, row);
+  }
+
+  const expectedCount = capabilityIds.size * scenarios.size;
+  if (slots.size !== expectedCount || design.scenarios.length !== expectedCount) {
+    fail(`scenario design must contain exactly ${expectedCount} unique leaf/scenario slots`);
+  }
+  for (const capabilityId of capabilityIds) {
+    for (const scenario of scenarios) {
+      if (!slots.has(`${capabilityId}/${scenario}`)) {
+        fail(`scenario design is missing ${capabilityId}/${scenario}`);
+      }
+    }
+  }
+  const boundExecutableCases = new Set();
+  for (const { testCase, suite } of cases) {
+    const binding = testCase.metadata.observations.capability;
+    const row = caseIds.get(binding.case_id);
+    if (!row || row.capability_id !== binding.id || row.scenario !== binding.scenario) {
+      fail(`${testCase.description}: case binding does not match the canonical scenario design`);
+    }
+    if (boundExecutableCases.has(binding.case_id)) {
+      fail(`${testCase.description}: scenario design has more than one executable case`);
+    }
+    boundExecutableCases.add(binding.case_id);
+    if (row.executable_suite !== suite) {
+      fail(`${testCase.description}: executable case suite does not match the scenario design`);
+    }
+  }
+  for (const row of design.scenarios) {
+    if (row.executable_suite !== undefined && !boundExecutableCases.has(row.case_id)) {
+      fail(`${row.case_id}: scenario design requires one exact executable case`);
+    }
+  }
+  return { designed: expectedCount, implemented, unavailable: expectedCount - implemented };
+}
+
 function validateExactKeys(value, expected, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail(`${label}: expected an object`);
   const actual = Object.keys(value).sort();
@@ -170,6 +287,13 @@ function validateExactKeys(value, expected, label) {
   if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
     fail(`${label}: expected exact fields ${wanted.join(", ")}`);
   }
+}
+
+function validateExactOptionalKeys(value, required, optional, label) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) fail(`${label}: expected an object`);
+  const actual = new Set(Object.keys(value));
+  for (const key of required) if (!actual.has(key)) fail(`${label}: missing field ${key}`);
+  for (const key of actual) if (!required.has(key) && !optional.has(key)) fail(`${label}: unknown field ${key}`);
 }
 
 function validateMatrix(matrix) {
@@ -244,17 +368,17 @@ if (packageJson.engines?.node !== "^22.22.2 || ^24.15.0 || >=26.0.0") {
 }
 
 const skills = await validateSkills();
+const capabilityCatalog = await readUniqueJson("evals/capabilities.json", "capability catalog");
+const scenarioDesign = await readUniqueJson("evals/scenarios.json", "scenario design");
 const goldenCases = parseYaml(await readFile(path.join(root, "evals/cases/golden.yaml"), "utf8"));
 const holdoutCases = parseYaml(await readFile(path.join(root, "evals/cases/holdout.yaml"), "utf8"));
 const goldenDescriptions = validatePromptfooCases(goldenCases, {
   file: "evals/cases/golden.yaml",
   suites: new Set(["smoke", "full"]),
-  count: 21,
 });
 const holdoutDescriptions = validatePromptfooCases(holdoutCases, {
   file: "evals/cases/holdout.yaml",
   suites: new Set(["holdout"]),
-  count: 4,
 });
 if (goldenCases.filter((testCase) => /^\[smoke\]/.test(testCase.description)).length !== 2) {
   fail("evals/cases/golden.yaml: expected exactly two smoke cases");
@@ -263,6 +387,10 @@ const descriptions = [...goldenDescriptions, ...holdoutDescriptions];
 if (new Set(descriptions).size !== descriptions.length) fail("duplicate eval description across corpus files");
 const cases = [...goldenCases, ...holdoutCases];
 const caseCount = cases.length;
+const scenarioCoverage = validateScenarioDesigns(capabilityCatalog, scenarioDesign, [
+  ...goldenCases.map((testCase) => ({ testCase, suite: "golden" })),
+  ...holdoutCases.map((testCase) => ({ testCase, suite: "holdout" })),
+]);
 const matrix = JSON.parse(await readFile(path.join(root, "evals/matrix.json"), "utf8"));
 validateMatrix(matrix);
 await rejectCommittedBaselines();
@@ -271,9 +399,11 @@ await scanPublicEvidence([
   "evals/CONTRACT.md",
   "evals/cases/golden.yaml",
   "evals/cases/holdout.yaml",
+  "evals/scenarios.json",
   "evals/matrix.json",
   "evals/promptfooconfig.yaml",
 ]);
 
 for (const warning of skills.warnings) console.warn(`Warning: ${warning}.`);
-console.log(`Validated ${skills.count} Skill and ${caseCount} executable cases; committed baselines are disabled.`);
+console.log(`Validated ${skills.count} Skill, ${caseCount} executable cases, and ${scenarioCoverage.designed} scenario designs ` +
+  `(${scenarioCoverage.implemented} implemented authorities, ${scenarioCoverage.unavailable} unavailable); committed baselines are disabled.`);
