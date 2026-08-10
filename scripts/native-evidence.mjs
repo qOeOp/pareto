@@ -8,6 +8,7 @@ import readline from "node:readline";
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
+import { parseCapabilityResult, verifyCommittedCapabilityResult } from "./capability-score.mjs";
 
 const statuses = new Set(["active", "paused", "blocked", "usageLimited", "budgetLimited", "complete", "absent"]);
 const shaPattern = /^sha256:[a-f0-9]{64}$/;
@@ -73,25 +74,21 @@ async function stopChild(child) {
 
 export async function collectNativeEvidence({
   threadId,
+  turnId,
   expectedGoalStatus,
   expectedObjectiveSha256 = null,
-  capabilityId,
-  scenario,
-  caseId,
-  candidateCommit,
-  candidateTree,
   codexExecutable,
   expectedServerVersion,
   appServerCwd,
+  repositoryRoot = process.cwd(),
   timeoutMs = 10_000,
 }) {
   if (!threadPattern.test(threadId)) fail("thread id must be one exact UUID");
+  if (!threadPattern.test(turnId)) fail("turn id must be one exact UUID");
   if (!statuses.has(expectedGoalStatus)) fail("expected goal status is unsupported");
   if (expectedGoalStatus === "absent" && expectedObjectiveSha256 !== null) fail("an absent goal cannot have an objective digest");
   if (expectedGoalStatus !== "absent" && !shaPattern.test(expectedObjectiveSha256 ?? "")) fail("a present goal requires an objective sha256");
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) fail("timeout must be between 1 and 60000 ms");
-  if (!/^[A-Z]{3,4}-\d{2}$/.test(capabilityId ?? "") || !["positive", "negative", "recovery"].includes(scenario) || typeof caseId !== "string" || caseId.length === 0 || caseId.length > 256) fail("capability binding is invalid");
-  if (!/^[a-f0-9]{40}$/.test(candidateCommit ?? "") || !/^[a-f0-9]{40}$/.test(candidateTree ?? "")) fail("candidate binding is invalid");
   if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(expectedServerVersion ?? "")) fail("expected server version is invalid");
 
   const executable = await executableIdentity(codexExecutable ?? "");
@@ -99,6 +96,10 @@ export async function collectNativeEvidence({
   if (!child?.stdin || !child?.stdout || !child?.stderr) fail("app-server process transport is unavailable");
   const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
   const messages = [];
+  const turns = [];
+  const cursors = new Set();
+  let nextTurnRequestId = 3;
+  let turnsDone = false;
   let stdoutBytes = 0;
   child.stderr.resume();
 
@@ -125,8 +126,22 @@ export async function collectNativeEvidence({
           send({ method: "initialized", params: {} });
           send({ method: "thread/read", id: 1, params: { threadId, includeTurns: false } });
           send({ method: "thread/goal/get", id: 2, params: { threadId } });
+          send({ method: "thread/turns/list", id: nextTurnRequestId, params: { threadId, limit: 100, sortDirection: "asc", itemsView: "full" } });
         }
-        if (messages.some((entry) => entry.id === 1) && messages.some((entry) => entry.id === 2)) finish(resolve);
+        if (Number.isSafeInteger(message.id) && message.id >= 3) {
+          if (message.id !== nextTurnRequestId) fail("app-server returned an unrequested turn page");
+          const page = responseResult(messages, message.id, "thread/turns/list");
+          if (!Array.isArray(page.data) || !(page.nextCursor === null || typeof page.nextCursor === "string")) fail("thread/turns/list response is malformed");
+          turns.push(...page.data);
+          if (page.nextCursor === null) turnsDone = true;
+          else {
+            if (page.nextCursor.length === 0 || cursors.has(page.nextCursor) || nextTurnRequestId >= 102) fail("thread/turns/list pagination is invalid");
+            cursors.add(page.nextCursor);
+            nextTurnRequestId += 1;
+            send({ method: "thread/turns/list", id: nextTurnRequestId, params: { threadId, cursor: page.nextCursor, limit: 100, sortDirection: "asc", itemsView: "full" } });
+          }
+        }
+        if (messages.some((entry) => entry.id === 1) && messages.some((entry) => entry.id === 2) && turnsDone) finish(resolve);
       } catch (error) {
         finish(reject, error);
       }
@@ -158,6 +173,24 @@ export async function collectNativeEvidence({
   const expectedAgentPrefix = `Codex Desktop/${expectedServerVersion} `;
   if (!initialized.userAgent.startsWith(expectedAgentPrefix)) fail("app-server version does not match the frozen executable expectation");
   const source = sourceIdentity(thread.source);
+  if (turns.length !== 1) fail("native capability task must contain exactly one turn");
+  const selectedTurns = turns.filter((turn) => turn?.id === turnId);
+  if (selectedTurns.length !== 1) fail("thread/turns/list did not return exactly one requested turn");
+  const turn = selectedTurns[0];
+  if (turn.itemsView !== "full" || turn.status !== "completed" || turn.error !== null || !Array.isArray(turn.items) || turn.items.length < 2) fail("requested turn is not one complete full turn");
+  const itemIds = new Set();
+  for (const item of turn.items) {
+    if (!item || typeof item.id !== "string" || item.id.length === 0 || itemIds.has(item.id) || typeof item.type !== "string") fail("requested turn has malformed or duplicate items");
+    itemIds.add(item.id);
+  }
+  const userMessages = turn.items.filter((item) => item.type === "userMessage");
+  const finalMessages = turn.items.filter((item) => item.type === "agentMessage" && item.phase === "final_answer");
+  if (userMessages.length !== 1 || finalMessages.length !== 1 || turn.items.at(-1) !== finalMessages[0]) fail("requested turn lacks one exact prompt and terminal final answer");
+  const userContent = userMessages[0].content;
+  if (!Array.isArray(userContent) || userContent.length !== 1 || userContent[0]?.type !== "text" || typeof userContent[0].text !== "string") fail("requested turn prompt is not one exact text input");
+  const capabilityResult = parseCapabilityResult(finalMessages[0].text, "native terminal capability result");
+  const { candidate, committedCase } = await verifyCommittedCapabilityResult({ repositoryRoot, result: capabilityResult });
+  if (userContent[0].text !== committedCase.prompt) fail("native turn prompt does not match the committed capability case");
 
   const goal = goalRead.goal ?? null;
   if (goal !== null && (goal.threadId !== threadId || typeof goal.objective !== "string" || !statuses.has(goal.status) || goal.status === "absent")) {
@@ -172,7 +205,7 @@ export async function collectNativeEvidence({
   }
 
   const payload = canonical({
-    schema: "rbm-native-evidence/v2",
+    schema: "rbm-native-evidence/v3",
     authority: "local_interface_observation",
     executable: { sha256: executable.sha256, server_version: expectedServerVersion },
     host: {
@@ -189,6 +222,13 @@ export async function collectNativeEvidence({
       source,
       status: thread.status.type,
     },
+    turn: {
+      id: turn.id,
+      status: turn.status,
+      items: turn.items.map((item) => ({ id_sha256: digest(item.id), type: item.type })),
+      prompt_sha256: digest(userContent[0].text),
+      capability_result_sha256: digest(JSON.stringify(canonical(capabilityResult))),
+    },
     goal: goal ? {
       objective_sha256: digest(goal.objective),
       status: goal.status,
@@ -198,13 +238,21 @@ export async function collectNativeEvidence({
       goal_status: expectedGoalStatus,
       objective_sha256: expectedObjectiveSha256,
     },
-    binding: { capability_id: capabilityId, scenario, case_id: caseId, candidate: { commit: candidateCommit, tree: candidateTree }, result: "pass" },
+    binding: {
+      capability_id: capabilityResult.capability_id,
+      scenario: capabilityResult.scenario,
+      case_id: capabilityResult.case_id,
+      candidate: { commit: candidate.commit, tree: candidate.tree },
+      result: capabilityResult.result,
+      oracle: committedCase.oracle,
+      control_sha256: committedCase.control_sha256,
+    },
     result: "matched",
   });
   return canonical({
     content_sha256: digest(JSON.stringify(payload)),
     payload,
-    schema: "rbm-native-evidence-envelope/v2",
+    schema: "rbm-native-evidence-envelope/v3",
   });
 }
 
@@ -213,22 +261,18 @@ function parseArgs(argv) {
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index];
     const value = argv[index + 1];
-    if (!value || !["--thread-id", "--goal-status", "--objective-sha256", "--capability-id", "--scenario", "--case-id", "--candidate-commit", "--candidate-tree", "--codex-executable", "--expected-server-version"].includes(flag)) fail(`unsupported or incomplete argument: ${flag ?? "<missing>"}`);
+    if (!value || !["--thread-id", "--turn-id", "--goal-status", "--objective-sha256", "--codex-executable", "--expected-server-version"].includes(flag)) fail(`unsupported or incomplete argument: ${flag ?? "<missing>"}`);
     if (flag in options) fail(`duplicate argument: ${flag}`);
     options[flag] = value;
   }
-  for (const required of ["--thread-id", "--goal-status", "--capability-id", "--scenario", "--case-id", "--candidate-commit", "--candidate-tree", "--codex-executable", "--expected-server-version"]) {
+  for (const required of ["--thread-id", "--turn-id", "--goal-status", "--codex-executable", "--expected-server-version"]) {
     if (!options[required]) fail(`${required} is required`);
   }
   return {
     threadId: options["--thread-id"],
+    turnId: options["--turn-id"],
     expectedGoalStatus: options["--goal-status"],
     expectedObjectiveSha256: options["--objective-sha256"] ?? null,
-    capabilityId: options["--capability-id"],
-    scenario: options["--scenario"],
-    caseId: options["--case-id"],
-    candidateCommit: options["--candidate-commit"],
-    candidateTree: options["--candidate-tree"],
     codexExecutable: options["--codex-executable"],
     expectedServerVersion: options["--expected-server-version"],
   };

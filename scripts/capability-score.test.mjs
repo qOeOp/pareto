@@ -59,7 +59,12 @@ await symlink(path.resolve("node_modules"), path.join(temporaryRoot, "node_modul
   process.platform === "win32" ? "junction" : "dir");
 const { scoreEvidence } = await import(pathToFileURL(path.join(repository, "scripts", "capability-score.mjs")).href);
 
-function rollout({ capabilityId, scenario, trial, sourceKind, result = "pass", unverified = false }) {
+function rollout({ sourceCase, trial, sourceKind, result = "pass", unverified = false }) {
+  const caseBinding = sourceCase.metadata.observations.capability;
+  const capabilityId = caseBinding.id;
+  const scenario = caseBinding.scenario;
+  const caseId = caseBinding.case_id;
+  const caseControl = sha(Buffer.from(JSON.stringify(canonical(sourceCase))));
   const sessionId = sourceKind === "native_trace" ? uuid(`session-${capabilityId}-${scenario}-${trial}-${result}`) : `session-${capabilityId}-${scenario}-${trial}-${sourceKind}-${result}`;
   const parentId = sourceKind === "native_trace" ? uuid(`parent-${capabilityId}-${scenario}-${trial}-${result}`) : `parent-${capabilityId}-${scenario}-${trial}-${sourceKind}-${result}`;
   const cliVersion = trial === 1 ? "1.0.0" : "2.0.0";
@@ -68,11 +73,11 @@ function rollout({ capabilityId, scenario, trial, sourceKind, result = "pass", u
     schema: "rbm-capability-result/v1",
     capability_id: capabilityId,
     scenario,
-    case_id: `${capabilityId}-${scenario}`,
+    case_id: caseId,
     candidate: { commit: candidate.commit, tree: candidate.tree },
     result,
-    oracle: "fixture oracle",
-    control_sha256: `sha256:${"c".repeat(64)}`,
+    oracle: sourceCase.metadata.observations.behavioral_oracle,
+    control_sha256: caseControl,
     unavailable_evidence: result === "unavailable" ? ["provider inventory"] : [],
     material_gaps: unverified ? ["embedded evidence gap"] : [],
     mutation_observation: "none",
@@ -100,17 +105,27 @@ function rollout({ capabilityId, scenario, trial, sourceKind, result = "pass", u
     const executableSha256 = `sha256:${"d".repeat(64)}`;
     nativeEnvironment = `codex-app-server:${userAgent}:unix:fixture:${executableSha256}`;
     const payload = canonical({
-      schema: "rbm-native-evidence/v2",
+      schema: "rbm-native-evidence/v3",
       authority: "local_interface_observation",
       executable: { sha256: executableSha256, server_version: "0.147.0" },
       host: { platform_family: "unix", platform_os: "fixture", user_agent: userAgent },
       thread: { cli_version: "0.146.0", cwd_sha256: `sha256:${"e".repeat(64)}`, id: sessionId, parent_thread_id: null, session_id_sha256: `sha256:${"a".repeat(64)}`, source: { kind: "cli", sha256: `sha256:${"f".repeat(64)}` }, status: "notLoaded" },
+      turn: {
+        id: uuid(`turn-${capabilityId}-${scenario}-${trial}`),
+        status: "completed",
+        items: [
+          { id_sha256: sha(Buffer.from(`user-${caseId}-${trial}`)), type: "userMessage" },
+          { id_sha256: sha(Buffer.from(`agent-${caseId}-${trial}`)), type: "agentMessage" },
+        ],
+        prompt_sha256: sha(Buffer.from(sourceCase.vars.prompt)),
+        capability_result_sha256: sha(Buffer.from(JSON.stringify(canonical(capabilityResult)))),
+      },
       goal: null,
       expectation: { goal_status: "absent", objective_sha256: null },
-      binding: { capability_id: capabilityId, scenario, case_id: `${capabilityId}-${scenario}`, candidate: { commit: candidate.commit, tree: candidate.tree }, result },
+      binding: { capability_id: capabilityId, scenario, case_id: caseId, candidate: { commit: candidate.commit, tree: candidate.tree }, result, oracle: sourceCase.metadata.observations.behavioral_oracle, control_sha256: caseControl },
       result: "matched",
     });
-    artifact = Buffer.from(`${JSON.stringify(canonical({ schema: "rbm-native-evidence-envelope/v2", content_sha256: sha(Buffer.from(JSON.stringify(payload))), payload }))}\n`);
+    artifact = Buffer.from(`${JSON.stringify(canonical({ schema: "rbm-native-evidence-envelope/v3", content_sha256: sha(Buffer.from(JSON.stringify(payload))), payload }))}\n`);
   }
   return {
     sessionId,
@@ -120,7 +135,7 @@ function rollout({ capabilityId, scenario, trial, sourceKind, result = "pass", u
     observation: {
       capability_id: capabilityId,
       scenario,
-      case_id: `${capabilityId}-${scenario}`,
+      case_id: caseId,
       trial_id: String(trial),
       environment_id: nativeEnvironment,
       subject_id: candidate.commit,
@@ -135,6 +150,8 @@ function rollout({ capabilityId, scenario, trial, sourceKind, result = "pass", u
 }
 
 const goldenCases = parseYaml(await readFile(path.resolve("evals/cases/golden.yaml"), "utf8"));
+const holdoutCases = parseYaml(await readFile(path.resolve("evals/cases/holdout.yaml"), "utf8"));
+const committedCases = [...goldenCases, ...holdoutCases];
 
 function deterministicOutput(testCase) {
   return (testCase.assert ?? []).flatMap((assertion) => {
@@ -229,32 +246,26 @@ async function fixture(name, { weakCapability, gap, selfReview = false, duplicat
   const observations = [];
   const generated = await deterministicEvidence(directory, weakCapability);
   observations.push(...generated.observations);
-  for (const capability of catalog.capabilities) {
-    if (capability.id === weakCapability) continue;
-    for (const scenario of catalog.default_requirements.scenarios) {
-      for (const [index, sourceKind] of catalog.default_requirements.sources.entries()) {
-        if (sourceKind === "deterministic_replay") continue;
-        const trial = index + 1;
-        const built = rollout({
-          capabilityId: capability.id,
-          scenario,
-          trial,
-          sourceKind,
-        });
-        const artifactName = `${capability.id}-${scenario}-${trial}-${sourceKind}.jsonl`;
-        await writeFile(path.join(directory, artifactName), built.artifact);
-        built.observation.artifact_path = artifactName;
-        if (selfReview && sourceKind === "independent_review" && capability.id === catalog.capabilities[0].id) {
-          built.observation.observer_id = candidate.commit;
-        }
-        observations.push(built.observation);
+  for (const sourceCase of committedCases) {
+    const binding = sourceCase.metadata.observations.capability;
+    if (binding.id === weakCapability) continue;
+    for (const [index, sourceKind] of ["native_trace", "independent_review"].entries()) {
+      const trial = index + 1;
+      const built = rollout({ sourceCase, trial, sourceKind });
+      const artifactName = `${binding.case_id}-${trial}-${sourceKind}.jsonl`;
+      await writeFile(path.join(directory, artifactName), built.artifact);
+      built.observation.artifact_path = artifactName;
+      if (selfReview && sourceKind === "independent_review" && binding.id === catalog.capabilities[0].id) {
+        built.observation.observer_id = candidate.commit;
       }
+      observations.push(built.observation);
     }
   }
   if (unavailable) {
-    const capabilityId = catalog.capabilities[0].id;
-    const built = rollout({ capabilityId, scenario: "positive", trial: 4, sourceKind: "native_trace", result: "unavailable" });
-    const artifactName = `${capabilityId}-positive-4-native_trace-unavailable.jsonl`;
+    const sourceCase = committedCases[0];
+    const binding = sourceCase.metadata.observations.capability;
+    const built = rollout({ sourceCase, trial: 4, sourceKind: "native_trace", result: "unavailable" });
+    const artifactName = `${binding.case_id}-4-native_trace-unavailable.jsonl`;
     await writeFile(path.join(directory, artifactName), built.artifact);
     built.observation.artifact_path = artifactName;
     observations.push(built.observation);
@@ -282,12 +293,21 @@ try {
   assert.ok(runnerOnlyScore.capabilities.some((row) => row.reason === "local_writable_trace_has_no_provider_attestation"));
   const completeScore = await scoreEvidence(complete);
   assert.equal(completeScore.eligible, false, "locally writable traces must never self-certify 9.5");
-  assert.equal(completeScore.weighted_score, 2);
-  assert.equal(completeScore.minimum_score, 2);
+  assert.equal(completeScore.minimum_score, 0, "leaves without committed cases must remain absent");
   assert.equal(completeScore.evidence_limit, "provider_attested_attempt_inventory_unavailable");
-  assert.ok(completeScore.capabilities.every((row) => row.score === 2 && row.maturity === "declared" && !("observed_score" in row)));
+  assert.ok(completeScore.capabilities.some((row) => row.score === 2 && row.maturity === "declared"));
+  assert.ok(completeScore.capabilities.every((row) => row.score <= 2 && !("observed_score" in row)));
+  assert.deepEqual(completeScore.capabilities.find((row) => row.id === "PLN-02"), {
+    ...catalog.capabilities.find((row) => row.id === "PLN-02"),
+    score: 0,
+    maturity: "absent",
+    reason: "no_passing_evidence",
+    observation_count: 0,
+    unavailable_count: 0,
+    gap_count: 0,
+  }, "a leaf without a committed case cannot be populated by invented trace labels");
 
-  const weakId = catalog.capabilities.at(-1).id;
+  const weakId = committedCases[0].metadata.observations.capability.id;
   const weak = await fixture("weak", { weakCapability: weakId });
   const weakScore = await scoreEvidence(weak);
   assert.equal(weakScore.minimum_score, 0, "minimum leaf must expose an omitted weak capability");
@@ -304,7 +324,8 @@ try {
   assert.ok(criticalScore.critical_breaches.includes(catalog.capabilities[0].id));
 
   const unavailable = await fixture("unavailable", { unavailable: true });
-  const unavailableRow = (await scoreEvidence(unavailable)).capabilities.find((row) => row.id === catalog.capabilities[0].id);
+  const unavailableId = committedCases[0].metadata.observations.capability.id;
+  const unavailableRow = (await scoreEvidence(unavailable)).capabilities.find((row) => row.id === unavailableId);
   assert.equal(unavailableRow.score, 0);
   assert.equal(unavailableRow.reason, "unavailable_observation");
   assert.equal(unavailableRow.unavailable_count, 1);
@@ -325,7 +346,7 @@ try {
   const deterministicObservation = wrongCaseEvidence.observations.find((entry) => entry.source_kind === "deterministic_replay");
   deterministicObservation.case_id = "answer-only-nonactivation";
   await writeFile(wrongCase.evidencePath, `${JSON.stringify(wrongCaseEvidence, null, 2)}\n`);
-  await assert.rejects(() => scoreEvidence(wrongCase), /does not match the committed case binding/);
+  await assert.rejects(() => scoreEvidence(wrongCase), /does not match one committed capability case/);
 
   const wrongPrincipal = await fixture("wrong-principal");
   const wrongPrincipalEvidence = JSON.parse(await readFile(wrongPrincipal.evidencePath, "utf8"));
@@ -360,6 +381,19 @@ try {
   nativeObservation.content_sha256 = sha(mismatchedBytes);
   await writeFile(nativeMismatch.evidencePath, `${JSON.stringify(nativeEvidence, null, 2)}\n`);
   await assert.rejects(() => scoreEvidence(nativeMismatch), /goal does not match expectation/);
+
+  const nativeContentMismatch = await fixture("native-content-mismatch");
+  const nativeContentEvidence = JSON.parse(await readFile(nativeContentMismatch.evidencePath, "utf8"));
+  const nativeContentObservation = nativeContentEvidence.observations.find((entry) => entry.source_kind === "native_trace" && entry.result === "pass");
+  const nativeContentPath = path.join(nativeContentMismatch.directory, nativeContentObservation.artifact_path);
+  const nativeContentReceipt = JSON.parse(await readFile(nativeContentPath, "utf8"));
+  nativeContentReceipt.payload.turn.prompt_sha256 = `sha256:${"0".repeat(64)}`;
+  nativeContentReceipt.content_sha256 = sha(Buffer.from(JSON.stringify(canonical(nativeContentReceipt.payload))));
+  const nativeContentBytes = Buffer.from(`${JSON.stringify(nativeContentReceipt)}\n`);
+  await writeFile(nativeContentPath, nativeContentBytes);
+  nativeContentObservation.content_sha256 = sha(nativeContentBytes);
+  await writeFile(nativeContentMismatch.evidencePath, `${JSON.stringify(nativeContentEvidence, null, 2)}\n`);
+  await assert.rejects(() => scoreEvidence(nativeContentMismatch), /prompt digest does not match committed case/);
 
   const wrongCandidate = await fixture("wrong-candidate");
   const wrongEvidence = JSON.parse(await readFile(wrongCandidate.evidencePath, "utf8"));
