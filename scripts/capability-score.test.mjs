@@ -63,11 +63,13 @@ await copyFile(path.resolve("scripts/eval.mjs"), path.join(repository, "scripts"
 await copyFile(path.resolve("scripts/json.mjs"), path.join(repository, "scripts", "json.mjs"));
 await copyFile(path.resolve("scripts/observe-install-capability.mjs"), path.join(repository, "scripts", "observe-install-capability.mjs"));
 await copyFile(path.resolve("scripts/observe-score-capability.mjs"), path.join(repository, "scripts", "observe-score-capability.mjs"));
+await copyFile(path.resolve("scripts/consume-score-capability.mjs"), path.join(repository, "scripts", "consume-score-capability.mjs"));
 await copyFile(path.resolve("scripts/install-codex.mjs"), path.join(repository, "scripts", "install-codex.mjs"));
 await copyFile(path.resolve("package.json"), path.join(repository, "package.json"));
 await copyFile(path.resolve("package-lock.json"), path.join(repository, "package-lock.json"));
 await copyFile(path.resolve(".github/workflows/observe-install-capability.yml"), path.join(repository, ".github", "workflows", "observe-install-capability.yml"));
 await copyFile(path.resolve(".github/workflows/observe-score-capability.yml"), path.join(repository, ".github", "workflows", "observe-score-capability.yml"));
+await copyFile(path.resolve(".github/workflows/consume-score-capability.yml"), path.join(repository, ".github", "workflows", "consume-score-capability.yml"));
 await copyFile(path.resolve("codex/hooks/qoeop-trade-session-start.mjs"), path.join(repository, "codex", "hooks", "qoeop-trade-session-start.mjs"));
 await cp(path.resolve("codex/agents"), path.join(repository, "codex", "agents"), { recursive: true });
 await cp(path.resolve("skills/run-bounded-mission"), path.join(repository, "skills", "run-bounded-mission"), { recursive: true });
@@ -1274,6 +1276,32 @@ try {
     /EVAL-02 campaign attestation verification failed: isolated Sigstore batch verification failed/,
     "a complete strict-descendant shape must reach the EVAL-02 attestation boundary",
   );
+
+  const scoreConsumerFile = path.join(repository, "scripts", "consume-score-capability.mjs");
+  const scoreConsumerWorkflowFile = path.join(repository, ".github", "workflows", "consume-score-capability.yml");
+  const scoreConsumerBeforeDrift = await readFile(scoreConsumerFile);
+  const scoreConsumerWorkflowBeforeDrift = await readFile(scoreConsumerWorkflowFile);
+  await writeFile(scoreConsumerFile, Buffer.concat([scoreConsumerBeforeDrift, Buffer.from("\n// stale score consumer fixture\n")]));
+  await writeFile(scoreConsumerWorkflowFile,
+    Buffer.concat([scoreConsumerWorkflowBeforeDrift, Buffer.from("\n# stale score consumer workflow fixture\n")]));
+  await git(["add", "scripts/consume-score-capability.mjs", ".github/workflows/consume-score-capability.yml"]);
+  await git(["commit", "--quiet", "-m", "drift score campaign consumer"]);
+  candidate.commit = await git(["rev-parse", "HEAD"]);
+  candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
+  const staleScoreConsumer = await scoreCampaignFixture(
+    "eval-02-stale-score-consumer", scoreSourceInstall, scoreSourceCandidate,
+  );
+  await assert.rejects(
+    () => scoreEvidence(staleScoreConsumer),
+    /EVAL-02 campaign is stale for the current scoring consumer/,
+    "consumer workflow or script drift must invalidate the campaign",
+  );
+  await writeFile(scoreConsumerFile, scoreConsumerBeforeDrift);
+  await writeFile(scoreConsumerWorkflowFile, scoreConsumerWorkflowBeforeDrift);
+  await git(["add", "scripts/consume-score-capability.mjs", ".github/workflows/consume-score-capability.yml"]);
+  await git(["commit", "--quiet", "-m", "restore score campaign consumer"]);
+  candidate.commit = await git(["rev-parse", "HEAD"]);
+  candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
 
   const installerFile = path.join(repository, "scripts", "install-codex.mjs");
   const installerBeforeDrift = await readFile(installerFile);

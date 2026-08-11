@@ -1,0 +1,99 @@
+name: consume-score-capability
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Exact successful observe-score-capability run ID
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  consume:
+    name: consume-eval-02-campaign
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          path: consumer
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: consumer/package-lock.json
+      - run: npm ci --prefix consumer --ignore-scripts
+      - name: Bind the exact successful source run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+        run: |
+          if [[ ! "$SOURCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "source_run_id must be a positive integer" >&2
+            exit 1
+          fi
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" > source-run-metadata.json
+      - name: Download the exact EVAL-02 campaign
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          github-token: ${{ github.token }}
+          name: eval-02-attested-${{ inputs.source_run_id }}
+          path: campaign
+          run-id: ${{ inputs.source_run_id }}
+      - name: Consume the campaign through the canonical scorer
+        run: >-
+          node consumer/scripts/consume-score-capability.mjs
+          --campaign-dir campaign
+          --source-run-id "${{ inputs.source_run_id }}"
+          --source-run-metadata source-run-metadata.json
+          --output eval-02-consumption-receipt.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: eval-02-consumption-input-${{ github.run_id }}
+          path: |
+            eval-02-consumption-receipt.json
+            source-run-metadata.json
+            campaign/
+          if-no-files-found: error
+          retention-days: 1
+
+  attest:
+    name: attest-eval-02-consumption
+    needs: consume
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: eval-02-consumption-input-${{ github.run_id }}
+          path: input
+      - id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: input/eval-02-consumption-receipt.json
+      - name: Stage the score attestation at a deterministic path
+        run: >-
+          node -e
+          "require('node:fs').copyFileSync(process.argv[1], process.argv[2], require('node:fs').constants.COPYFILE_EXCL)"
+          "${{ steps.attest.outputs.bundle-path }}"
+          input/eval-02-consumption-receipt-attestation.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: eval-02-consumed-${{ github.run_id }}
+          path: input/
+          if-no-files-found: error
+          retention-days: 30
