@@ -70,6 +70,20 @@ await copyFile(path.resolve("evals/atomicity-admission.json"), path.join(reposit
 await copyFile(path.resolve("evals/scenarios.json"), path.join(repository, "evals", "scenarios.json"));
 const fixtureScenarioPath = path.join(repository, "evals", "scenarios.json");
 const fixtureScenarioDesign = JSON.parse(await readFile(fixtureScenarioPath, "utf8"));
+assert.equal(fixtureScenarioDesign.fixed_observers["INS-01"]?.protocol, "install-skill-v2",
+  "the canonical scorer fixture must observe the INS-01 v2 migration");
+assert.ok(fixtureScenarioDesign.scenarios
+  .filter((row) => row.capability_id === "EVAL-02")
+  .every((row) => row.authority_status === "authority_unavailable" &&
+    row.missing_authority === "fixed_consumer_observer"),
+  "the canonical score observer must stay unavailable after its v1 source is superseded");
+// Preserve the already-reviewed install-v1 verifier corpus in an explicit
+// historical authority fixture. The canonical v2 binding remains
+// non-score-authorizing until its later receipt-bound verifier exists.
+fixtureScenarioDesign.fixed_observers["INS-01"] = {
+  parameters: { kind: "skill" },
+  protocol: "install-v1",
+};
 for (const row of fixtureScenarioDesign.scenarios.filter((entry) =>
   ["INS-01", "INS-03", "EVAL-02"].includes(entry.capability_id))) {
   row.authority_status = "implemented";

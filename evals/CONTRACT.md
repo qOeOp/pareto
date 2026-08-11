@@ -391,6 +391,11 @@ source-run metadata, requires a strict observer-commit to consumer-commit to cur
 and requires every protocol, adapter, observer, consumer, scorer, catalog, scenario, contract, and runtime blob
 to remain unchanged across that chain before assigning the score. The pending report is non-authorizing by
 itself and cannot be submitted as final evidence.
+After INS-01 moves from `install-v1` to `install-skill-v2`, this `score-v1`
+observer is unavailable because its fixed source campaign no longer matches the
+canonical install protocol. Its workflow must not be dispatched until a later
+score protocol consumes the signed v2 campaign; historical v1 fixtures remain
+regression tests only and authorize no current score.
 The observed commit itself can never consume its campaign. Manual dispatch
 does not prove a complete attempt inventory, representative repetition, independent observation, or the
 8/9.5 anchors; failures and replacement runs remain unavailable rather than being selected away.
