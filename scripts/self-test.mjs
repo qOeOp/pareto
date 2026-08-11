@@ -639,7 +639,7 @@ try {
     await writeFile(scenarioDesignPath, scenarioDesignSource, "utf8");
   };
   await challengeScenarioDesign((design) => design.scenarios.pop(),
-    /scenario design must contain exactly 117 unique leaf\/scenario slots/,
+    /(?:fixed observer .* scenario authority must be atomic|scenario design must contain exactly 117 unique leaf\/scenario slots)/,
     "missing scenario design slot must fail closed");
   await challengeScenarioDesign((design) => {
     design.scenarios[1].case_id = design.scenarios[0].case_id;
@@ -664,6 +664,21 @@ try {
   }, /scenario observer does not match its missing authority/,
   "observer kind must match its missing authority");
   await challengeScenarioDesign((design) => {
+    design.attested_protocols["install-v1"].coverage.trials_per_environment = 2;
+  }, /attested protocol install-v1 coverage is invalid/,
+  "protocol coverage cannot exceed its real workflow consumer");
+  await challengeScenarioDesign((design) => {
+    design.fixed_observers["INS-02"] = { parameters: { kind: "skill" }, protocol: "install-v1" };
+  }, /install-v1 workflow observe capability matrix differs from scenario authority/,
+  "descriptor-only fixed observer cannot bypass its workflow consumer");
+  await challengeScenarioDesign((design) => {
+    design.fixed_observers["EVAL-01"] = {
+      parameters: { source_capability: "INS-01" },
+      protocol: "score-v1",
+    };
+  }, /score-v1 has exactly one admitted EVAL-02 to INS-01 binding/,
+  "score protocol cannot claim a second unconsumed capability binding");
+  await challengeScenarioDesign((design) => {
     const executable = design.scenarios.find((row) => row.executable_suite === "golden");
     executable.executable_suite = "holdout";
   }, /executable case suite does not match the scenario design/,
@@ -679,7 +694,7 @@ try {
   assert.match(implementedValidation.stdout,
     new RegExp(`\\(${implementedCount} implemented authorities, ${implementedDesign.scenarios.length - implementedCount} unavailable\\)`));
   await writeFile(scenarioDesignPath,
-    scenarioDesignSource.replace('"schema_version": 2', '"schema_version": 2, "schema_version": 2'), "utf8");
+    scenarioDesignSource.replace('"schema_version": 3', '"schema_version": 3, "schema_version": 3'), "utf8");
   await expectReject(runProductionValidator, /duplicate JSON object member schema_version/,
     "duplicate scenario design member must fail closed");
   await writeFile(scenarioDesignPath, scenarioDesignSource, "utf8");

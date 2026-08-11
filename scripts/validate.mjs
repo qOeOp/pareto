@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
@@ -174,8 +174,9 @@ function validatePromptfooCases(cases, { file, suites }) {
 }
 
 function validateScenarioDesigns(catalog, design, cases) {
-  validateExactKeys(design, new Set(["schema_version", "scenarios"]), "scenario design");
-  if (design.schema_version !== 2 || !Array.isArray(design.scenarios)) {
+  validateExactKeys(design,
+    new Set(["schema_version", "attested_protocols", "fixed_observers", "scenarios"]), "scenario design");
+  if (design.schema_version !== 3 || !Array.isArray(design.scenarios)) {
     fail("scenario design identity is invalid");
   }
   if (!Array.isArray(catalog.capabilities) || catalog.capabilities.length !== 39) {
@@ -215,7 +216,86 @@ function validateScenarioDesigns(catalog, design, cases) {
     ["external_effect_authority", "external_authority"],
     ["cross_mission_recurrence_authority", "external_authority"],
   ]);
-  const implementedFixedObservers = new Set(["INS-01", "EVAL-02"]);
+  const safeRepositoryPath = (value) => typeof value === "string" && value.length > 0 && value.length <= 256 &&
+    !value.startsWith("/") && !value.includes("\\") && !value.split("/").some((part) => !part || part === "." || part === "..");
+  if (!design.attested_protocols || typeof design.attested_protocols !== "object" ||
+      Array.isArray(design.attested_protocols) || Object.keys(design.attested_protocols).length === 0) {
+    fail("scenario design requires attested protocols");
+  }
+  for (const [protocolId, protocol] of Object.entries(design.attested_protocols)) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(protocolId)) fail("attested protocol identity is invalid");
+    validateExactKeys(protocol,
+      new Set(["adapter", "consumer_paths", "consumer_workflow_name", "coverage", "observer", "protocol", "runtime_paths", "subject_paths", "workflow", "workflow_name"]),
+      `attested protocol ${protocolId}`);
+    if (protocol.protocol !== "pareto-fixed-observer-protocol/v1" ||
+        ![protocol.adapter, protocol.observer, protocol.workflow].every(safeRepositoryPath) ||
+        !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(protocol.workflow_name)) {
+      fail(`attested protocol ${protocolId} binding is invalid`);
+    }
+    validateExactKeys(protocol.coverage, new Set(["environments", "trials_per_environment"]),
+      `attested protocol ${protocolId} coverage`);
+    const expectedTrials = new Map([["install-v1", 3], ["score-v1", 1]]).get(protocolId);
+    if (expectedTrials === undefined ||
+        JSON.stringify(protocol.coverage.environments) !== JSON.stringify(["linux", "win32"]) ||
+        protocol.coverage.trials_per_environment !== expectedTrials) {
+      fail(`attested protocol ${protocolId} coverage is invalid`);
+    }
+    for (const [label, bindings] of [["runtime", protocol.runtime_paths], ["subject", protocol.subject_paths]]) {
+      if (!bindings || typeof bindings !== "object" || Array.isArray(bindings) || Object.keys(bindings).length === 0 ||
+          Object.keys(bindings).some((key) => !/^[a-z][a-z0-9_]*(?:_blob|_tree)$/.test(key)) ||
+          Object.values(bindings).some((value) => !safeRepositoryPath(value))) {
+        fail(`attested protocol ${protocolId} ${label} paths are invalid`);
+      }
+    }
+    if (!protocol.consumer_paths || typeof protocol.consumer_paths !== "object" ||
+        Array.isArray(protocol.consumer_paths) ||
+        Object.values(protocol.consumer_paths).some((value) => !safeRepositoryPath(value))) {
+      fail(`attested protocol ${protocolId} consumer paths are invalid`);
+    }
+    const hasConsumer = Object.keys(protocol.consumer_paths).length > 0;
+    if ((hasConsumer && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(protocol.consumer_workflow_name)) ||
+        (!hasConsumer && protocol.consumer_workflow_name !== null)) {
+      fail(`attested protocol ${protocolId} consumer workflow identity is invalid`);
+    }
+  }
+  if (!design.fixed_observers || typeof design.fixed_observers !== "object" ||
+      Array.isArray(design.fixed_observers) || Object.keys(design.fixed_observers).length === 0) {
+    fail("scenario design requires fixed observer bindings");
+  }
+  const fixedObserverCapabilities = new Set();
+  for (const [capabilityId, observer] of Object.entries(design.fixed_observers)) {
+    if (!capabilityIds.has(capabilityId)) fail("fixed observer capability is unknown");
+    validateExactKeys(observer, new Set(["parameters", "protocol"]), `fixed observer ${capabilityId}`);
+    if (!design.attested_protocols[observer.protocol] || !observer.parameters ||
+        typeof observer.parameters !== "object" || Array.isArray(observer.parameters)) {
+      fail(`fixed observer ${capabilityId} binding is invalid`);
+    }
+    if (observer.protocol === "install-v1") {
+      const kind = observer.parameters.kind;
+      validateExactKeys(observer.parameters, new Set(kind === "profile" ? ["kind", "profile"] : ["kind"]),
+        `fixed observer ${capabilityId} parameters`);
+      if (!new Set(["skill", "profile"]).has(kind) ||
+          (kind === "profile" && !/^[a-z0-9-]+\.toml$/.test(observer.parameters.profile))) {
+        fail(`fixed observer ${capabilityId} install parameters are invalid`);
+      }
+    } else if (observer.protocol === "score-v1") {
+      validateExactKeys(observer.parameters, new Set(["source_capability"]),
+        `fixed observer ${capabilityId} parameters`);
+      if (!capabilityIds.has(observer.parameters.source_capability) ||
+          observer.parameters.source_capability === capabilityId) {
+        fail(`fixed observer ${capabilityId} score dependency is invalid`);
+      }
+    } else if (Object.keys(observer.parameters).length !== 0) {
+      fail(`fixed observer ${capabilityId} has unsupported parameters`);
+    }
+    fixedObserverCapabilities.add(capabilityId);
+  }
+  const scoreObservers = Object.entries(design.fixed_observers)
+    .filter(([, observer]) => observer.protocol === "score-v1");
+  if (scoreObservers.length !== 1 || scoreObservers[0][0] !== "EVAL-02" ||
+      scoreObservers[0][1].parameters.source_capability !== "INS-01") {
+    fail("score-v1 has exactly one admitted EVAL-02 to INS-01 binding");
+  }
   const slots = new Map();
   const caseIds = new Map();
   let implemented = 0;
@@ -233,7 +313,7 @@ function validateScenarioDesigns(catalog, design, cases) {
     }
     if (row.authority_status === "implemented") {
       if (row.missing_authority !== null || row.observer_kind !== "fixed_real_consumer" ||
-          !implementedFixedObservers.has(row.capability_id)) {
+          !fixedObserverCapabilities.has(row.capability_id)) {
         fail("implemented scenario authority is not an admitted fixed observer binding");
       }
       implemented += 1;
@@ -252,6 +332,19 @@ function validateScenarioDesigns(catalog, design, cases) {
     }
     slots.set(slot, row);
     caseIds.set(row.case_id, row);
+  }
+
+  for (const capabilityId of fixedObserverCapabilities) {
+    const rows = [...slots.values()].filter((row) => row.capability_id === capabilityId);
+    if (rows.length !== 3 || rows.some((row) => row.observer_kind !== "fixed_real_consumer") ||
+        new Set(rows.map((row) => `${row.authority_status}:${row.missing_authority}`)).size !== 1) {
+      fail(`fixed observer ${capabilityId} scenario authority must be atomic`);
+    }
+  }
+  for (const row of slots.values()) {
+    if (row.authority_status === "implemented" && !fixedObserverCapabilities.has(row.capability_id)) {
+      fail("implemented scenario authority lacks a fixed observer binding");
+    }
   }
 
   const expectedCount = capabilityIds.size * scenarios.size;
@@ -286,6 +379,57 @@ function validateScenarioDesigns(catalog, design, cases) {
     }
   }
   return { designed: expectedCount, implemented, unavailable: expectedCount - implemented };
+}
+
+async function validateFixedObserverWorkflowBindings(design) {
+  const workflow = parseYaml(await readFile(
+    path.join(root, design.attested_protocols["install-v1"].workflow), "utf8",
+  ));
+  const expectedCapabilities = Object.entries(design.fixed_observers)
+    .filter(([, observer]) => observer.protocol === "install-v1")
+    .map(([capabilityId]) => capabilityId)
+    .sort();
+  for (const jobName of ["observe", "attest-observation", "aggregate", "attest-campaign"]) {
+    const matrix = workflow?.jobs?.[jobName]?.strategy?.matrix;
+    const capabilities = matrix?.capability;
+    if (!Array.isArray(capabilities) ||
+        JSON.stringify(capabilities.map((entry) => entry?.id).sort()) !== JSON.stringify(expectedCapabilities)) {
+      fail(`install-v1 workflow ${jobName} capability matrix differs from scenario authority`);
+    }
+  }
+  const observeMatrix = workflow.jobs.observe.strategy.matrix;
+  if (JSON.stringify(observeMatrix.os) !== JSON.stringify(["ubuntu-latest", "windows-latest"]) ||
+      JSON.stringify(observeMatrix.trial) !== JSON.stringify([1, 2, 3]) ||
+      JSON.stringify(workflow.jobs["attest-observation"].strategy.matrix.trial) !== JSON.stringify([1, 2, 3])) {
+    fail("install-v1 workflow coverage differs from scenario authority");
+  }
+}
+
+async function validateAttestedProtocolFiles(design) {
+  for (const [protocolId, protocol] of Object.entries(design.attested_protocols)) {
+    if (!protocol.adapter.startsWith("scripts/campaign-verifiers/")) {
+      fail(`attested protocol ${protocolId} adapter must use the campaign-verifiers owner`);
+    }
+    const files = new Set([
+      protocol.adapter,
+      protocol.observer,
+      protocol.workflow,
+      ...Object.values(protocol.consumer_paths),
+      ...Object.values(protocol.runtime_paths),
+    ]);
+    for (const relative of files) {
+      const info = await lstat(path.join(root, relative)).catch(() => null);
+      if (!info?.isFile() || info.isSymbolicLink()) {
+        fail(`attested protocol ${protocolId} control file is unavailable or unsafe: ${relative}`);
+      }
+    }
+    const adapterUrl = pathToFileURL(path.join(root, protocol.adapter));
+    adapterUrl.searchParams.set("validate", protocolId);
+    const adapter = await import(adapterUrl.href);
+    if (JSON.stringify(Object.keys(adapter).sort()) !== JSON.stringify(["verifyObservationFacts"])) {
+      fail(`attested protocol ${protocolId} adapter may only verify observation facts`);
+    }
+  }
 }
 
 function validateExactKeys(value, expected, label) {
@@ -399,6 +543,8 @@ const scenarioCoverage = validateScenarioDesigns(capabilityCatalog, scenarioDesi
   ...goldenCases.map((testCase) => ({ testCase, suite: "golden" })),
   ...holdoutCases.map((testCase) => ({ testCase, suite: "holdout" })),
 ]);
+await validateAttestedProtocolFiles(scenarioDesign);
+await validateFixedObserverWorkflowBindings(scenarioDesign);
 const matrix = JSON.parse(await readFile(path.join(root, "evals/matrix.json"), "utf8"));
 validateMatrix(matrix);
 await rejectCommittedBaselines();

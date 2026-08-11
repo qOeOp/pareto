@@ -220,16 +220,18 @@ try {
   assert.match(workflow, /observations\/\*\*\/attestation\.json/);
   assert.match(
     scorer,
-    /const directory = `observations\/ins-01-\$\{runner\}-\$\{row\.trial_id\}`;[\s\S]*const observationPath = `\$\{directory\}\/observation-\$\{runner\}-\$\{row\.trial_id\}\.json`;/,
-    "INS-01 observer output must remain interoperable with the canonical scorer",
+    /const slug = capabilityId\.toLowerCase\(\);[\s\S]*const directory = `observations\/\$\{slug\}-\$\{runner\}-\$\{row\.trial_id\}`;[\s\S]*const observationPath = `\$\{directory\}\/\$\{observationPrefix\}-\$\{runner\}-\$\{row\.trial_id\}\.json`;/,
+    "installation observer output must remain interoperable with the descriptor-driven scorer",
   );
   await mkdir(path.dirname(script), { recursive: true });
+  await mkdir(path.join(repository, "evals"), { recursive: true });
   await copyFile(path.resolve("scripts/observe-install-capability.mjs"), script);
   await copyFile(path.resolve("scripts/json.mjs"), path.join(repository, "scripts", "json.mjs"));
+  await copyFile(path.resolve("evals/scenarios.json"), path.join(repository, "evals", "scenarios.json"));
   await git(["init", "--quiet"]);
   await git(["config", "user.name", "INS-01 Aggregate Test"]);
   await git(["config", "user.email", "ins01-aggregate@example.invalid"]);
-  await git(["add", "scripts/json.mjs", "scripts/observe-install-capability.mjs"]);
+  await git(["add", "evals/scenarios.json", "scripts/json.mjs", "scripts/observe-install-capability.mjs"]);
   await git(["commit", "--quiet", "-m", "observer"]);
   const observer = {
     commit: await git(["rev-parse", "HEAD"]),

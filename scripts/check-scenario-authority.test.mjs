@@ -24,6 +24,7 @@ try {
     "scripts/check-scenario-authority.mjs",
     "scripts/self-test.mjs", "scripts/validate.mjs", "scripts/capability-score.mjs", "scripts/observe-install-capability.mjs",
     "scripts/observe-score-capability.mjs", "scripts/consume-score-capability.mjs", "scripts/json.mjs",
+    "scripts/campaign-verifiers/install.mjs", "scripts/campaign-verifiers/score.mjs",
     "package.json", "package-lock.json",
   ]) {
     const target = path.join(fixture, file);

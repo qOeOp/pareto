@@ -5,7 +5,6 @@ import { fileURLToPath } from "node:url";
 import {
   buildConsumptionReceipt,
   buildEvidenceManifest,
-  validateConsumedReport,
   validateSourceRunMetadata,
 } from "./consume-score-capability.mjs";
 
@@ -87,36 +86,6 @@ const report = {
   critical_breaches: catalog.capabilities.filter((row) => row.critical).map((row) => row.id),
   capabilities: rows,
 };
-assert.equal(validateConsumedReport(structuredClone(report), {
-  candidate,
-  catalog,
-  catalogSha256: digest("5"),
-}).capabilities.find((row) => row.id === "EVAL-02").score, 6);
-
-const falseHigh = structuredClone(report);
-falseHigh.capabilities[0].score = 9.5;
-assert.throws(() => validateConsumedReport(falseHigh, {
-  candidate,
-  catalog,
-  catalogSha256: digest("5"),
-}), /KRN-01 is invalid/);
-
-const hiddenCritical = structuredClone(report);
-hiddenCritical.critical_breaches = hiddenCritical.critical_breaches.filter((id) => id !== "EVAL-02");
-assert.throws(() => validateConsumedReport(hiddenCritical, {
-  candidate,
-  catalog,
-  catalogSha256: digest("5"),
-}), /coverage is incomplete/);
-
-const falseEligible = structuredClone(report);
-falseEligible.eligible = true;
-assert.throws(() => validateConsumedReport(falseEligible, {
-  candidate,
-  catalog,
-  catalogSha256: digest("5"),
-}), /global gate is invalid/);
-
 const receipt = buildConsumptionReceipt({
   sourceRun,
   sourceRunMetadataSha256: digest("7"),

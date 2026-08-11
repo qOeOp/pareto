@@ -134,8 +134,10 @@ function parseJsonBlob(repo, oid, file, label) {
 
 function parseDesign(repo, oid, label) {
   const design = parseJsonBlob(repo, oid, "evals/scenarios.json", `${label} scenario design`);
-  if (design?.schema_version !== 2 || !Array.isArray(design.scenarios) ||
-      Object.keys(design).sort().join(",") !== "scenarios,schema_version") {
+  if (design?.schema_version !== 3 || !Array.isArray(design.scenarios) ||
+      !design.attested_protocols || Array.isArray(design.attested_protocols) ||
+      !design.fixed_observers || Array.isArray(design.fixed_observers) ||
+      Object.keys(design).sort().join(",") !== "attested_protocols,fixed_observers,scenarios,schema_version") {
     fail(`${label} scenario design identity is invalid`);
   }
   const slots = new Map();
@@ -154,7 +156,7 @@ function parseDesign(repo, oid, label) {
     slots.set(slot, row);
     caseIds.add(row?.case_id);
   }
-  return slots;
+  return { design, slots };
 }
 
 function parseCases(repo, oid, label) {
@@ -200,19 +202,12 @@ const protectedFields = [
   "case_id",
   "observer_kind",
 ];
-const fixedObserverCapabilities = new Set(["INS-01", "EVAL-02"]);
-const controlPlaneFiles = [
+const coreControlPlaneFiles = [
   ".github/workflows/scenario-authority.yml",
-  ".github/workflows/observe-install-capability.yml",
-  ".github/workflows/observe-score-capability.yml",
-  ".github/workflows/consume-score-capability.yml",
   "scripts/check-scenario-authority.mjs",
   "scripts/self-test.mjs",
   "scripts/validate.mjs",
   "scripts/capability-score.mjs",
-  "scripts/observe-install-capability.mjs",
-  "scripts/observe-score-capability.mjs",
-  "scripts/consume-score-capability.mjs",
   "scripts/json.mjs",
   "package.json",
   "package-lock.json",
@@ -222,13 +217,27 @@ export function checkScenarioAuthority({ repo = defaultRepo, base, candidate }) 
   const resolvedRepo = path.resolve(repo);
   assertCommit(resolvedRepo, base, "base");
   assertCommit(resolvedRepo, candidate, "candidate");
-  for (const file of controlPlaneFiles) {
+  const { design: baseDesign, slots: baseSlots } = parseDesign(resolvedRepo, base, "base");
+  const { design: candidateDesign, slots: candidateSlots } = parseDesign(resolvedRepo, candidate, "candidate");
+  const fixedObserverCapabilities = new Set(Object.keys(candidateDesign.fixed_observers));
+  if (JSON.stringify(canonical(candidateDesign.attested_protocols)) !==
+        JSON.stringify(canonical(baseDesign.attested_protocols)) ||
+      JSON.stringify(canonical(candidateDesign.fixed_observers)) !==
+        JSON.stringify(canonical(baseDesign.fixed_observers))) {
+    fail("candidate changed the canonical fixed observer bindings");
+  }
+  const protocolControlFiles = Object.values(baseDesign.attested_protocols).flatMap((protocol) => [
+    protocol.adapter,
+    protocol.observer,
+    protocol.workflow,
+    ...Object.values(protocol.consumer_paths ?? {}),
+    ...Object.values(protocol.runtime_paths ?? {}),
+  ]).filter((file) => file !== "evals/scenarios.json");
+  for (const file of new Set([...coreControlPlaneFiles, ...protocolControlFiles])) {
     if (committedText(resolvedRepo, candidate, file) !== committedText(resolvedRepo, base, file)) {
       fail(`candidate changed protected scenario authority control ${file}`);
     }
   }
-  const baseSlots = parseDesign(resolvedRepo, base, "base");
-  const candidateSlots = parseDesign(resolvedRepo, candidate, "candidate");
   const baseCatalog = parseJsonBlob(resolvedRepo, base, "evals/capabilities.json", "base capability catalog");
   const candidateCatalog = parseJsonBlob(resolvedRepo, candidate, "evals/capabilities.json", "candidate capability catalog");
   if (JSON.stringify(canonical(candidateCatalog)) !== JSON.stringify(canonical(baseCatalog))) {
@@ -245,7 +254,7 @@ export function checkScenarioAuthority({ repo = defaultRepo, base, candidate }) 
     const authorityUnchanged = candidateRow.authority_status === baseRow.authority_status &&
       candidateRow.missing_authority === baseRow.missing_authority;
     const admittedFixedObserver = baseRow.authority_status === "authority_unavailable" &&
-      baseRow.missing_authority === "scenario_consumer_binding" &&
+      ["fixed_consumer_observer", "scenario_consumer_binding"].includes(baseRow.missing_authority) &&
       candidateRow.authority_status === "implemented" && candidateRow.missing_authority === null &&
       candidateRow.observer_kind === "fixed_real_consumer" && fixedObserverCapabilities.has(candidateRow.capability_id);
     if (!authorityUnchanged && !admittedFixedObserver) {
