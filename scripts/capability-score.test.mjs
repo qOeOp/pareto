@@ -275,6 +275,10 @@ const committedCapabilityIds = new Set(committedCases.map((testCase) =>
 const executableCapabilityIds = new Set(fixtureScenarioDesign.scenarios
   .filter((row) => row.executable_suite !== undefined)
   .map((row) => row.capability_id));
+const unexecutableCapabilityIds = new Set(catalog.capabilities
+  .map((row) => row.id)
+  .filter((id) => !executableCapabilityIds.has(id)));
+const expectedLocalMinimum = unexecutableCapabilityIds.size === 0 ? 2 : 0;
 assert.deepEqual([...committedCapabilityIds].sort(), [...executableCapabilityIds].sort(),
   "the committed corpus must bind exactly the capabilities with executable scenario authority");
 assert.deepEqual(
@@ -861,13 +865,13 @@ try {
   const complete = await fixture("complete");
   const runnerOnlyScore = await scoreEvidence({ evidencePath: complete.runnerEvidencePath });
   assert.equal(runnerOnlyScore.eligible, false);
-  assert.equal(runnerOnlyScore.minimum_score, 2,
-    "complete deterministic coverage remains locally writable and capped at declared maturity");
+  assert.equal(runnerOnlyScore.minimum_score, expectedLocalMinimum,
+    "local deterministic coverage must preserve an explicit zero for every unexecutable capability");
   assert.ok(runnerOnlyScore.capabilities.some((row) => row.reason === "local_writable_trace_has_no_provider_attestation"));
   const completeScore = await scoreEvidence(complete);
   assert.equal(completeScore.eligible, false, "locally writable traces must never self-certify 9.5");
-  assert.equal(completeScore.minimum_score, 2,
-    "complete local evidence must cover every leaf without exceeding declared maturity");
+  assert.equal(completeScore.minimum_score, expectedLocalMinimum,
+    "local evidence must preserve the unexecutable capability floor without exceeding declared maturity");
   assert.equal(completeScore.evidence_limit, "provider_attested_attempt_inventory_unavailable");
   assert.ok(completeScore.capabilities.some((row) => row.score === 2 && row.maturity === "declared"));
   assert.ok(completeScore.capabilities.every((row) => row.score <= 2 && !("observed_score" in row)));
@@ -875,8 +879,19 @@ try {
   assert.equal(nativeTrajectoryRow.score, 2);
   assert.equal(nativeTrajectoryRow.maturity, "declared");
   assert.ok(nativeTrajectoryRow.observation_count >= 3);
-  assert.ok(completeScore.capabilities.every((row) => row.observation_count > 0),
-    "complete corpus evidence must leave no capability silently absent");
+  const completeRows = new Map(completeScore.capabilities.map((row) => [row.id, row]));
+  assert.deepEqual([...completeRows.keys()].sort(), catalog.capabilities.map((row) => row.id).sort(),
+    "the report must retain every capability even when no executable case exists");
+  assert.ok([...executableCapabilityIds].every((id) => completeRows.get(id).observation_count > 0),
+    "every executable capability must retain committed local observations");
+  for (const id of unexecutableCapabilityIds) {
+    const row = completeRows.get(id);
+    assert.deepEqual(
+      { observation_count: row.observation_count, reason: row.reason, score: row.score },
+      { observation_count: 0, reason: "no_passing_evidence", score: 0 },
+      `${id} must remain an explicit zero until executable scenario authority exists`,
+    );
+  }
 
   const attested = await attestedFixture("attested-install");
   await assert.rejects(
