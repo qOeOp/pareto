@@ -411,24 +411,24 @@ function installFixtureBinding(capabilityId) {
   };
 }
 
-async function attestedFixture(name, capabilityId = "INS-01") {
+async function attestedFixture(name, capabilityId = "INS-01", sourceCandidate = installSourceCandidate) {
   const directory = path.join(temporaryRoot, name);
   await mkdir(directory, { recursive: true });
   const install = installFixtureBinding(capabilityId);
-  const object = async (objectPath) => git(["rev-parse", `${installSourceCandidate.commit}:${objectPath}`]);
+  const object = async (objectPath) => git(["rev-parse", `${sourceCandidate.commit}:${objectPath}`]);
   const observer = {
-    commit: installSourceCandidate.commit,
+    commit: sourceCandidate.commit,
     script_blob: await object("scripts/observe-install-capability.mjs"),
-    tree: installSourceCandidate.tree,
+    tree: sourceCandidate.tree,
   };
   const subject = {
     codex_agents_tree: await object("codex/agents"),
     codex_session_hook_blob: await object("codex/hooks/qoeop-trade-session-start.mjs"),
-    commit: installSourceCandidate.commit,
+    commit: sourceCandidate.commit,
     installer_blob: await object("scripts/install-codex.mjs"),
     repository: repositoryUrl,
     skill_tree: await object("skills/run-bounded-mission"),
-    tree: installSourceCandidate.tree,
+    tree: sourceCandidate.tree,
   };
   const payload = canonical({
     schema: "pareto-capability-campaign/v1",
@@ -1204,6 +1204,21 @@ try {
     "one implemented slot must not authorize a partially migrated fixed observer",
   );
   await commitFixedObserverAuthority({ implemented: true });
+
+  const bootstrapAuthorityCandidate = { ...candidate };
+  await writeFile(path.join(repository, "bootstrap-authority-descendant.txt"), "strict bootstrap authority consumer\n");
+  await git(["add", "bootstrap-authority-descendant.txt"]);
+  await git(["commit", "--quiet", "-m", "strict bootstrap authority consumer"]);
+  candidate.commit = await git(["rev-parse", "HEAD"]);
+  candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
+  const bootstrapAuthority = await attestedFixture(
+    "attested-install-bootstrap-authority", "INS-01", bootstrapAuthorityCandidate,
+  );
+  await assert.rejects(
+    () => scoreEvidence(bootstrapAuthority),
+    /attested campaign does not match its immutable Git source/,
+    "a campaign from the commit that first establishes its scenario authority must remain bootstrap-only",
+  );
 
   const mixedAuthority = await attestedFixture("attested-install-mixed-authority");
   mixedAuthority.evidence.observations = [{}];
