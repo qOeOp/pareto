@@ -1,0 +1,166 @@
+name: observe-install-skill-capability
+
+on: workflow_dispatch
+
+permissions:
+  contents: read
+
+jobs:
+  observe:
+    name: observe-ins-01-${{ matrix.environment.runner }}-${{ matrix.trial }}
+    if: github.ref == 'refs/heads/main'
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        environment:
+          - os: ubuntu-latest
+            runner: Linux
+          - os: windows-latest
+            runner: Windows
+        trial: [1, 2, 3]
+    runs-on: ${{ matrix.environment.os }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          path: observer
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          path: subject
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: observer/package-lock.json
+      - run: npm ci --ignore-scripts --prefix observer
+      - name: Observe INS-01 through the real installation consumer
+        run: >-
+          node observer/scripts/observe-install-capability.mjs
+          --capability INS-01
+          --subject-root subject
+          --codex-entry observer/node_modules/@openai/codex/bin/codex.js
+          --trial ${{ matrix.trial }}
+          --output observation-${{ matrix.environment.runner }}-${{ matrix.trial }}.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: raw-ins-01-${{ matrix.environment.runner }}-${{ matrix.trial }}
+          path: observation-${{ matrix.environment.runner }}-${{ matrix.trial }}.json
+          if-no-files-found: error
+          retention-days: 1
+
+  attest-observation:
+    name: attest-ins-01-${{ matrix.runner }}-${{ matrix.trial }}
+    needs: observe
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [Linux, Windows]
+        trial: [1, 2, 3]
+    permissions:
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: raw-ins-01-${{ matrix.runner }}-${{ matrix.trial }}
+      - id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: observation-${{ matrix.runner }}-${{ matrix.trial }}.json
+      - name: Stage the observation attestation at a deterministic path
+        run: >-
+          node -e
+          "require('node:fs').copyFileSync(process.argv[1], process.argv[2], require('node:fs').constants.COPYFILE_EXCL)"
+          "${{ steps.attest.outputs.bundle-path }}"
+          attestation.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ins-01-${{ matrix.runner }}-${{ matrix.trial }}
+          path: |
+            observation-${{ matrix.runner }}-${{ matrix.trial }}.json
+            attestation.json
+          if-no-files-found: error
+          retention-days: 1
+
+  aggregate:
+    name: aggregate-ins-01
+    needs: attest-observation
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          path: observer
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ins-01-*
+          path: observations
+      - name: Aggregate the exact Linux and Windows observations
+        run: >-
+          node observer/scripts/observe-install-capability.mjs
+          --capability INS-01
+          --input-dir observations
+          --output ins-01-campaign.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: raw-ins-01-campaign-v2
+          path: ins-01-campaign.json
+          if-no-files-found: error
+          retention-days: 1
+
+  attest-campaign:
+    name: attest-complete-ins-01-campaign
+    needs: aggregate
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      artifact-metadata: write
+      attestations: write
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: raw-ins-01-campaign-v2
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ins-01-*
+          path: observations
+      - id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ins-01-campaign.json
+      - name: Stage the campaign attestation at a deterministic path
+        run: >-
+          node -e
+          "require('node:fs').copyFileSync(process.argv[1], process.argv[2], require('node:fs').constants.COPYFILE_EXCL)"
+          "${{ steps.attest.outputs.bundle-path }}"
+          ins-01-campaign-attestation.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ins-01-v2-attested-${{ github.run_id }}
+          path: |
+            ins-01-campaign.json
+            observations/**/observation-*.json
+            observations/**/attestation.json
+            ins-01-campaign-attestation.json
+          if-no-files-found: error
+          retention-days: 30
