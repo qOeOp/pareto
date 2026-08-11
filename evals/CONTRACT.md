@@ -331,6 +331,22 @@ API rather than environment overrides; the observer atomically claims a previous
 refuses pre-existing state, atomically moves the claimed directory to an isolated sibling custody,
 and verifies its identity before removal in `finally`.
 
+`install-skill-v2` is an INS-01-only deterministic evidence protocol introduced before any binding or
+campaign can use it. It reuses the install observer and semantic adapter, but owns a separate four-stage
+workflow containing exactly six Linux/Windows trial jobs, six observation-attestation jobs, one aggregate,
+and one campaign-attestation job. A separate canonical consumer binds the exact successful first-attempt
+workflow run, the exhaustive same-workflow/head/event dispatch-run set, the complete 14-job inventory returned
+by GitHub, all six verified observation attestations, the verified campaign attestation, and its own Git identity
+into a signed consumption receipt. Missing, duplicate, extra, failed, cancelled, or rerun jobs or dispatches
+reject the complete campaign; a successful replacement cannot hide an earlier attempt. The consumer also
+replays every observation through the install adapter and rejects subject, scenario, or Git-control drift before
+signing. The protocol does not bind
+INS-01 in the PR that introduces it and does not change any score. A later base-owned migration may bind only
+INS-01 with `{kind: skill}`. A still later scorer must verify the observation bundles, campaign, consumption
+receipt, source metadata and job inventory, plus strict observer-to-consumer-to-current ancestry and unchanged
+control/subject blobs, before the deterministic 9.5 anchor can be considered. `install-v1` remains capped at 8,
+and provider-mediated capabilities retain their provider/native provenance requirements.
+
 Profile-file installation uses the same protocol but never relabels an `INS-01` observation.
 `INS-03`, `INS-05`, `INS-07`, and `INS-09` each receive a fresh job, temporary root, observation,
 observation signature, six-slot campaign, and campaign signature. The positive path binds the exact

@@ -37,7 +37,8 @@ const scenarioDesignBytes = await readFile(path.join(observerRoot, "evals", "sce
 rejectDuplicateJsonObjectMembers(scenarioDesignBytes.toString("utf8"), "scenario authority");
 const scenarioDesign = JSON.parse(scenarioDesignBytes);
 const capabilities = Object.freeze(Object.fromEntries(Object.entries(scenarioDesign.fixed_observers ?? {})
-  .filter(([, binding]) => binding?.protocol === "install-v1")
+  .filter(([capabilityId, binding]) => binding?.protocol === "install-v1" ||
+    (capabilityId === "INS-01" && binding?.protocol === "install-skill-v2"))
   .map(([capabilityId, binding]) => {
     const rows = (scenarioDesign.scenarios ?? []).filter((row) => row.capability_id === capabilityId);
     const cases = Object.fromEntries(rows.map((row) => [row.scenario, row.case_id]));

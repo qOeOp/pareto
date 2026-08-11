@@ -223,14 +223,18 @@ function validateScenarioDesigns(catalog, design, cases) {
     validateExactKeys(protocol,
       new Set(["adapter", "consumer_paths", "consumer_workflow_name", "coverage", "observer", "protocol", "runtime_paths", "subject_paths", "workflow", "workflow_name"]),
       `attested protocol ${protocolId}`);
-    if (protocol.protocol !== "pareto-fixed-observer-protocol/v1" ||
+    const expectedProtocol = protocolId === "install-skill-v2"
+      ? "pareto-fixed-observer-protocol/v2"
+      : "pareto-fixed-observer-protocol/v1";
+    if (protocol.protocol !== expectedProtocol ||
         ![protocol.adapter, protocol.observer, protocol.workflow].every(safeRepositoryPath) ||
         !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(protocol.workflow_name)) {
       fail(`attested protocol ${protocolId} binding is invalid`);
     }
     validateExactKeys(protocol.coverage, new Set(["environments", "trials_per_environment"]),
       `attested protocol ${protocolId} coverage`);
-    const expectedTrials = new Map([["install-v1", 3], ["score-v1", 1]]).get(protocolId);
+    const expectedTrials = new Map([["install-v1", 3], ["install-skill-v2", 3], ["score-v1", 1]])
+      .get(protocolId);
     if (expectedTrials === undefined ||
         JSON.stringify(protocol.coverage.environments) !== JSON.stringify(["linux", "win32"]) ||
         protocol.coverage.trials_per_environment !== expectedTrials) {
@@ -266,12 +270,13 @@ function validateScenarioDesigns(catalog, design, cases) {
         typeof observer.parameters !== "object" || Array.isArray(observer.parameters)) {
       fail(`fixed observer ${capabilityId} binding is invalid`);
     }
-    if (observer.protocol === "install-v1") {
+    if (["install-v1", "install-skill-v2"].includes(observer.protocol)) {
       const kind = observer.parameters.kind;
       validateExactKeys(observer.parameters, new Set(kind === "profile" ? ["kind", "profile"] : ["kind"]),
         `fixed observer ${capabilityId} parameters`);
       if (!new Set(["skill", "profile"]).has(kind) ||
-          (kind === "profile" && !/^[a-z0-9-]+\.toml$/.test(observer.parameters.profile))) {
+          (kind === "profile" && !/^[a-z0-9-]+\.toml$/.test(observer.parameters.profile)) ||
+          (observer.protocol === "install-skill-v2" && (capabilityId !== "INS-01" || kind !== "skill"))) {
         fail(`fixed observer ${capabilityId} install parameters are invalid`);
       }
     } else if (observer.protocol === "score-v1") {
@@ -398,6 +403,56 @@ async function validateFixedObserverWorkflowBindings(design) {
       JSON.stringify(observeMatrix.trial) !== JSON.stringify([1, 2, 3]) ||
       JSON.stringify(workflow.jobs["attest-observation"].strategy.matrix.trial) !== JSON.stringify([1, 2, 3])) {
     fail("install-v1 workflow coverage differs from scenario authority");
+  }
+
+  const v2Protocol = design.attested_protocols["install-skill-v2"];
+  if (!v2Protocol) return;
+  const v2Workflow = parseYaml(await readFile(path.join(root, v2Protocol.workflow), "utf8"));
+  if (v2Workflow?.name !== "observe-install-skill-capability" ||
+      JSON.stringify(Object.keys(v2Workflow.jobs ?? {})) !==
+        JSON.stringify(["observe", "attest-observation", "aggregate", "attest-campaign"]) ||
+      JSON.stringify(v2Workflow.jobs.observe?.strategy?.matrix?.environment) !== JSON.stringify([
+        { os: "ubuntu-latest", runner: "Linux" },
+        { os: "windows-latest", runner: "Windows" },
+      ]) ||
+      JSON.stringify(v2Workflow.jobs.observe?.strategy?.matrix?.trial) !== JSON.stringify([1, 2, 3]) ||
+      JSON.stringify(v2Workflow.jobs["attest-observation"]?.strategy?.matrix?.runner) !==
+        JSON.stringify(["Linux", "Windows"]) ||
+      JSON.stringify(v2Workflow.jobs["attest-observation"]?.strategy?.matrix?.trial) !==
+        JSON.stringify([1, 2, 3]) ||
+      v2Workflow.jobs.aggregate?.name !== "aggregate-ins-01" ||
+      v2Workflow.jobs["attest-campaign"]?.name !== "attest-complete-ins-01-campaign") {
+    fail("install-skill-v2 workflow differs from its fixed INS-01 attempt matrix");
+  }
+
+  const consumerWorkflow = parseYaml(await readFile(
+    path.join(root, v2Protocol.consumer_paths.workflow), "utf8",
+  ));
+  const consumeSteps = consumerWorkflow?.jobs?.consume?.steps ?? [];
+  const inventoryStep = consumeSteps.find((step) =>
+    step?.name === "Bind the exact source run and complete first-attempt job inventory");
+  const downloadStep = consumeSteps.find((step) => step?.name === "Download the exact INS-01 v2 campaign");
+  const verifyStep = consumeSteps.find((step) => step?.name === "Verify every signed campaign input");
+  const consumeStep = consumeSteps.find((step) => step?.name === "Consume the complete campaign attempt set");
+  if (consumerWorkflow?.name !== "consume-install-capability" ||
+      JSON.stringify(Object.keys(consumerWorkflow.jobs ?? {})) !== JSON.stringify(["consume", "attest"]) ||
+      consumerWorkflow.jobs.consume?.name !== "consume-ins-01-v2-campaign" ||
+      consumerWorkflow.jobs.attest?.name !== "attest-ins-01-v2-consumption" ||
+      !String(inventoryStep?.run).includes("actions/workflows/observe-install-skill-capability.yml/runs?branch=main&event=workflow_dispatch&head_sha=") ||
+      !String(inventoryStep?.run).includes("/attempts/1/jobs?per_page=100") ||
+      !String(inventoryStep?.run).includes("gh api --paginate --slurp") ||
+      downloadStep?.with?.name !== "ins-01-v2-attested-${{ inputs.source_run_id }}" ||
+      downloadStep?.with?.["run-id"] !== "${{ inputs.source_run_id }}" ||
+      !String(verifyStep?.run).includes("gh attestation verify") ||
+      !String(verifyStep?.run).includes("--signer-workflow") ||
+      !String(verifyStep?.run).includes("--source-digest") ||
+      !String(verifyStep?.run).includes("--source-ref refs/heads/main") ||
+      !String(verifyStep?.run).includes("--deny-self-hosted-runners") ||
+      !String(consumeStep?.run).includes("scripts/consume-install-capability.mjs") ||
+      !String(consumeStep?.run).includes("--source-run-set source-run-set.json") ||
+      !String(consumeStep?.run).includes("--attestation-verification attestation-verification.jsonl") ||
+      consumerWorkflow.jobs.attest?.needs !== "consume") {
+    fail("install-skill-v2 consumer workflow differs from its complete attempt contract");
   }
 }
 

@@ -684,6 +684,18 @@ try {
   }, /attested protocol install-v1 coverage is invalid/,
   "protocol coverage cannot exceed its real workflow consumer");
   await challengeScenarioDesign((design) => {
+    design.attested_protocols["install-skill-v2"].coverage.trials_per_environment = 2;
+  }, /attested protocol install-skill-v2 coverage is invalid/,
+  "install-skill-v2 coverage cannot omit one canonical attempt");
+  await challengeScenarioDesign((design) => {
+    design.attested_protocols["install-skill-v2"].protocol = "pareto-fixed-observer-protocol/v1";
+  }, /attested protocol install-skill-v2 binding is invalid/,
+  "install-skill-v2 cannot silently downgrade its evidence protocol");
+  await challengeScenarioDesign((design) => {
+    design.fixed_observers["INS-03"] = { parameters: { kind: "skill" }, protocol: "install-skill-v2" };
+  }, /fixed observer INS-03 install parameters are invalid/,
+  "install-skill-v2 cannot bind a profile or a second capability");
+  await challengeScenarioDesign((design) => {
     design.fixed_observers["INS-02"] = { parameters: { kind: "skill" }, protocol: "install-v1" };
   }, /install-v1 workflow observe capability matrix differs from scenario authority/,
   "descriptor-only fixed observer cannot bypass its workflow consumer");
