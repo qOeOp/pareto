@@ -40,6 +40,15 @@ try {
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, await readFile(path.join(root, file)));
   }
+  // The transition matrix starts from the frozen legacy catalog regardless of
+  // how many atomic decisions canonical main has already consumed.
+  const fixtureCatalogPath = path.join(fixture, "evals/capabilities.json");
+  const fixtureCatalog = JSON.parse(await readFile(fixtureCatalogPath, "utf8"));
+  fixtureCatalog.schema_version = 1;
+  fixtureCatalog.capabilities = fixtureCatalog.capabilities.map(({
+    atomicity: _atomicity, split_from: _splitFrom, ...capability
+  }) => capability);
+  await writeFile(fixtureCatalogPath, `${JSON.stringify(fixtureCatalog, null, 2)}\n`);
   // The matrix owns its admission sequence; never import the outer repository's
   // current review decision into this isolated fixture.
   await writeFile(path.join(fixture, "evals/atomicity-admission.json"),
@@ -678,7 +687,7 @@ try {
     await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
   });
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: catalogDrift }),
-    /changed or reordered canonical capability KRN-01/);
+    /changed the canonical v1 capability catalog/);
 
   const topLevelScore = await commitMutation("top-level-score", async () => {
     const design = JSON.parse(await readFile(designPath, "utf8"));
