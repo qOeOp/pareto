@@ -3,7 +3,11 @@ import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
-import { capabilityScenarios, validateCapabilityCatalog } from "./capability-catalog.mjs";
+import {
+  capabilityScenarios,
+  validateAtomicityAdmission,
+  validateCapabilityCatalog,
+} from "./capability-catalog.mjs";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -513,6 +517,8 @@ if (packageJson.engines?.node !== "^22.22.2 || ^24.15.0 || >=26.0.0") {
 
 const skills = await validateSkills();
 const capabilityCatalog = await readUniqueJson("evals/capabilities.json", "capability catalog");
+const atomicityAdmission = await readUniqueJson("evals/atomicity-admission.json", "atomicity admission");
+validateAtomicityAdmission(atomicityAdmission, capabilityCatalog);
 const scenarioDesign = await readUniqueJson("evals/scenarios.json", "scenario design");
 const goldenCases = parseYaml(await readFile(path.join(root, "evals/cases/golden.yaml"), "utf8"));
 const holdoutCases = parseYaml(await readFile(path.join(root, "evals/cases/holdout.yaml"), "utf8"));

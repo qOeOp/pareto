@@ -2,7 +2,11 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
-import { capabilityScenarios, compareCapabilityCatalogs } from "./capability-catalog.mjs";
+import {
+  atomicityRequiredStaticPaths,
+  capabilityScenarios,
+  compareCapabilityCatalogs,
+} from "./capability-catalog.mjs";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const defaultRepo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -57,8 +61,25 @@ function assertCommit(repo, oid, label) {
   if (git(repo, ["cat-file", "-t", oid]).trim() !== "commit") fail(`${label} must identify a commit`);
 }
 
+function verifyDirectTransition(repo, base, candidate) {
+  const ancestry = git(repo, ["rev-list", "--parents", "-n", "1", candidate]).trim().split(/\s+/);
+  if (ancestry.length !== 2 || ancestry[0] !== candidate || ancestry[1] !== base) {
+    fail("atomicity transition candidate must have the supplied base as its sole parent");
+  }
+  const candidateTree = git(repo, ["rev-parse", `${candidate}^{tree}`]).trim();
+  const mergeTree = git(repo, ["merge-tree", "--write-tree", base, candidate]).trim().split(/\r?\n/)[0];
+  if (mergeTree !== candidateTree) {
+    fail("atomicity transition merge tree differs from the checked candidate tree");
+  }
+}
+
 function committedText(repo, oid, file) {
   return git(repo, ["show", `${oid}:${file}`]);
+}
+
+function committedTextOptional(repo, oid, file) {
+  const match = git(repo, ["ls-tree", "--name-only", oid, "--", file]).trim();
+  return match === file ? committedText(repo, oid, file) : null;
 }
 
 function canonical(value) {
@@ -130,6 +151,118 @@ function parseJsonBlob(repo, oid, file, label) {
     return JSON.parse(source);
   } catch {
     fail(`${label} must be valid JSON`);
+  }
+}
+
+function parseAtomicityAdmission(repo, oid, label, allowMissing = false) {
+  const source = committedTextOptional(repo, oid, "evals/atomicity-admission.json");
+  if (source === null) {
+    if (allowMissing) return { schema_version: 1, decision: null };
+    fail(`${label} atomicity admission is missing`);
+  }
+  rejectDuplicateJsonObjectMembers(source, `${label} atomicity admission`);
+  try {
+    return JSON.parse(source);
+  } catch {
+    fail(`${label} atomicity admission must be valid JSON`);
+  }
+}
+
+function atomicityOwnerPath(repo, commit, owner, label) {
+  const matches = git(repo, ["ls-tree", "-r", "--name-only", commit])
+    .trim().split(/\r?\n/).filter((file) => file === owner || file.endsWith(`/${owner}`));
+  if (matches.length !== 1) fail(`atomicity ${label} owner path is unavailable or ambiguous`);
+  return matches[0];
+}
+
+function expectedAtomicitySurfaces(repo, commit, catalog, decision) {
+  const source = catalog.capabilities.find((row) => row.id === decision.capability_id);
+  const owners = [source?.owner, ...decision.atoms.map((entry) => entry.owner)];
+  const paths = [...new Set([
+    ...atomicityRequiredStaticPaths,
+    ...owners.map((owner) => atomicityOwnerPath(repo, commit, owner, owner)),
+  ])].sort();
+  return paths.map((surfacePath) => ({
+    path: surfacePath,
+    blob: git(repo, ["rev-parse", `${commit}:${surfacePath}`]).trim(),
+  }));
+}
+
+function verifyAtomicityReviewBinding(repo, decision, {
+  reviewedBase, currentCommit, catalog, label, allowChangedPaths = new Set(),
+}) {
+  if (decision.reviewed_base.commit !== reviewedBase ||
+      decision.reviewed_base.tree !== git(repo, ["rev-parse", `${reviewedBase}^{tree}`]).trim()) {
+    fail(`${label} atomicity decision does not bind the exact reviewed base`);
+  }
+  const expected = expectedAtomicitySurfaces(repo, reviewedBase, catalog, decision);
+  const source = catalog.capabilities.find((row) => row.id === decision.capability_id);
+  const owners = [source?.owner, ...decision.atoms.map((entry) => entry.owner)];
+  const reviewedOwnerPaths = owners.map((owner) => atomicityOwnerPath(repo, reviewedBase, owner, owner));
+  const currentOwnerPaths = owners.map((owner) => atomicityOwnerPath(repo, currentCommit, owner, owner));
+  if (JSON.stringify(currentOwnerPaths) !== JSON.stringify(reviewedOwnerPaths)) {
+    fail(`${label} atomicity owner resolution drifted after review`);
+  }
+  const actual = [...decision.reviewed_surfaces].sort((left, right) =>
+    left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+    fail(`${label} atomicity decision does not bind the exhaustive owner, consumer, case, and control surface`);
+  }
+  for (const surface of expected) {
+    if (allowChangedPaths.has(surface.path)) continue;
+    const currentBlob = git(repo, ["rev-parse", `${currentCommit}:${surface.path}`]).trim();
+    if (currentBlob !== surface.blob) {
+      fail(`${label} atomicity decision is stale for a reviewed owner or consumer surface`);
+    }
+  }
+}
+
+function verifySplitScenarioDelta(repo, reviewedBase, candidate, decision) {
+  const { design: reviewedDesign, slots: reviewedSlots } = parseDesign(repo, reviewedBase, "reviewed base");
+  const { design: candidateDesign, slots: candidateSlots } = parseDesign(repo, candidate, "split candidate");
+  const addedRows = decision.atoms.flatMap((entry) => [...capabilityScenarios].map((scenario) => ({
+    capability_id: entry.id,
+    scenario,
+    case_id: `${entry.id.toLowerCase()}-${scenario}`,
+    observer_kind: "fixed_real_consumer",
+    authority_status: "authority_unavailable",
+    missing_authority: "scenario_consumer_binding",
+  })));
+  const reviewedSource = committedText(repo, reviewedBase, "evals/scenarios.json");
+  const suffix = "\n  ]\n}\n";
+  if (!reviewedSource.endsWith(suffix)) fail("reviewed scenario design lacks the canonical append boundary");
+  const expectedSource = `${reviewedSource.slice(0, -suffix.length)},\n${
+    addedRows.map((row) => `    ${JSON.stringify(row)}`).join(",\n")
+  }${suffix}`;
+  if (committedText(repo, candidate, "evals/scenarios.json") !== expectedSource) {
+    fail("split consumption did not preserve the reviewed scenario bytes plus its exact new slots");
+  }
+  if (JSON.stringify(canonical(candidateDesign.attested_protocols)) !==
+        JSON.stringify(canonical(reviewedDesign.attested_protocols)) ||
+      JSON.stringify(canonical(candidateDesign.fixed_observers)) !==
+        JSON.stringify(canonical(reviewedDesign.fixed_observers))) {
+    fail("split consumption changed reviewed scenario authority bindings");
+  }
+  for (const [slot, reviewedRow] of reviewedSlots) {
+    const candidateRow = candidateSlots.get(slot);
+    if (!candidateRow || JSON.stringify(canonical(candidateRow)) !== JSON.stringify(canonical(reviewedRow))) {
+      fail(`split consumption is stale for reviewed scenario slot ${slot}`);
+    }
+  }
+  const atomIds = new Set(decision.atoms.map((entry) => entry.id));
+  if (candidateSlots.size !== reviewedSlots.size + atomIds.size * capabilityScenarios.size) {
+    fail("split consumption changed more than its reviewed scenario slots");
+  }
+  for (const capabilityId of atomIds) {
+    for (const scenario of capabilityScenarios) {
+      const slot = `${capabilityId}/${scenario}`;
+      const row = candidateSlots.get(slot);
+      if (!row || reviewedSlots.has(slot) || row.case_id !== `${capabilityId.toLowerCase()}-${scenario}` ||
+          row.observer_kind !== "fixed_real_consumer" || row.authority_status !== "authority_unavailable" ||
+          row.missing_authority !== "scenario_consumer_binding" || row.executable_suite !== undefined) {
+        fail(`split consumption has invalid reviewed scenario slot ${slot}`);
+      }
+    }
   }
 }
 
@@ -242,8 +375,54 @@ export function checkScenarioAuthority({ repo = defaultRepo, base, candidate }) 
   }
   const baseCatalog = parseJsonBlob(resolvedRepo, base, "evals/capabilities.json", "base capability catalog");
   const candidateCatalog = parseJsonBlob(resolvedRepo, candidate, "evals/capabilities.json", "candidate capability catalog");
-  const catalogEvolution = compareCapabilityCatalogs(baseCatalog, candidateCatalog);
-  const catalogChanged = catalogEvolution.migrated || catalogEvolution.appendedIds.size > 0;
+  const baseAdmission = parseAtomicityAdmission(resolvedRepo, base, "base", true);
+  const candidateAdmission = parseAtomicityAdmission(resolvedRepo, candidate, "candidate");
+  const catalogEvolution = compareCapabilityCatalogs(
+    baseCatalog, candidateCatalog, baseAdmission, candidateAdmission,
+  );
+  if (catalogEvolution.atomicityTransition === "proposed" ||
+      catalogEvolution.atomicityTransition.startsWith("consumed_")) {
+    verifyDirectTransition(resolvedRepo, base, candidate);
+  }
+  if (catalogEvolution.atomicityTransition === "proposed") {
+    verifyAtomicityReviewBinding(resolvedRepo, candidateAdmission.decision, {
+      reviewedBase: base,
+      currentCommit: candidate,
+      catalog: baseCatalog,
+      label: "candidate",
+    });
+  } else if (catalogEvolution.atomicityTransition.startsWith("consumed_")) {
+    const reviewedBase = baseAdmission.decision.reviewed_base.commit;
+    if (git(resolvedRepo, ["merge-base", reviewedBase, base]).trim() !== reviewedBase) {
+      fail("base no longer descends from the reviewed atomicity source");
+    }
+    verifyAtomicityReviewBinding(resolvedRepo, baseAdmission.decision, {
+      reviewedBase,
+      currentCommit: candidate,
+      catalog: baseCatalog,
+      label: "consumed",
+      allowChangedPaths: catalogEvolution.atomicityTransition === "consumed_split"
+        ? new Set(["evals/scenarios.json"])
+        : new Set(),
+    });
+    if (catalogEvolution.atomicityTransition === "consumed_split") {
+      verifySplitScenarioDelta(resolvedRepo, reviewedBase, candidate, baseAdmission.decision);
+    }
+  }
+  const catalogChanged = catalogEvolution.migrated || catalogEvolution.appendedIds.size > 0 ||
+    catalogEvolution.atomicityTransition === "consumed_atomic";
+  if (catalogEvolution.atomicityTransition !== "unchanged") {
+    const changedFiles = git(resolvedRepo, ["diff", "--name-only", base, candidate]).trim().split(/\r?\n/).filter(Boolean);
+    const permitted = new Set(["evals/atomicity-admission.json"]);
+    if (catalogEvolution.atomicityTransition === "consumed_atomic") permitted.add("evals/capabilities.json");
+    if (catalogEvolution.atomicityTransition === "consumed_split") {
+      permitted.add("evals/capabilities.json");
+      permitted.add("evals/scenarios.json");
+    }
+    if (changedFiles.length === 0 || changedFiles.some((file) => !permitted.has(file))) {
+      fail("atomicity transition must use its isolated canonical write set");
+    }
+  }
   const expectedSlots = catalogEvolution.candidate.capabilities.size * capabilityScenarios.size;
   if (candidateSlots.size !== expectedSlots) {
     fail(`candidate scenario slots must equal the ${expectedSlots}-slot capability catalog`);
@@ -301,6 +480,11 @@ export function checkScenarioAuthority({ repo = defaultRepo, base, candidate }) 
 
   const baseCases = parseCases(resolvedRepo, base, "base");
   const candidateCases = parseCases(resolvedRepo, candidate, "candidate");
+  if (catalogEvolution.atomicityTransition !== "unchanged" &&
+      (baseCases.size !== candidateCases.size || [...baseCases].some(([id, row]) =>
+        candidateCases.get(id)?.definition !== row.definition))) {
+    fail("atomicity transition cannot change executable cases");
+  }
   for (const [caseId, baseCase] of baseCases) {
     const candidateCase = candidateCases.get(caseId);
     if (!candidateCase || candidateCase.definition !== baseCase.definition) {

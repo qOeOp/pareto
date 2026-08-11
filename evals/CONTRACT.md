@@ -203,11 +203,47 @@ calculations, so a visible derived parent never double-counts its descendants. C
 authority, and no inherited case or evidence. A previously split parent cannot receive later siblings.
 Catalog evaluation is bounded to 512 rows; a larger graph is unsupported rather than recursively traversed.
 
-`unreviewed` is the only currently admitted atomicity state. The scorer forces every unreviewed terminal
-to zero with `atomicity_unresolved`, even if evidence names it. An `atomic` state stays unsupported until a
-separate, independently consumable review authority exists; a catalog author, count, name, split shape, or
-PR text cannot self-certify it. This fail-closed migration deliberately invalidates legacy aggregate scores
-instead of copying a bundled parent's maturity into narrower children.
+The scorer forces every v2 terminal, including a structurally `atomic` terminal, to zero with
+`atomicity_unresolved`, even if evidence names it.
+`evals/atomicity-admission.json` is a single-use, single-decision authority boundary rather than a result
+ledger. An empty base may admit exactly one structural decision without changing the catalog, scenario matrix,
+cases, or another file. The decision binds the exact reviewed base commit/tree and the exhaustive derived
+parent-owner, atom-owner, case, scenario, and control surface. For every proposed atom it also binds one owner, consumer,
+falsifiable acceptance, falsifier, and the complete current overlap universe. The candidate cannot select or
+omit that surface.
+Repository-owner review and exact-head merge of that isolated decision is the structural catalog approval
+boundary; the workflow cannot infer human approval from candidate prose, and the structural schema carries no
+review-result field that could be mistaken for scoring evidence.
+
+A later isolated PR may consume, but not edit or replace, the already-canonical decision. An `atomic` decision
+may only flip the exact reviewed terminal from `unreviewed` to `atomic`. A `split` decision may only append the
+reviewed child definitions, with fresh `unreviewed` state and unavailable scenario slots. Consumption clears
+the admission back to null. Every proposal and consumption candidate has the supplied canonical base as its sole
+parent, and its recomputed merge tree must equal the checked candidate tree. The base-owned checker rejects
+same-PR review plus promotion, a partial or stale
+overlap map, a missing or ambiguous atom owner, a changed atom definition, extra files or cases, a missing child,
+or any promotion without a previously merged decision. Thus a catalog candidate cannot self-certify atomicity,
+and the authority does not accumulate across Missions. Atomicity admission records catalog structure only. It
+contributes no score, does not make evidence score-authorizing, and never copies a parent or reviewer result into
+a leaf. This fail-closed migration deliberately invalidates legacy aggregate scores instead of copying a bundled
+parent's maturity into narrower children.
+
+Split consumption preserves the reviewed scenario-design bytes and appends only the exact unavailable positive,
+negative, and recovery slots derived from the admitted atoms. Intervening scenario-authority drift, reordering,
+reformatting, or candidate-selected slots invalidates the decision rather than becoming part of the split.
+
+The scorer does not trust the current `atomic` string, a mutable local `origin/main` ref, a GitHub merge, or an
+otherwise valid signed campaign as proof of independent review. Structural atomicity therefore remains
+`atomicity_unresolved` after promotion. Score authorization stays unavailable until a versioned attested-review
+protocol binds the exact decision, reviewed base, exhaustive owner/case/scenario/control surface, neutral reviewer
+contract, evaluator profile, actual review observations, and Main reproduction; independently observes that
+protocol; and replays the complete first-parent transition chain through the scoring candidate. The current scorer
+accepts no such protocol. This intentionally leaves every v2 terminal at zero rather than letting a repository
+signature or unverifiable review digest become a capability score.
+
+Atomicity is a positive-evidence admission floor, not a shield for defects. A verified failed observation or
+material/critical gap still records a contradicted zero while atomicity authority is unavailable; no missing
+provider receipt can hide negative evidence.
 
 The scorer consumes content-addressed raw evidence, not agent-authored numeric scores. Deterministic
 replay accepts only a complete Promptfoo artifact that passes the production row, assertion, raw-turn,

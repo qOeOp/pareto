@@ -60,13 +60,14 @@ function scoreReport(candidate, catalog, catalogSha256, mode) {
     : []);
   const expectedById = new Map(terminalDefinitions.map((definition) => {
     const install = definition.id === "INS-01";
-    const expected = unreviewedTerminals.has(definition.id)
-      ? { score: 0, maturity: "unavailable", reason: "atomicity_unresolved", gap_count: install && mode === "negative" ? 1 : 0 }
-      : install && mode === "positive"
+    const contradicted = install && mode === "negative";
+    const expected = contradicted
+      ? { score: 0, maturity: "contradicted", reason: "critical_gap", gap_count: 1 }
+      : unreviewedTerminals.has(definition.id)
+        ? { score: 0, maturity: "unavailable", reason: "atomicity_unresolved", gap_count: 0 }
+        : install && mode === "positive"
         ? { score: 8, maturity: "representative", reason: "repeated_attested_fixed_observer_campaign", gap_count: 0 }
-        : install && mode === "negative"
-          ? { score: 0, maturity: "contradicted", reason: "critical_gap", gap_count: 1 }
-          : { score: 0, maturity: "absent", reason: "no_passing_evidence", gap_count: 0 };
+        : { score: 0, maturity: "absent", reason: "no_passing_evidence", gap_count: 0 };
     return [definition.id, {
       ...expected,
       observation_count: 0,

@@ -187,7 +187,7 @@ function observedCatalogContract(catalog) {
       fail("capability catalog inventory is invalid");
     }
     if (catalog.schema_version === 2) {
-      if (row.atomicity !== "unreviewed" ||
+      if (!["unreviewed", "atomic"].includes(row.atomicity) ||
           (row.split_from !== null && (typeof row.split_from !== "string" ||
             !/^[A-Z]{3,4}-\d{2}$/.test(row.split_from)))) {
         fail("capability catalog atomicity is invalid");
@@ -233,9 +233,8 @@ function observedCatalogContract(catalog) {
     nonterminalIds: parents,
     terminalDescendants,
     terminalIds,
-    unreviewedTerminalIds: new Set(catalog.schema_version === 2
-      ? terminalIds
-      : []),
+    // Mirror the scorer: catalog structure alone never unlocks evidence.
+    atomicityUnresolvedTerminalIds: new Set(catalog.schema_version === 2 ? terminalIds : []),
   };
 }
 
@@ -265,14 +264,15 @@ export function validateObservedScoreReport(report, candidate, mode, catalog, ca
   const catalogById = new Map(catalogRows.map((row) => [row.id, row]));
   const expectedById = new Map(terminalRows.map((definition) => {
     const install = definition.id === "INS-01";
-    const unreviewed = catalogContract.unreviewedTerminalIds.has(definition.id);
-    const score = unreviewed
-      ? { score: 0, maturity: "unavailable", reason: "atomicity_unresolved", gap_count: install && mode === "negative" ? 1 : 0 }
-      : install && mode === "positive"
+    const atomicityUnresolved = catalogContract.atomicityUnresolvedTerminalIds.has(definition.id);
+    const contradicted = install && mode === "negative";
+    const score = contradicted
+      ? { score: 0, maturity: "contradicted", reason: "critical_gap", gap_count: 1 }
+      : atomicityUnresolved
+        ? { score: 0, maturity: "unavailable", reason: "atomicity_unresolved", gap_count: 0 }
+        : install && mode === "positive"
         ? { score: 8, maturity: "representative", reason: "repeated_attested_fixed_observer_campaign", gap_count: 0 }
-        : install && mode === "negative"
-          ? { score: 0, maturity: "contradicted", reason: "critical_gap", gap_count: 1 }
-          : { score: 0, maturity: "absent", reason: "no_passing_evidence", gap_count: 0 };
+        : { score: 0, maturity: "absent", reason: "no_passing_evidence", gap_count: 0 };
     return [definition.id, {
       ...score,
       observation_count: 0,
@@ -309,7 +309,7 @@ export function validateObservedScoreReport(report, candidate, mode, catalog, ca
     }
   }
   const totalWeight = terminalRows.reduce((sum, row) => sum + row.weight, 0);
-  const expectedWeightedScore = mode === "positive" && !catalogContract.unreviewedTerminalIds.has("INS-01")
+  const expectedWeightedScore = mode === "positive" && !catalogContract.atomicityUnresolvedTerminalIds.has("INS-01")
     ? Number((8 * catalogById.get("INS-01").weight / totalWeight).toFixed(3))
     : 0;
   if (report.weighted_score !== expectedWeightedScore) fail("scorer report weighted score is invalid");

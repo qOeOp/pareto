@@ -7,7 +7,12 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
-import { nodeSupportsSigstore, validateCatalogFile, verifyCommittedNativeTurn } from "./capability-score.mjs";
+import {
+  nodeSupportsSigstore,
+  validateCatalogFile,
+  verifyCommittedNativeTurn,
+} from "./capability-score.mjs";
+import { atomicityRequiredStaticPaths } from "./capability-catalog.mjs";
 import { buildConsumptionReceipt } from "./consume-score-capability.mjs";
 import { capabilityEvidenceForValidatedResult, runtimeCasesForInstalledSkill } from "./eval.mjs";
 
@@ -59,6 +64,7 @@ for (const packageName of ["bundle", "core", "protobuf-specs", "tuf", "verify"])
 }
 await writeFile(path.join(repository, "evals", "capabilities.json"), catalogBytes);
 await copyFile(path.resolve("evals/CONTRACT.md"), path.join(repository, "evals", "CONTRACT.md"));
+await copyFile(path.resolve("evals/atomicity-admission.json"), path.join(repository, "evals", "atomicity-admission.json"));
 await copyFile(path.resolve("evals/scenarios.json"), path.join(repository, "evals", "scenarios.json"));
 const fixtureScenarioPath = path.join(repository, "evals", "scenarios.json");
 const fixtureScenarioDesign = JSON.parse(await readFile(fixtureScenarioPath, "utf8"));
@@ -69,6 +75,9 @@ for (const row of fixtureScenarioDesign.scenarios.filter((entry) =>
 }
 await writeFile(fixtureScenarioPath, `${JSON.stringify(fixtureScenarioDesign, null, 2)}\n`);
 await copyFile(path.resolve("scripts/capability-score.mjs"), path.join(repository, "scripts", "capability-score.mjs"));
+await copyFile(path.resolve("scripts/capability-catalog.mjs"), path.join(repository, "scripts", "capability-catalog.mjs"));
+await copyFile(path.resolve("scripts/check-scenario-authority.mjs"),
+  path.join(repository, "scripts", "check-scenario-authority.mjs"));
 await copyFile(path.resolve("scripts/eval.mjs"), path.join(repository, "scripts", "eval.mjs"));
 await copyFile(path.resolve("scripts/json.mjs"), path.join(repository, "scripts", "json.mjs"));
 await copyFile(path.resolve("scripts/campaign-verifiers/install.mjs"),
@@ -79,11 +88,14 @@ await copyFile(path.resolve("scripts/observe-install-capability.mjs"), path.join
 await copyFile(path.resolve("scripts/observe-score-capability.mjs"), path.join(repository, "scripts", "observe-score-capability.mjs"));
 await copyFile(path.resolve("scripts/consume-score-capability.mjs"), path.join(repository, "scripts", "consume-score-capability.mjs"));
 await copyFile(path.resolve("scripts/install-codex.mjs"), path.join(repository, "scripts", "install-codex.mjs"));
+await copyFile(path.resolve("scripts/validate.mjs"), path.join(repository, "scripts", "validate.mjs"));
 await copyFile(path.resolve("package.json"), path.join(repository, "package.json"));
 await copyFile(path.resolve("package-lock.json"), path.join(repository, "package-lock.json"));
 await copyFile(path.resolve(".github/workflows/observe-install-capability.yml"), path.join(repository, ".github", "workflows", "observe-install-capability.yml"));
 await copyFile(path.resolve(".github/workflows/observe-score-capability.yml"), path.join(repository, ".github", "workflows", "observe-score-capability.yml"));
 await copyFile(path.resolve(".github/workflows/consume-score-capability.yml"), path.join(repository, ".github", "workflows", "consume-score-capability.yml"));
+await copyFile(path.resolve(".github/workflows/scenario-authority.yml"),
+  path.join(repository, ".github", "workflows", "scenario-authority.yml"));
 await copyFile(path.resolve("codex/hooks/qoeop-trade-session-start.mjs"), path.join(repository, "codex", "hooks", "qoeop-trade-session-start.mjs"));
 await cp(path.resolve("codex/agents"), path.join(repository, "codex", "agents"), { recursive: true });
 await cp(path.resolve("skills/run-bounded-mission"), path.join(repository, "skills", "run-bounded-mission"), { recursive: true });
@@ -1678,6 +1690,128 @@ try {
   assert.ok(unreviewedScore.capabilities.every((row) =>
     row.score === 0 && row.maturity === "unavailable" && row.reason === "atomicity_unresolved"),
   "v2 migration must never inherit or manufacture a parent capability score");
+
+  const unreviewedCommit = candidate.commit;
+  await git(["update-ref", "refs/remotes/origin/main", unreviewedCommit]);
+  const directAtomicCatalog = JSON.parse(await readFile(path.join(repository, "evals", "capabilities.json"), "utf8"));
+  directAtomicCatalog.capabilities.find((row) => row.id === "KRN-01").atomicity = "atomic";
+  await writeFile(path.join(repository, "evals", "capabilities.json"), `${JSON.stringify(directAtomicCatalog, null, 2)}\n`);
+  await git(["add", "evals/capabilities.json"]);
+  await git(["commit", "--quiet", "-m", "direct candidate-authored atomic label"]);
+  candidate.commit = await git(["rev-parse", "HEAD"]);
+  candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
+  const directAtomicCatalogBytes = await execFileAsync("git", ["-C", repository, "show", `${candidate.commit}:evals/capabilities.json`], {
+    encoding: null,
+    env: gitEnvironment,
+  }).then((result) => result.stdout);
+  const directAtomicEvidencePath = path.join(temporaryRoot, "direct-atomic-catalog-evidence.json");
+  await writeFile(directAtomicEvidencePath, `${JSON.stringify({
+    schema_version: 1,
+    catalog_sha256: sha(directAtomicCatalogBytes),
+    candidate: { ...candidate },
+    attempt_inventory: { status: "unavailable", locator: "provider attestation unavailable" },
+    observations: [],
+    open_gaps: [],
+  }, null, 2)}\n`);
+  const directAtomicScore = await scoreEvidence({ evidencePath: directAtomicEvidencePath });
+  const directAtomicRow = directAtomicScore.capabilities.find((row) => row.id === "KRN-01");
+  assert.deepEqual(
+    { score: directAtomicRow.score, maturity: directAtomicRow.maturity, reason: directAtomicRow.reason },
+    { score: 0, maturity: "unavailable", reason: "atomicity_unresolved" },
+    "a mutable origin/main ref and clean candidate-authored atomic label must not become scoring authority",
+  );
+  const contradictedAtomicEvidencePath = path.join(temporaryRoot, "contradicted-direct-atomic-evidence.json");
+  await writeFile(contradictedAtomicEvidencePath, `${JSON.stringify({
+    schema_version: 1,
+    catalog_sha256: sha(directAtomicCatalogBytes),
+    candidate: { ...candidate },
+    attempt_inventory: { status: "unavailable", locator: "provider attestation unavailable" },
+    observations: [],
+    open_gaps: [{
+      capability_id: "KRN-01",
+      severity: "critical",
+      description: "known atomic consumer contradiction",
+      locator: "local:critical-atomic-gap",
+    }],
+  }, null, 2)}\n`);
+  const contradictedAtomicScore = await scoreEvidence({ evidencePath: contradictedAtomicEvidencePath });
+  const contradictedAtomicRow = contradictedAtomicScore.capabilities.find((row) => row.id === "KRN-01");
+  assert.deepEqual(
+    { score: contradictedAtomicRow.score, maturity: contradictedAtomicRow.maturity, reason: contradictedAtomicRow.reason },
+    { score: 0, maturity: "contradicted", reason: "critical_gap" },
+    "unresolved structural atomicity must not hide a current critical contradiction",
+  );
+
+  await git(["checkout", "--quiet", "-B", "atomic-authority", unreviewedCommit]);
+  const atomicCatalog = JSON.parse(await readFile(path.join(repository, "evals", "capabilities.json"), "utf8"));
+  const atomicSource = atomicCatalog.capabilities.find((row) => row.id === "KRN-01");
+  const terminalIds = atomicCatalog.capabilities.map((row) => row.id);
+  const reviewedSurface = "skills/run-bounded-mission/SKILL.md";
+  const atomicDecision = {
+    schema_version: 1,
+    decision: {
+      capability_id: "KRN-01",
+      disposition: "atomic",
+      atoms: [{
+        ...Object.fromEntries(["id", "domain", "name", "owner", "consumer", "weight", "critical"]
+          .map((key) => [key, atomicSource[key]])),
+        acceptance: "exact activation consumer behavior is independently falsifiable",
+        falsifier: "one accepted activation case crosses the KRN-01 owner or consumer boundary",
+        overlap_ids: terminalIds.filter((id) => id !== "KRN-01").sort(),
+      }],
+      reviewed_base: {
+        commit: unreviewedCommit,
+        tree: await git(["rev-parse", `${unreviewedCommit}^{tree}`]),
+      },
+      reviewed_surfaces: await Promise.all(
+        [...new Set([...atomicityRequiredStaticPaths, reviewedSurface])].sort().map(async (surfacePath) => ({
+          path: surfacePath,
+          blob: await git(["rev-parse", `${unreviewedCommit}:${surfacePath}`]),
+        })),
+      ),
+    },
+  };
+  await writeFile(path.join(repository, "evals", "atomicity-admission.json"),
+    `${JSON.stringify(atomicDecision, null, 2)}\n`);
+  await git(["add", "evals/atomicity-admission.json"]);
+  await git(["commit", "--quiet", "-m", "admit structural atomicity decision"]);
+
+  atomicCatalog.capabilities.find((row) => row.id === "KRN-01").atomicity = "atomic";
+  await writeFile(path.join(repository, "evals", "capabilities.json"), `${JSON.stringify(atomicCatalog, null, 2)}\n`);
+  await writeFile(path.join(repository, "evals", "atomicity-admission.json"),
+    `${JSON.stringify({ schema_version: 1, decision: null }, null, 2)}\n`);
+  await git(["add", "evals/capabilities.json", "evals/atomicity-admission.json"]);
+  await git(["commit", "--quiet", "-m", "consume structural atomicity decision"]);
+  const atomicPromotionCommit = await git(["rev-parse", "HEAD"]);
+  candidate.commit = await git(["rev-parse", "HEAD"]);
+  candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
+  const atomicCatalogBytes = await execFileAsync("git", ["-C", repository, "show", `${candidate.commit}:evals/capabilities.json`], {
+    encoding: null,
+    env: gitEnvironment,
+  }).then((result) => result.stdout);
+  const atomicEvidencePath = path.join(temporaryRoot, "atomic-catalog-evidence.json");
+  await writeFile(atomicEvidencePath, `${JSON.stringify({
+    schema_version: 1,
+    catalog_sha256: sha(atomicCatalogBytes),
+    candidate: { ...candidate },
+    attempt_inventory: { status: "unavailable", locator: "provider attestation unavailable" },
+    observations: [],
+    open_gaps: [],
+  }, null, 2)}\n`);
+  const atomicScore = await scoreEvidence({ evidencePath: atomicEvidencePath });
+  const atomicRow = atomicScore.capabilities.find((row) => row.id === "KRN-01");
+  assert.deepEqual(
+    { score: atomicRow.score, maturity: atomicRow.maturity, reason: atomicRow.reason },
+    { score: 0, maturity: "unavailable", reason: "atomicity_unresolved" },
+    "locally rewritten canonical history cannot enable evidence consumption or manufacture a score",
+  );
+  assert.ok(atomicScore.capabilities.filter((row) => row.id !== "KRN-01").every((row) =>
+    row.reason === "atomicity_unresolved"),
+  "unreviewed leaves must remain independently fail-closed after one atomic promotion");
+
+  await git(["checkout", "--quiet", "-B", "atomic-authority", atomicPromotionCommit]);
+  candidate.commit = atomicPromotionCommit;
+  candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
 
   const splitCatalog = JSON.parse(await readFile(path.join(repository, "evals", "capabilities.json"), "utf8"));
   const splitParent = splitCatalog.capabilities.find((row) => row.id === "ORC-05");

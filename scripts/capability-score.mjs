@@ -372,8 +372,8 @@ function validateCatalog(catalog) {
     if (capability.weight !== 1) fail(`capability ${id} weight must remain one so weights cannot hide a weak leaf`);
     if (typeof capability.critical !== "boolean") fail(`capability ${id} critical must be boolean`);
     if (catalog.schema_version === 2) {
-      if (capability.atomicity !== "unreviewed") {
-        fail(`capability ${id} atomicity requires a future independent authority consumer`);
+      if (!["unreviewed", "atomic"].includes(capability.atomicity)) {
+        fail(`capability ${id} atomicity is invalid`);
       }
       if (capability.split_from !== null &&
           (typeof capability.split_from !== "string" || !/^[A-Z]{3,4}-\d{2}$/.test(capability.split_from))) {
@@ -424,9 +424,9 @@ function validateCatalog(catalog) {
     capabilities,
     nonterminalIds: parents,
     terminalDescendants,
-    unreviewedTerminalIds: new Set(catalog.schema_version === 2
-      ? terminalIds
-      : []),
+    // Structural atomicity is catalog governance only. No current evidence
+    // protocol proves the independent review needed to unlock scoring.
+    atomicityUnresolvedTerminalIds: new Set(catalog.schema_version === 2 ? terminalIds : []),
   };
 }
 
@@ -1313,8 +1313,18 @@ async function verifyInstallCampaign(entry, evidenceDirectory, candidate, author
     await verifySigstoreInChild(bundleFile, entry, campaignVerification.expected);
   }
   return repeated
-    ? { capability_id: capabilityId, score: repeatedAttestedCampaignScore, maturity: "representative", reason: "repeated_attested_fixed_observer_campaign" }
-    : { capability_id: capabilityId, score: singleAttestedCampaignScore, maturity: "dynamic", reason: "single_attested_campaign" };
+    ? {
+        capability_id: capabilityId,
+        score: repeatedAttestedCampaignScore,
+        maturity: "representative",
+        reason: "repeated_attested_fixed_observer_campaign",
+      }
+    : {
+        capability_id: capabilityId,
+        score: singleAttestedCampaignScore,
+        maturity: "dynamic",
+        reason: "single_attested_campaign",
+      };
 }
 
 async function validateScoreCampaignIdentity(payload, candidate, authority) {
@@ -1398,14 +1408,15 @@ function validateObservedScoreReport(report, { candidate, mode, catalog, catalog
   const definitionsById = new Map(definitions.map((row) => [row.id, row]));
   const expectedById = new Map(terminalDefinitions.map((definition) => {
     const source = definition.id === sourceCapability;
-    const unreviewed = catalogContract.unreviewedTerminalIds.has(definition.id);
-    const score = unreviewed
-      ? { score: 0, maturity: "unavailable", reason: "atomicity_unresolved", gap_count: source && mode === "negative" ? 1 : 0 }
-      : source && mode === "positive"
+    const atomicityUnresolved = catalogContract.atomicityUnresolvedTerminalIds.has(definition.id);
+    const contradicted = source && mode === "negative";
+    const score = contradicted
+      ? { score: 0, maturity: "contradicted", reason: "critical_gap", gap_count: 1 }
+      : atomicityUnresolved
+        ? { score: 0, maturity: "unavailable", reason: "atomicity_unresolved", gap_count: 0 }
+        : source && mode === "positive"
         ? { score: 8, maturity: "representative", reason: "repeated_attested_fixed_observer_campaign", gap_count: 0 }
-        : source && mode === "negative"
-          ? { score: 0, maturity: "contradicted", reason: "critical_gap", gap_count: 1 }
-          : { score: 0, maturity: "absent", reason: "no_passing_evidence", gap_count: 0 };
+        : { score: 0, maturity: "absent", reason: "no_passing_evidence", gap_count: 0 };
     return [definition.id, {
       ...score,
       observation_count: 0,
@@ -1447,7 +1458,7 @@ function validateObservedScoreReport(report, { candidate, mode, catalog, catalog
   const sourceWeight = definitionsById.get(sourceCapability)?.weight;
   if (sourceWeight === undefined) fail("observed score source capability is unavailable");
   const expectedWeightedScore = mode === "positive" &&
-    !catalogContract.unreviewedTerminalIds.has(sourceCapability)
+    !catalogContract.atomicityUnresolvedTerminalIds.has(sourceCapability)
     ? Number((8 * sourceWeight / totalWeight).toFixed(3))
     : 0;
   if (report.weighted_score !== expectedWeightedScore) fail(`observed score ${mode} weighted score is invalid`);
@@ -1477,11 +1488,13 @@ function validateConsumedScoreReport(report, { candidate, catalog, catalogSha256
   }
   const expectedById = new Map(terminalDefinitions.map((definition) => {
     const target = definition.id === targetCapability;
-    const unreviewed = catalogContract.unreviewedTerminalIds.has(definition.id);
+    const atomicityUnresolved = catalogContract.atomicityUnresolvedTerminalIds.has(definition.id);
     return [definition.id, {
-      score: target && !unreviewed ? 6 : 0,
-      maturity: unreviewed ? "unavailable" : target ? "dynamic" : "absent",
-      reason: unreviewed ? "atomicity_unresolved" : target ? "single_attested_score_observer_campaign" : "no_passing_evidence",
+      score: target && !atomicityUnresolved ? 6 : 0,
+      maturity: atomicityUnresolved ? "unavailable" : target ? "dynamic" : "absent",
+      reason: atomicityUnresolved
+        ? "atomicity_unresolved"
+        : target ? "single_attested_score_observer_campaign" : "no_passing_evidence",
       observation_count: 0,
       attested_campaign_count: target ? 1 : 0,
       unavailable_count: 0,
@@ -1932,7 +1945,6 @@ async function scoreEvidenceInternal({ evidencePath }, allowAttested, allowPendi
     attestedCapabilities.add(campaign.capability_id);
     attestedCampaigns.push(campaign);
   }
-
   const gapsByCapability = new Map();
   for (const gap of evidence.open_gaps) {
     exactKeys(gap, ["capability_id", "severity", "description", "locator"], "gap");
@@ -1951,9 +1963,11 @@ async function scoreEvidenceInternal({ evidencePath }, allowAttested, allowPendi
       const observations = evidence.observations.filter((entry) => entry.capability_id === capability.id);
       const capabilityCampaigns = attestedCampaigns.filter((entry) => entry.capability_id === capability.id);
       const gaps = gapsByCapability.get(capability.id) ?? [];
-      const score = catalogContract.unreviewedTerminalIds.has(capability.id)
+      const observedScore = scoreCapability(observations, gaps, catalog.local_trace_ceiling, capabilityCampaigns);
+      const atomicityUnresolved = catalogContract.atomicityUnresolvedTerminalIds.has(capability.id);
+      const score = atomicityUnresolved && observedScore.maturity !== "contradicted"
         ? { score: 0, maturity: "unavailable", reason: "atomicity_unresolved" }
-        : scoreCapability(observations, gaps, catalog.local_trace_ceiling, capabilityCampaigns);
+        : observedScore;
       return [capability.id, {
         ...capability,
         ...score,
