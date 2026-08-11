@@ -272,8 +272,11 @@ await assert.rejects(() => verifyCommittedNativeTurn({
 "verification receipts must reject a contradictory authority suffix");
 const committedCapabilityIds = new Set(committedCases.map((testCase) =>
   testCase.metadata.observations.capability.id));
-assert.equal(committedCapabilityIds.size, catalog.capabilities.length,
-  "the complete corpus must bind at least one committed case to every capability");
+const executableCapabilityIds = new Set(fixtureScenarioDesign.scenarios
+  .filter((row) => row.executable_suite !== undefined)
+  .map((row) => row.capability_id));
+assert.deepEqual([...committedCapabilityIds].sort(), [...executableCapabilityIds].sort(),
+  "the committed corpus must bind exactly the capabilities with executable scenario authority");
 assert.deepEqual(
   committedCases
     .filter((testCase) => testCase.metadata.observations.capability.id === "EVAL-01")
