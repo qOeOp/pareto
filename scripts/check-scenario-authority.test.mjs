@@ -384,7 +384,7 @@ try {
     await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
   });
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: catalogDrift }),
-    /changed the canonical v1 capability catalog/);
+    /changed or reordered canonical capability KRN-01/);
 
   const topLevelScore = await commitMutation("top-level-score", async () => {
     const design = JSON.parse(await readFile(designPath, "utf8"));
