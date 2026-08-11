@@ -56,6 +56,8 @@
     { "id": "INS-09", "domain": "installation", "name": "fast-builder profile file installation", "owner": "fast-builder.toml", "consumer": "user agent profile loader", "weight": 1, "critical": false, "atomicity": "unreviewed", "split_from": null },
     { "id": "INS-10", "domain": "installation", "name": "fast-builder native role routing", "owner": "fast-builder.toml", "consumer": "fast-builder subagent", "weight": 1, "critical": false, "atomicity": "unreviewed", "split_from": null },
     { "id": "EVAL-01", "domain": "evaluation", "name": "native activation and trajectory evidence", "owner": "evals/CONTRACT.md", "consumer": "capability assessment", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": null },
-    { "id": "EVAL-02", "domain": "evaluation", "name": "atomic scoring and anti-gaming", "owner": "capability-score.mjs", "consumer": "capability eligibility report", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": null }
+    { "id": "EVAL-02", "domain": "evaluation", "name": "atomic scoring and anti-gaming", "owner": "capability-score.mjs", "consumer": "capability eligibility report", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": null },
+    { "id": "KRN-03", "domain": "kernel", "name": "request admission and Frame entrance", "owner": "SKILL.md", "consumer": "Frame creation", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": "KRN-02" },
+    { "id": "KRN-04", "domain": "kernel", "name": "Frame authority and effect envelope", "owner": "SKILL.md", "consumer": "main lifecycle", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": "KRN-02" }
   ]
 }
