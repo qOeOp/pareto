@@ -239,7 +239,7 @@ try {
     await consumeAdmission();
   }, splitReview);
   const splitResult = checkScenarioAuthority({ repo: fixture, base: splitReview, candidate: split });
-  assert.equal(splitResult.slots, 123);
+  assert.equal(splitResult.slots, fixtureDesign.scenarios.length + 6);
 
   const distinctOwnerReview = await commitMutation("distinct-child-owner-review", async () => {
     await admitAtomicity("ORC-05", "split", ["ORC-07", "ORC-08"], {
@@ -328,7 +328,7 @@ try {
     await consumeAdmission();
   }, splitReview);
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base: splitReview, candidate: missingChildSlot }),
-    /did not preserve the reviewed scenario bytes plus its exact new slots|scenario slots must equal the 123-slot capability catalog/);
+    /did not preserve the reviewed scenario bytes plus its exact new slots|scenario slots must equal the \d+-slot capability catalog/);
 
   const changedCanonicalCapability = await commitMutation("changed-canonical-capability", async () => {
     const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
