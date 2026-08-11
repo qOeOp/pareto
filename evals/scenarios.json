@@ -173,6 +173,12 @@
     {"capability_id":"EVAL-01","scenario":"recovery","case_id":"native-trace-recovery-without-rewrite","observer_kind":"native_thread","authority_status":"authority_unavailable","missing_authority":"provider_complete_attempt_inventory","executable_suite":"golden"},
     {"capability_id":"EVAL-02","scenario":"positive","case_id":"signed-campaign-produces-bounded-report","observer_kind":"fixed_real_consumer","authority_status":"implemented","missing_authority":null,"executable_suite":"golden"},
     {"capability_id":"EVAL-02","scenario":"negative","case_id":"score-cannot-hide-failed-floor","observer_kind":"fixed_real_consumer","authority_status":"implemented","missing_authority":null,"executable_suite":"golden"},
-    {"capability_id":"EVAL-02","scenario":"recovery","case_id":"score-recovers-after-gap-removal","observer_kind":"fixed_real_consumer","authority_status":"implemented","missing_authority":null,"executable_suite":"golden"}
+    {"capability_id":"EVAL-02","scenario":"recovery","case_id":"score-recovers-after-gap-removal","observer_kind":"fixed_real_consumer","authority_status":"implemented","missing_authority":null,"executable_suite":"golden"},
+    {"capability_id":"KRN-03","scenario":"positive","case_id":"krn-03-positive","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding"},
+    {"capability_id":"KRN-03","scenario":"negative","case_id":"krn-03-negative","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding"},
+    {"capability_id":"KRN-03","scenario":"recovery","case_id":"krn-03-recovery","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding"},
+    {"capability_id":"KRN-04","scenario":"positive","case_id":"krn-04-positive","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding"},
+    {"capability_id":"KRN-04","scenario":"negative","case_id":"krn-04-negative","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding"},
+    {"capability_id":"KRN-04","scenario":"recovery","case_id":"krn-04-recovery","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding"}
   ]
 }
