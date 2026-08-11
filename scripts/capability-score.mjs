@@ -59,6 +59,8 @@ const installCampaignCapability = "INS-01";
 const installCampaignWorkflow = ".github/workflows/observe-install-capability.yml";
 const scoreCampaignCapability = "EVAL-02";
 const scoreCampaignWorkflow = ".github/workflows/observe-score-capability.yml";
+const scoreCampaignConsumerWorkflow = ".github/workflows/consume-score-capability.yml";
+const scoreCampaignConsumerScript = "scripts/consume-score-capability.mjs";
 const campaignWorkflowNames = new Map([
   [installCampaignWorkflow, "observe-install-capability"],
   [scoreCampaignWorkflow, "observe-score-capability"],
@@ -1247,6 +1249,8 @@ async function validateScoreCampaignIdentity(payload, candidate) {
     catalog: "evals/capabilities.json",
     contract: "evals/CONTRACT.md",
     workflow: scoreCampaignWorkflow,
+    consumer_workflow: scoreCampaignConsumerWorkflow,
+    consumer_script: scoreCampaignConsumerScript,
     package_json: "package.json",
     package_lock: "package-lock.json",
     json_helper: "scripts/json.mjs",
@@ -1255,7 +1259,10 @@ async function validateScoreCampaignIdentity(payload, candidate) {
     [key, await gitIdentityAt(sourceCommit, value)])));
   const candidateObjects = Object.fromEntries(await Promise.all(Object.entries(paths).map(async ([key, value]) =>
     [key, await gitIdentityAt(candidate.commit, value)])));
-  const preexistingConsumerKeys = ["scorer", "catalog", "contract", "package_json", "package_lock", "json_helper"];
+  const preexistingConsumerKeys = [
+    "scorer", "catalog", "contract", "consumer_workflow", "consumer_script",
+    "package_json", "package_lock", "json_helper",
+  ];
   const parentObjects = Object.fromEntries(await Promise.all(preexistingConsumerKeys.map(async (key) =>
     [key, sourceParent ? await gitIdentityAt(sourceParent, paths[key]) : ""])));
   if (!ancestry || !sourceParent || sourceTree !== payload.observer.tree ||

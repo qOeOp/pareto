@@ -298,8 +298,10 @@ negative, recovery, and unknown-field diagnostic bytes under their signed digest
 `strict_descendant_only` under a separate EVAL schema.
 EVAL-02 may reach at most 6 only after its campaign consumer is canonical, a later unchanged scorer is
 observed, and a strict subsequent scorer verifies both observation bundles, the aggregate bundle, the exact
-scorer/catalog/contract/observer blobs, the fixed source-campaign files and digests, the three reports,
-and the diagnostic.
+scorer/catalog/contract/observer/consumer workflow/consumer script blobs, the fixed source-campaign files
+and digests, the three reports, and the diagnostic. The signed consumption receipt must also bind the exact
+source run, input campaign and bundle digests, consumer Git identity, scorer/catalog identities, and complete
+report; the replay artifact retains the source run metadata and full downloaded campaign.
 The observed commit itself can never consume its campaign. Manual dispatch
 does not prove a complete attempt inventory, representative repetition, independent observation, or the
 8/9.5 anchors; failures and replacement runs remain unavailable rather than being selected away.

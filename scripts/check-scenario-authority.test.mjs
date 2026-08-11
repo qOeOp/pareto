@@ -20,9 +20,10 @@ try {
   for (const file of [
     "evals/capabilities.json", "evals/scenarios.json", "evals/cases/golden.yaml", "evals/cases/holdout.yaml",
     ".github/workflows/scenario-authority.yml", ".github/workflows/observe-install-capability.yml",
-    ".github/workflows/observe-score-capability.yml", "scripts/check-scenario-authority.mjs",
+    ".github/workflows/observe-score-capability.yml", ".github/workflows/consume-score-capability.yml",
+    "scripts/check-scenario-authority.mjs",
     "scripts/self-test.mjs", "scripts/validate.mjs", "scripts/capability-score.mjs", "scripts/observe-install-capability.mjs",
-    "scripts/observe-score-capability.mjs", "scripts/json.mjs",
+    "scripts/observe-score-capability.mjs", "scripts/consume-score-capability.mjs", "scripts/json.mjs",
     "package.json", "package-lock.json",
   ]) {
     const target = path.join(fixture, file);
@@ -130,6 +131,20 @@ try {
   });
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: selfTestDrift }),
     /changed protected scenario authority control scripts\/self-test\.mjs/);
+
+  const scoreConsumerDrift = await commitMutation("score-consumer-drift", async () => {
+    const consumerPath = path.join(fixture, "scripts", "consume-score-capability.mjs");
+    await writeFile(consumerPath, `${await readFile(consumerPath, "utf8")}\n// candidate consumer drift\n`);
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: scoreConsumerDrift }),
+    /changed protected scenario authority control scripts\/consume-score-capability\.mjs/);
+
+  const scoreConsumerWorkflowDrift = await commitMutation("score-consumer-workflow-drift", async () => {
+    const workflowPath = path.join(fixture, ".github", "workflows", "consume-score-capability.yml");
+    await writeFile(workflowPath, `${await readFile(workflowPath, "utf8")}\n# candidate consumer workflow drift\n`);
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: scoreConsumerWorkflowDrift }),
+    /changed protected scenario authority control \.github\/workflows\/consume-score-capability\.yml/);
 
   const malformedAddition = await commitMutation("malformed-addition", async () => {
     const design = JSON.parse(await readFile(designPath, "utf8"));
