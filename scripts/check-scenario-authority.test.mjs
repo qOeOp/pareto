@@ -195,7 +195,7 @@ try {
 
   const migration = await commitMutation("catalog-v2-migration", migrateCatalogToV2);
   const migrationResult = checkScenarioAuthority({ repo: fixture, base, candidate: migration });
-  assert.equal(migrationResult.slots, 117);
+  assert.equal(migrationResult.slots, fixtureDesign.scenarios.length);
 
   for (const capabilityId of ["INS-01", "INS-03", "INS-05", "INS-07", "INS-09", "EVAL-02"]) {
     const review = await commitMutation(`owner-review-${capabilityId.toLowerCase()}`, async () => {
