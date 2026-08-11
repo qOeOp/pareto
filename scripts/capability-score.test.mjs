@@ -921,6 +921,83 @@ try {
     await git(["update-index", "--no-assume-unchanged", "fixture.txt"]);
   }
 
+  const evalPath = path.join(repository, "scripts", "eval.mjs");
+  const originalEval = await readFile(evalPath);
+  const filterSnapshot = path.join(temporaryRoot, "filter-snapshot.mjs");
+  const filterScript = path.join(temporaryRoot, "clean-filter.mjs");
+  const commandPath = (value) => value.replaceAll("\\", "/").replaceAll('"', '\\"');
+  await writeFile(filterSnapshot, originalEval);
+  await writeFile(filterScript,
+    'import { readFileSync } from "node:fs"; process.stdout.write(readFileSync(process.argv[2]));\n');
+  const externalAttributes = path.join(temporaryRoot, "external-attributes");
+  await writeFile(externalAttributes, "scripts/eval.mjs filter=unset\n");
+  await git(["config", "--local", "extensions.worktreeConfig", "true"]);
+  await git(["config", "--worktree", "core.attributesFile", externalAttributes]);
+  await git(["config", "--worktree", "filter.unset.clean",
+    `"${commandPath(process.execPath)}" "${commandPath(filterScript)}" "${commandPath(filterSnapshot)}"`]);
+  await writeFile(evalPath, Buffer.concat([originalEval, Buffer.from("\n// filtered worktree drift\n")]));
+  await git(["add", "scripts/eval.mjs"]);
+  try {
+    assert.equal(await git(["status", "--porcelain=v1", "--untracked-files=all"]), "",
+      "the clean filter attack must reproduce a false-clean checkout");
+    assert.notDeepEqual(await readFile(evalPath), originalEval,
+      "the false-clean checkout must contain substituted runtime bytes");
+    await assert.rejects(
+      () => scoreEvidence({ evidencePath: complete.runnerEvidencePath }),
+      /config contains mutable Git filter or attributes authority/,
+    );
+  } finally {
+    await writeFile(evalPath, originalEval);
+    await git(["config", "--worktree", "--unset-all", "filter.unset.clean"]);
+    await git(["config", "--worktree", "--unset-all", "core.attributesFile"]);
+    await git(["config", "--local", "--unset-all", "extensions.worktreeConfig"]);
+    await git(["add", "scripts/eval.mjs"]);
+  }
+
+  await git(["config", "--local", "core.attributesFile", externalAttributes]);
+  try {
+    await assert.rejects(
+      () => scoreEvidence({ evidencePath: complete.runnerEvidencePath }),
+      /config contains mutable Git filter or attributes authority/,
+    );
+  } finally {
+    await git(["config", "--local", "--unset-all", "core.attributesFile"]);
+  }
+
+  const infoAttributes = path.join(repository, ".git", "info", "attributes");
+  await writeFile(infoAttributes, "scripts/eval.mjs filter=audit\n");
+  try {
+    await assert.rejects(
+      () => scoreEvidence({ evidencePath: complete.runnerEvidencePath }),
+      /contains mutable Git authority: info\/attributes/,
+    );
+  } finally {
+    await rm(infoAttributes, { force: true });
+  }
+
+  const worktreeAttributes = path.join(repository, ".gitattributes");
+  await writeFile(worktreeAttributes, "scripts/eval.mjs filter=audit\n");
+  try {
+    await assert.rejects(
+      () => scoreEvidence({ evidencePath: complete.runnerEvidencePath }),
+      /runtime file uses mutable Git attribute: filter/,
+    );
+  } finally {
+    await rm(worktreeAttributes, { force: true });
+  }
+
+  await writeFile(worktreeAttributes,
+    "scripts/eval.mjs harmless= ident padding1= padding2=\n");
+  try {
+    await assert.rejects(
+      () => scoreEvidence({ evidencePath: complete.runnerEvidencePath }),
+      /runtime file uses mutable Git attribute: ident/,
+      "empty attribute values must not desynchronize Git's NUL-delimited triples",
+    );
+  } finally {
+    await rm(worktreeAttributes, { force: true });
+  }
+
   async function commitFixedObserverAuthority({ implemented, partial = false }) {
     const design = JSON.parse(await readFile(fixtureScenarioPath, "utf8"));
     const rows = design.scenarios.filter((row) =>
