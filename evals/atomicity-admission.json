@@ -1,4 +1,130 @@
 {
   "schema_version": 1,
-  "decision": null
+  "decision": {
+    "capability_id": "INS-01",
+    "disposition": "atomic",
+    "atoms": [
+      {
+        "id": "INS-01",
+        "domain": "installation",
+        "name": "portable Skill file installation",
+        "owner": "install-codex.mjs",
+        "consumer": "user Skill loader",
+        "weight": 1,
+        "critical": true,
+        "acceptance": "An exact lock installs or restores the complete committed Skill tree without unrelated-state drift, --check passes, and a fresh user Skill loader discovers one enabled Skill; a stale lock rejects before destination mutation.",
+        "falsifier": "One run accepts a stale lock, mutates destination on rejection, leaves Skill bytes or modes different from the locked tree, changes unrelated state, passes --check with drift, or lacks exact fresh loader discovery.",
+        "overlap_ids": [
+          "DLV-01",
+          "DLV-02",
+          "DLV-03",
+          "DLV-04",
+          "EVAL-01",
+          "EVAL-02",
+          "EXE-01",
+          "EXE-02",
+          "INS-02",
+          "INS-03",
+          "INS-04",
+          "INS-05",
+          "INS-06",
+          "INS-07",
+          "INS-08",
+          "INS-09",
+          "INS-10",
+          "KRN-01",
+          "KRN-02",
+          "OPT-01",
+          "OPT-02",
+          "ORC-01",
+          "ORC-02",
+          "ORC-03",
+          "ORC-04",
+          "ORC-05",
+          "ORC-06",
+          "PLN-01",
+          "PLN-02",
+          "PLN-03",
+          "PLN-04",
+          "PLN-05",
+          "QUA-01",
+          "QUA-02",
+          "VER-01",
+          "VER-02",
+          "VER-03",
+          "VER-04"
+        ]
+      }
+    ],
+    "reviewed_base": {
+      "commit": "313fffef44c1004c7aa9cf2f78e1653ce870f9b1",
+      "tree": "cf453ec6e1bae672b17d051bfd77731cdc3d547e"
+    },
+    "reviewed_surfaces": [
+      {
+        "path": ".github/workflows/scenario-authority.yml",
+        "blob": "1a9d298662e00b7128d804d2e1b93e27640968d3"
+      },
+      {
+        "path": "codex/agents/mission-evaluator.toml",
+        "blob": "f6a22665064dafcf94c350cb1c044ca7cce45063"
+      },
+      {
+        "path": "evals/CONTRACT.md",
+        "blob": "c471cba78fd96669017167051cb24eeeb9d77ba2"
+      },
+      {
+        "path": "evals/cases/golden.yaml",
+        "blob": "1a7fdcfbc428717209e871a2ad88c936a0f6e2f8"
+      },
+      {
+        "path": "evals/cases/holdout.yaml",
+        "blob": "d61b6696c837bfdc40776521b276b4a9f4e12c26"
+      },
+      {
+        "path": "evals/scenarios.json",
+        "blob": "ed38f2e341c8cece6870cf59d7ca45ae4b7304a6"
+      },
+      {
+        "path": "package-lock.json",
+        "blob": "b3789299a25d9ad7dc36ffa5c6087c227f4044f3"
+      },
+      {
+        "path": "package.json",
+        "blob": "ac2a8b7acfa39974400af75a7c37e41818a6eefb"
+      },
+      {
+        "path": "scripts/capability-catalog.mjs",
+        "blob": "052d1cba40bed50caf4f88de5a2282d5dfd308aa"
+      },
+      {
+        "path": "scripts/capability-score.mjs",
+        "blob": "2432847895c3df04d981c9e5f0fb557fb84d32b0"
+      },
+      {
+        "path": "scripts/check-scenario-authority.mjs",
+        "blob": "7cf3c12cb5432b2381162c7ceb838336c1ed2672"
+      },
+      {
+        "path": "scripts/install-codex.mjs",
+        "blob": "09b14274a8bea6abe32a3608531f6f86b576314d"
+      },
+      {
+        "path": "scripts/json.mjs",
+        "blob": "8f4f5e694debea3f3e026e43a5a741a55c7d27e3"
+      },
+      {
+        "path": "scripts/observe-score-capability.mjs",
+        "blob": "76ab06514ed6cc450c096148cb3d081581ff49c0"
+      },
+      {
+        "path": "scripts/validate.mjs",
+        "blob": "267895a1d01409e43650c4c00f6f807bdde21e6e"
+      },
+      {
+        "path": "skills/run-bounded-mission/references/verification/reviewer-handoff.md",
+        "blob": "eb2df36ff7331cd405843277540dee45b75bf901"
+      }
+    ]
+  }
 }
