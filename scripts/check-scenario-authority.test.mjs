@@ -94,7 +94,7 @@ try {
       });
     }
     await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
-    const designSource = await readFile(designPath, "utf8");
+    const designSource = (await readFile(designPath, "utf8")).replace(/\r\n/g, "\n");
     const design = JSON.parse(designSource);
     const addedRows = [];
     for (const childId of childIds) {
@@ -220,6 +220,8 @@ try {
   checkScenarioAuthority({ repo: fixture, base: migration, candidate: splitReview });
 
   const split = await commitMutation("atomic-split", async () => {
+    const source = await readFile(designPath, "utf8");
+    await writeFile(designPath, source.replace(/\r?\n/g, "\r\n"));
     await appendSplit("ORC-05", ["ORC-07", "ORC-08"]);
     await consumeAdmission();
   }, splitReview);
