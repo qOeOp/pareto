@@ -354,10 +354,13 @@ function validateCatalog(catalog) {
       !Number.isInteger(requirements.independent_observers) || requirements.independent_observers < 2) {
     fail("catalog varied-evidence requirements are invalid or too weak");
   }
-  if (!Array.isArray(catalog.capabilities) || catalog.capabilities.length === 0) fail("catalog capabilities are empty");
+  if (!Array.isArray(catalog.capabilities) || catalog.capabilities.length === 0 || catalog.capabilities.length > 512) {
+    fail("catalog capabilities are empty or exceed the bounded graph size");
+  }
   const capabilities = new Map();
   const rawRows = new Map();
   const parents = new Set();
+  const childrenByParent = new Map();
   for (const capability of catalog.capabilities) {
     exactKeys(capability, catalog.schema_version === 1
       ? ["id", "domain", "name", "owner", "consumer", "weight", "critical"]
@@ -376,7 +379,13 @@ function validateCatalog(catalog) {
           (typeof capability.split_from !== "string" || !/^[A-Z]{3,4}-\d{2}$/.test(capability.split_from))) {
         fail(`capability ${id} split parent is invalid`);
       }
-      if (capability.split_from !== null) parents.add(capability.split_from);
+      if (capability.split_from !== null) {
+        parents.add(capability.split_from);
+        childrenByParent.set(capability.split_from, [
+          ...(childrenByParent.get(capability.split_from) ?? []),
+          id,
+        ]);
+      }
     }
     rawRows.set(id, capability);
     capabilities.set(id, Object.fromEntries(["id", "domain", "name", "owner", "consumer", "weight", "critical"]
@@ -395,11 +404,28 @@ function validateCatalog(catalog) {
         parent = rawRows.get(parent).split_from;
       }
     }
+    if ([...childrenByParent.values()].some((children) => children.length < 2)) {
+      fail("every split parent requires at least two direct children");
+    }
   }
+  const terminalIds = new Set([...capabilities.keys()].filter((id) => !parents.has(id)));
+  const terminalDescendants = new Map();
+  const collectTerminalDescendants = (id) => {
+    if (terminalDescendants.has(id)) return terminalDescendants.get(id);
+    const children = childrenByParent.get(id) ?? [];
+    const descendants = children.length === 0
+      ? [id]
+      : children.flatMap((child) => collectTerminalDescendants(child));
+    terminalDescendants.set(id, descendants);
+    return descendants;
+  };
+  for (const id of capabilities.keys()) collectTerminalDescendants(id);
   return {
     capabilities,
+    nonterminalIds: parents,
+    terminalDescendants,
     unreviewedTerminalIds: new Set(catalog.schema_version === 2
-      ? [...capabilities.keys()].filter((id) => !parents.has(id))
+      ? terminalIds
       : []),
   };
 }
@@ -1351,6 +1377,11 @@ function validateObservedScoreReport(report, { candidate, mode, catalog, catalog
     "evidence_ceiling", "evidence_limit", "minimum_score", "schema_version", "target_score", "weighted_score",
   ], `observed score ${mode} report`);
   const definitions = catalog.capabilities;
+  const catalogContract = validateCatalog(catalog);
+  if (catalogContract.nonterminalIds.has(sourceCapability)) {
+    fail("observed score source capability must be terminal");
+  }
+  const terminalDefinitions = definitions.filter((row) => !catalogContract.nonterminalIds.has(row.id));
   const ids = definitions.map((row) => row.id).sort();
   if (JSON.stringify(canonical(report.candidate)) !== JSON.stringify(canonical(candidate)) ||
       report.schema_version !== 2 || report.catalog_sha256 !== catalogSha256 ||
@@ -1359,36 +1390,66 @@ function validateObservedScoreReport(report, { candidate, mode, catalog, catalog
       report.evidence_limit !== "repeated_attested_fixed_observer_campaign; independent_observer_process_isolation_and_provider_attempt_inventory_unavailable" ||
       !Array.isArray(report.capabilities) || report.capabilities.length !== definitions.length ||
       JSON.stringify(report.capabilities.map((row) => row?.id).sort()) !== JSON.stringify(ids) ||
-      JSON.stringify([...report.below_target].sort()) !== JSON.stringify(ids) ||
+      JSON.stringify([...report.below_target].sort()) !== JSON.stringify(terminalDefinitions.map((row) => row.id).sort()) ||
       JSON.stringify([...report.critical_breaches].sort()) !==
-        JSON.stringify(definitions.filter((row) => row.critical).map((row) => row.id).sort())) {
+        JSON.stringify(terminalDefinitions.filter((row) => row.critical).map((row) => row.id).sort())) {
     fail(`observed score ${mode} report global gate is invalid`);
   }
   const definitionsById = new Map(definitions.map((row) => [row.id, row]));
+  const expectedById = new Map(terminalDefinitions.map((definition) => {
+    const source = definition.id === sourceCapability;
+    const unreviewed = catalogContract.unreviewedTerminalIds.has(definition.id);
+    const score = unreviewed
+      ? { score: 0, maturity: "unavailable", reason: "atomicity_unresolved", gap_count: source && mode === "negative" ? 1 : 0 }
+      : source && mode === "positive"
+        ? { score: 8, maturity: "representative", reason: "repeated_attested_fixed_observer_campaign", gap_count: 0 }
+        : source && mode === "negative"
+          ? { score: 0, maturity: "contradicted", reason: "critical_gap", gap_count: 1 }
+          : { score: 0, maturity: "absent", reason: "no_passing_evidence", gap_count: 0 };
+    return [definition.id, {
+      ...score,
+      observation_count: 0,
+      attested_campaign_count: source ? 1 : 0,
+      unavailable_count: 0,
+    }];
+  }));
+  for (const id of catalogContract.nonterminalIds) {
+    const descendants = catalogContract.terminalDescendants.get(id).map((descendant) => expectedById.get(descendant));
+    const floor = descendants.reduce((lowest, row) => row.score < lowest.score ? row : lowest);
+    expectedById.set(id, {
+      score: floor.score,
+      maturity: "derived_descendant_floor",
+      reason: "descendant_floor",
+      observation_count: 0,
+      attested_campaign_count: 0,
+      unavailable_count: 0,
+      gap_count: 0,
+    });
+  }
   for (const row of report.capabilities) {
     exactKeys(row, [
       "attested_campaign_count", "consumer", "critical", "domain", "gap_count", "id", "maturity", "name",
       "observation_count", "owner", "reason", "score", "unavailable_count", "weight",
     ], `observed score ${mode} capability ${row.id}`);
     const definition = definitionsById.get(row.id);
-    const source = row.id === sourceCapability;
-    const expected = source && mode === "positive"
-      ? { score: 8, maturity: "representative", reason: "repeated_attested_fixed_observer_campaign", gap_count: 0 }
-      : source && mode === "negative"
-        ? { score: 0, maturity: "contradicted", reason: "critical_gap", gap_count: 1 }
-        : { score: 0, maturity: "absent", reason: "no_passing_evidence", gap_count: 0 };
+    const expected = expectedById.get(row.id);
     if (!definition || ["domain", "name", "owner", "consumer", "weight", "critical"]
       .some((key) => row[key] !== definition[key]) || row.score !== expected.score ||
-      row.maturity !== expected.maturity || row.reason !== expected.reason || row.observation_count !== 0 ||
-      row.attested_campaign_count !== (source ? 1 : 0) || row.unavailable_count !== 0 ||
+      row.maturity !== expected.maturity || row.reason !== expected.reason ||
+      row.observation_count !== expected.observation_count ||
+      row.attested_campaign_count !== expected.attested_campaign_count ||
+      row.unavailable_count !== expected.unavailable_count ||
       row.gap_count !== expected.gap_count) {
       fail(`observed score ${mode} capability ${row.id} is invalid`);
     }
   }
-  const totalWeight = definitions.reduce((sum, row) => sum + row.weight, 0);
+  const totalWeight = terminalDefinitions.reduce((sum, row) => sum + row.weight, 0);
   const sourceWeight = definitionsById.get(sourceCapability)?.weight;
   if (sourceWeight === undefined) fail("observed score source capability is unavailable");
-  const expectedWeightedScore = mode === "positive" ? Number((8 * sourceWeight / totalWeight).toFixed(3)) : 0;
+  const expectedWeightedScore = mode === "positive" &&
+    !catalogContract.unreviewedTerminalIds.has(sourceCapability)
+    ? Number((8 * sourceWeight / totalWeight).toFixed(3))
+    : 0;
   if (report.weighted_score !== expectedWeightedScore) fail(`observed score ${mode} weighted score is invalid`);
 }
 
@@ -1397,43 +1458,67 @@ function validateConsumedScoreReport(report, { candidate, catalog, catalogSha256
     "below_target", "candidate", "capabilities", "catalog_sha256", "critical_breaches", "eligible",
     "evidence_ceiling", "evidence_limit", "minimum_score", "schema_version", "target_score", "weighted_score",
   ], "consumed score report");
+  const catalogContract = validateCatalog(catalog);
+  if (catalogContract.nonterminalIds.has(targetCapability)) {
+    fail("consumed score target capability must be terminal");
+  }
+  const terminalDefinitions = catalog.capabilities
+    .filter((row) => !catalogContract.nonterminalIds.has(row.id));
   if (report.schema_version !== 2 || report.catalog_sha256 !== catalogSha256 ||
       JSON.stringify(canonical(report.candidate)) !== JSON.stringify(canonical(candidate)) ||
       report.target_score !== catalog.target_score || report.evidence_ceiling !== 6 ||
       report.evidence_limit !== "single_attested_fixed_observer_campaign; varied_repetition_and_provider_attempt_inventory_unavailable" ||
       report.minimum_score !== 0 || report.eligible !== false || !Array.isArray(report.capabilities) ||
       report.capabilities.length !== catalog.capabilities.length ||
-      JSON.stringify(report.below_target) !== JSON.stringify(catalog.capabilities.map((row) => row.id)) ||
+      JSON.stringify(report.below_target) !== JSON.stringify(terminalDefinitions.map((row) => row.id)) ||
       JSON.stringify(report.critical_breaches) !==
-        JSON.stringify(catalog.capabilities.filter((row) => row.critical).map((row) => row.id))) {
+        JSON.stringify(terminalDefinitions.filter((row) => row.critical).map((row) => row.id))) {
     fail("consumed score report global gate is invalid");
   }
-  let weighted = 0;
-  let totalWeight = 0;
+  const expectedById = new Map(terminalDefinitions.map((definition) => {
+    const target = definition.id === targetCapability;
+    const unreviewed = catalogContract.unreviewedTerminalIds.has(definition.id);
+    return [definition.id, {
+      score: target && !unreviewed ? 6 : 0,
+      maturity: unreviewed ? "unavailable" : target ? "dynamic" : "absent",
+      reason: unreviewed ? "atomicity_unresolved" : target ? "single_attested_score_observer_campaign" : "no_passing_evidence",
+      observation_count: 0,
+      attested_campaign_count: target ? 1 : 0,
+      unavailable_count: 0,
+      gap_count: 0,
+    }];
+  }));
+  for (const id of catalogContract.nonterminalIds) {
+    const descendants = catalogContract.terminalDescendants.get(id).map((descendant) => expectedById.get(descendant));
+    const floor = descendants.reduce((lowest, row) => row.score < lowest.score ? row : lowest);
+    expectedById.set(id, {
+      score: floor.score,
+      maturity: "derived_descendant_floor",
+      reason: "descendant_floor",
+      observation_count: 0,
+      attested_campaign_count: 0,
+      unavailable_count: 0,
+      gap_count: 0,
+    });
+  }
   for (const [index, definition] of catalog.capabilities.entries()) {
     const row = report.capabilities[index];
     exactKeys(row, [
       "attested_campaign_count", "consumer", "critical", "domain", "gap_count", "id", "maturity", "name",
       "observation_count", "owner", "reason", "score", "unavailable_count", "weight",
     ], `consumed score capability ${definition.id}`);
-    const target = definition.id === targetCapability;
     const expected = {
-      ...definition,
-      score: target ? 6 : 0,
-      maturity: target ? "dynamic" : "absent",
-      reason: target ? "single_attested_score_observer_campaign" : "no_passing_evidence",
-      observation_count: 0,
-      attested_campaign_count: target ? 1 : 0,
-      unavailable_count: 0,
-      gap_count: 0,
+      ...Object.fromEntries(["id", "domain", "name", "owner", "consumer", "weight", "critical"]
+        .map((key) => [key, definition[key]])),
+      ...expectedById.get(definition.id),
     };
     if (JSON.stringify(canonical(row)) !== JSON.stringify(canonical(expected))) {
       fail(`consumed score capability ${definition.id} is invalid`);
     }
-    weighted += row.score * row.weight;
-    totalWeight += row.weight;
   }
-  if (!catalog.capabilities.some((row) => row.id === targetCapability) ||
+  const weighted = terminalDefinitions.reduce((sum, row) => sum + expectedById.get(row.id).score * row.weight, 0);
+  const totalWeight = terminalDefinitions.reduce((sum, row) => sum + row.weight, 0);
+  if (!terminalDefinitions.some((row) => row.id === targetCapability) ||
       report.weighted_score !== Number((weighted / totalWeight).toFixed(3))) {
     fail("consumed score report weighted score is invalid");
   }
@@ -1716,8 +1801,8 @@ async function verifyScoreCampaign(entry, evidenceDirectory, candidate, authorit
 }
 
 async function verifyAttestedCampaign(entry, evidenceDirectory, candidate, fixedObserverAuthority,
-  allowPendingConsumption = false) {
-  const loaded = await loadAttestedCampaign(entry, evidenceDirectory);
+  allowPendingConsumption = false, preloaded = null) {
+  const loaded = preloaded ?? await loadAttestedCampaign(entry, evidenceDirectory);
   const capabilityId = loaded.envelope.payload?.capability_id;
   const authority = fixedObserverAuthority.get(capabilityId);
   if (!authority?.implemented ||
@@ -1811,6 +1896,9 @@ async function scoreEvidenceInternal({ evidencePath }, allowAttested, allowPendi
   const evidenceDirectory = path.dirname(path.resolve(evidencePath));
   for (const observation of evidence.observations) {
     validateObservation(observation, capabilities, catalog.default_requirements);
+    if (catalogContract.nonterminalIds.has(observation.capability_id)) {
+      fail(`nonterminal capability ${observation.capability_id} cannot receive direct evidence`);
+    }
     const committedCase = committedCases.get(observation.case_id);
     if (!committedCase || committedCase.binding.id !== observation.capability_id || committedCase.binding.scenario !== observation.scenario) {
       fail("observation does not match one committed capability case");
@@ -1829,9 +1917,17 @@ async function scoreEvidenceInternal({ evidencePath }, allowAttested, allowPendi
   const attestedCampaigns = [];
   const attestedCapabilities = new Set();
   for (const entry of attestedCampaignEntries) {
+    const loaded = await loadAttestedCampaign(entry, evidenceDirectory);
+    const declaredCapability = loaded.envelope.payload?.capability_id;
+    if (catalogContract.nonterminalIds.has(declaredCapability)) {
+      fail(`nonterminal capability ${declaredCapability} cannot receive direct evidence`);
+    }
     const campaign = await verifyAttestedCampaign(
-      entry, evidenceDirectory, evidence.candidate, fixedObserverAuthority, allowPendingConsumption,
+      entry, evidenceDirectory, evidence.candidate, fixedObserverAuthority, allowPendingConsumption, loaded,
     );
+    if (catalogContract.nonterminalIds.has(campaign.capability_id)) {
+      fail(`nonterminal capability ${campaign.capability_id} cannot receive direct evidence`);
+    }
     if (attestedCapabilities.has(campaign.capability_id)) fail("evidence repeats one attested capability campaign");
     attestedCapabilities.add(campaign.capability_id);
     attestedCampaigns.push(campaign);
@@ -1841,31 +1937,56 @@ async function scoreEvidenceInternal({ evidencePath }, allowAttested, allowPendi
   for (const gap of evidence.open_gaps) {
     exactKeys(gap, ["capability_id", "severity", "description", "locator"], "gap");
     if (!capabilities.has(gap.capability_id) || !["material", "critical"].includes(gap.severity)) fail("gap capability or severity is invalid");
+    if (catalogContract.nonterminalIds.has(gap.capability_id)) {
+      fail(`nonterminal capability ${gap.capability_id} cannot receive direct evidence`);
+    }
     atom(gap.description, "gap description");
     atom(gap.locator, "gap locator");
     gapsByCapability.set(gap.capability_id, [...(gapsByCapability.get(gap.capability_id) ?? []), gap]);
   }
 
+  const terminalRows = new Map([...capabilities.values()]
+    .filter((capability) => !catalogContract.nonterminalIds.has(capability.id))
+    .map((capability) => {
+      const observations = evidence.observations.filter((entry) => entry.capability_id === capability.id);
+      const capabilityCampaigns = attestedCampaigns.filter((entry) => entry.capability_id === capability.id);
+      const gaps = gapsByCapability.get(capability.id) ?? [];
+      const score = catalogContract.unreviewedTerminalIds.has(capability.id)
+        ? { score: 0, maturity: "unavailable", reason: "atomicity_unresolved" }
+        : scoreCapability(observations, gaps, catalog.local_trace_ceiling, capabilityCampaigns);
+      return [capability.id, {
+        ...capability,
+        ...score,
+        observation_count: observations.length,
+        attested_campaign_count: capabilityCampaigns.length,
+        unavailable_count: observations.filter((entry) => entry.result === "unavailable").length,
+        gap_count: gaps.length,
+      }];
+    }));
   const rows = [...capabilities.values()].map((capability) => {
-    const observations = evidence.observations.filter((entry) => entry.capability_id === capability.id);
-    const capabilityCampaigns = attestedCampaigns.filter((entry) => entry.capability_id === capability.id);
-    const gaps = gapsByCapability.get(capability.id) ?? [];
-    const score = catalogContract.unreviewedTerminalIds.has(capability.id)
-      ? { score: 0, maturity: "unavailable", reason: "atomicity_unresolved" }
-      : scoreCapability(observations, gaps, catalog.local_trace_ceiling, capabilityCampaigns);
+    if (!catalogContract.nonterminalIds.has(capability.id)) return terminalRows.get(capability.id);
+    const descendants = catalogContract.terminalDescendants.get(capability.id)
+      .map((id) => terminalRows.get(id));
+    const floor = descendants.reduce((lowest, row) => row.score < lowest.score ? row : lowest);
     return {
       ...capability,
-      ...score,
-      observation_count: observations.length,
-      attested_campaign_count: capabilityCampaigns.length,
-      unavailable_count: observations.filter((entry) => entry.result === "unavailable").length,
-      gap_count: gaps.length,
+      score: floor.score,
+      maturity: "derived_descendant_floor",
+      reason: "descendant_floor",
+      observation_count: 0,
+      attested_campaign_count: 0,
+      unavailable_count: 0,
+      gap_count: 0,
     };
   });
-  const weightedScore = rows.reduce((sum, row) => sum + row.score * row.weight, 0) / rows.reduce((sum, row) => sum + row.weight, 0);
-  const minimumScore = Math.min(...rows.map((row) => row.score));
-  const criticalBreaches = rows.filter((row) => row.critical && row.score < catalog.target_score).map((row) => row.id);
-  const belowTarget = rows.filter((row) => row.score < catalog.target_score).map((row) => row.id);
+  const aggregateRows = rows.filter((row) => !catalogContract.nonterminalIds.has(row.id));
+  const weightedScore = aggregateRows.reduce((sum, row) => sum + row.score * row.weight, 0) /
+    aggregateRows.reduce((sum, row) => sum + row.weight, 0);
+  const minimumScore = Math.min(...aggregateRows.map((row) => row.score));
+  const criticalBreaches = aggregateRows
+    .filter((row) => row.critical && row.score < catalog.target_score)
+    .map((row) => row.id);
+  const belowTarget = aggregateRows.filter((row) => row.score < catalog.target_score).map((row) => row.id);
   const evidenceCeiling = attestedCampaigns.length > 0
     ? Math.max(...attestedCampaigns.map((campaign) => campaign.score))
     : catalog.local_trace_ceiling;

@@ -195,9 +195,13 @@ Catalog v1 is the frozen legacy inventory. A base-owned control may migrate it o
 every row in order and adding only `atomicity: unreviewed` and `split_from: null`; migration cannot add,
 delete, reorder, score, or relabel a capability. Later v2 evolution is append-only. One change may split
 one or more current terminal capabilities, but each split appends at least two children, every child names
-one already-canonical terminal parent, and all prior rows remain field-equivalent and order-stable. A parent remains scored;
-children start at zero with fresh positive, negative, and recovery slots, unavailable consumer authority,
-and no inherited case or evidence. A previously split parent cannot receive later siblings.
+one already-canonical terminal parent, and all prior rows remain field-equivalent and order-stable. A nonterminal
+parent remains visible but accepts no direct observation, campaign, or gap. Its score is the minimum score of all
+descendant terminal leaves, with derived maturity; parent evidence never populates a child and no duplicate parent
+campaign is required. Only terminal leaves contribute to aggregate score, minimum score, below-target, and critical-floor
+calculations, so a visible derived parent never double-counts its descendants. Children start at zero with fresh positive, negative, and recovery slots, unavailable consumer
+authority, and no inherited case or evidence. A previously split parent cannot receive later siblings.
+Catalog evaluation is bounded to 512 rows; a larger graph is unsupported rather than recursively traversed.
 
 `unreviewed` is the only currently admitted atomicity state. The scorer forces every unreviewed terminal
 to zero with `atomicity_unresolved`, even if evidence names it. An `atomic` state stays unsupported until a

@@ -170,12 +170,14 @@ async function safeFile(directory, name, label, maximum = 32 * 1024 * 1024) {
 
 function observedCatalogContract(catalog) {
   if (![1, 2].includes(catalog?.schema_version) || catalog.target_score !== 9.5 ||
-      !Array.isArray(catalog.capabilities) || catalog.capabilities.length === 0) {
+      !Array.isArray(catalog.capabilities) || catalog.capabilities.length === 0 ||
+      catalog.capabilities.length > 512) {
     fail("capability catalog inventory is invalid");
   }
   const baseKeys = ["id", "domain", "name", "owner", "consumer", "weight", "critical"];
   const rows = new Map();
   const parents = new Set();
+  const childrenByParent = new Map();
   for (const row of catalog.capabilities) {
     exactKeys(row, catalog.schema_version === 1 ? baseKeys : [...baseKeys, "atomicity", "split_from"],
       "capability catalog row");
@@ -190,7 +192,10 @@ function observedCatalogContract(catalog) {
             !/^[A-Z]{3,4}-\d{2}$/.test(row.split_from)))) {
         fail("capability catalog atomicity is invalid");
       }
-      if (row.split_from !== null) parents.add(row.split_from);
+      if (row.split_from !== null) {
+        parents.add(row.split_from);
+        childrenByParent.set(row.split_from, [...(childrenByParent.get(row.split_from) ?? []), row.id]);
+      }
     }
     rows.set(row.id, row);
   }
@@ -207,11 +212,29 @@ function observedCatalogContract(catalog) {
         parent = rows.get(parent).split_from;
       }
     }
+    if ([...childrenByParent.values()].some((children) => children.length < 2)) {
+      fail("capability catalog split requires at least two direct children");
+    }
   }
+  const terminalIds = new Set([...rows.keys()].filter((id) => !parents.has(id)));
+  const terminalDescendants = new Map();
+  const collectTerminalDescendants = (id) => {
+    if (terminalDescendants.has(id)) return terminalDescendants.get(id);
+    const children = childrenByParent.get(id) ?? [];
+    const descendants = children.length === 0
+      ? [id]
+      : children.flatMap((child) => collectTerminalDescendants(child));
+    terminalDescendants.set(id, descendants);
+    return descendants;
+  };
+  for (const id of rows.keys()) collectTerminalDescendants(id);
   return {
     rows: [...rows.values()],
+    nonterminalIds: parents,
+    terminalDescendants,
+    terminalIds,
     unreviewedTerminalIds: new Set(catalog.schema_version === 2
-      ? [...rows.keys()].filter((id) => !parents.has(id))
+      ? terminalIds
       : []),
   };
 }
@@ -223,6 +246,8 @@ export function validateObservedScoreReport(report, candidate, mode, catalog, ca
   ], "scorer report");
   const catalogContract = observedCatalogContract(catalog);
   const catalogRows = catalogContract.rows;
+  const terminalRows = catalogRows.filter((row) => catalogContract.terminalIds.has(row.id));
+  if (!catalogContract.terminalIds.has("INS-01")) fail("INS-01 observer target must be terminal");
   if (JSON.stringify(canonical(report.candidate)) !== JSON.stringify(canonical(candidate)) || report.schema_version !== 2 ||
       report.catalog_sha256 !== catalogSha256 || report.target_score !== catalog.target_score ||
       report.evidence_ceiling !== 8 || report.minimum_score !== 0 || report.eligible !== false ||
@@ -232,35 +257,58 @@ export function validateObservedScoreReport(report, candidate, mode, catalog, ca
   const expectedCapabilityIds = catalogRows.map((row) => row.id).sort();
   const actualCapabilityIds = report.capabilities.map((row) => row?.id).sort();
   if (JSON.stringify(actualCapabilityIds) !== JSON.stringify(expectedCapabilityIds) ||
-      JSON.stringify([...report.below_target].sort()) !== JSON.stringify(expectedCapabilityIds) ||
+      JSON.stringify([...report.below_target].sort()) !== JSON.stringify(terminalRows.map((row) => row.id).sort()) ||
       JSON.stringify([...report.critical_breaches].sort()) !==
-        JSON.stringify(catalogRows.filter((row) => row.critical).map((row) => row.id).sort())) {
+        JSON.stringify(terminalRows.filter((row) => row.critical).map((row) => row.id).sort())) {
     fail("scorer report capability inventory is invalid");
   }
   const catalogById = new Map(catalogRows.map((row) => [row.id, row]));
-  for (const row of report.capabilities) {
-    exactKeys(row, [
-      "attested_campaign_count", "consumer", "critical", "domain", "gap_count", "id", "maturity", "name",
-      "observation_count", "owner", "reason", "score", "unavailable_count", "weight",
-    ], `scorer report capability ${row.id}`);
-    const definition = catalogById.get(row.id);
-    const install = row.id === "INS-01";
-    const unreviewed = catalogContract.unreviewedTerminalIds.has(row.id);
-    const expected = unreviewed
+  const expectedById = new Map(terminalRows.map((definition) => {
+    const install = definition.id === "INS-01";
+    const unreviewed = catalogContract.unreviewedTerminalIds.has(definition.id);
+    const score = unreviewed
       ? { score: 0, maturity: "unavailable", reason: "atomicity_unresolved", gap_count: install && mode === "negative" ? 1 : 0 }
       : install && mode === "positive"
         ? { score: 8, maturity: "representative", reason: "repeated_attested_fixed_observer_campaign", gap_count: 0 }
         : install && mode === "negative"
           ? { score: 0, maturity: "contradicted", reason: "critical_gap", gap_count: 1 }
           : { score: 0, maturity: "absent", reason: "no_passing_evidence", gap_count: 0 };
+    return [definition.id, {
+      ...score,
+      observation_count: 0,
+      attested_campaign_count: install ? 1 : 0,
+      unavailable_count: 0,
+    }];
+  }));
+  for (const id of catalogContract.nonterminalIds) {
+    const descendants = catalogContract.terminalDescendants.get(id).map((descendant) => expectedById.get(descendant));
+    const floor = descendants.reduce((lowest, row) => row.score < lowest.score ? row : lowest);
+    expectedById.set(id, {
+      score: floor.score,
+      maturity: "derived_descendant_floor",
+      reason: "descendant_floor",
+      observation_count: 0,
+      attested_campaign_count: 0,
+      unavailable_count: 0,
+      gap_count: 0,
+    });
+  }
+  for (const row of report.capabilities) {
+    exactKeys(row, [
+      "attested_campaign_count", "consumer", "critical", "domain", "gap_count", "id", "maturity", "name",
+      "observation_count", "owner", "reason", "score", "unavailable_count", "weight",
+    ], `scorer report capability ${row.id}`);
+    const definition = catalogById.get(row.id);
+    const expected = expectedById.get(row.id);
     if (["domain", "name", "owner", "consumer", "weight", "critical"].some((key) => row[key] !== definition[key]) ||
         row.score !== expected.score || row.maturity !== expected.maturity || row.reason !== expected.reason ||
-        row.observation_count !== 0 || row.attested_campaign_count !== (install ? 1 : 0) ||
-        row.unavailable_count !== 0 || row.gap_count !== expected.gap_count) {
+        row.observation_count !== expected.observation_count ||
+        row.attested_campaign_count !== expected.attested_campaign_count ||
+        row.unavailable_count !== expected.unavailable_count || row.gap_count !== expected.gap_count) {
       fail(`scorer report capability ${row.id} is invalid`);
     }
   }
-  const totalWeight = catalogRows.reduce((sum, row) => sum + row.weight, 0);
+  const totalWeight = terminalRows.reduce((sum, row) => sum + row.weight, 0);
   const expectedWeightedScore = mode === "positive" && !catalogContract.unreviewedTerminalIds.has("INS-01")
     ? Number((8 * catalogById.get("INS-01").weight / totalWeight).toFixed(3))
     : 0;

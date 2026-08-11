@@ -37,10 +37,28 @@ function scoreReport(candidate, catalog, catalogSha256, mode) {
   const parents = new Set(catalog.schema_version === 2
     ? catalog.capabilities.filter((row) => row.split_from !== null).map((row) => row.split_from)
     : []);
+  const childrenByParent = new Map();
+  for (const row of catalog.capabilities) {
+    if (catalog.schema_version === 2 && row.split_from !== null) {
+      childrenByParent.set(row.split_from, [...(childrenByParent.get(row.split_from) ?? []), row.id]);
+    }
+  }
+  const terminalDefinitions = catalog.capabilities.filter((row) => !parents.has(row.id));
+  const terminalDescendants = new Map();
+  const collectTerminalDescendants = (id) => {
+    if (terminalDescendants.has(id)) return terminalDescendants.get(id);
+    const children = childrenByParent.get(id) ?? [];
+    const descendants = children.length === 0
+      ? [id]
+      : children.flatMap((child) => collectTerminalDescendants(child));
+    terminalDescendants.set(id, descendants);
+    return descendants;
+  };
+  for (const row of catalog.capabilities) collectTerminalDescendants(row.id);
   const unreviewedTerminals = new Set(catalog.schema_version === 2
-    ? catalog.capabilities.filter((row) => !parents.has(row.id)).map((row) => row.id)
+    ? terminalDefinitions.map((row) => row.id)
     : []);
-  const capabilities = catalog.capabilities.map((definition) => {
+  const expectedById = new Map(terminalDefinitions.map((definition) => {
     const install = definition.id === "INS-01";
     const expected = unreviewedTerminals.has(definition.id)
       ? { score: 0, maturity: "unavailable", reason: "atomicity_unresolved", gap_count: install && mode === "negative" ? 1 : 0 }
@@ -49,19 +67,37 @@ function scoreReport(candidate, catalog, catalogSha256, mode) {
         : install && mode === "negative"
           ? { score: 0, maturity: "contradicted", reason: "critical_gap", gap_count: 1 }
           : { score: 0, maturity: "absent", reason: "no_passing_evidence", gap_count: 0 };
+    return [definition.id, {
+      ...expected,
+      observation_count: 0,
+      attested_campaign_count: install ? 1 : 0,
+      unavailable_count: 0,
+    }];
+  }));
+  for (const id of parents) {
+    const descendants = terminalDescendants.get(id).map((descendant) => expectedById.get(descendant));
+    const floor = descendants.reduce((lowest, row) => row.score < lowest.score ? row : lowest);
+    expectedById.set(id, {
+      score: floor.score,
+      maturity: "derived_descendant_floor",
+      reason: "descendant_floor",
+      observation_count: 0,
+      attested_campaign_count: 0,
+      unavailable_count: 0,
+      gap_count: 0,
+    });
+  }
+  const capabilities = catalog.capabilities.map((definition) => {
     const scoringDefinition = Object.fromEntries(
       ["id", "domain", "name", "owner", "consumer", "weight", "critical"].map((key) => [key, definition[key]]),
     );
     return {
       ...scoringDefinition,
-      ...expected,
-      observation_count: 0,
-      attested_campaign_count: install ? 1 : 0,
-      unavailable_count: 0,
+      ...expectedById.get(definition.id),
     };
   });
-  const totalWeight = catalog.capabilities.reduce((sum, row) => sum + row.weight, 0);
-  const installWeight = catalog.capabilities.find((row) => row.id === "INS-01").weight;
+  const totalWeight = terminalDefinitions.reduce((sum, row) => sum + row.weight, 0);
+  const installWeight = terminalDefinitions.find((row) => row.id === "INS-01").weight;
   return {
     schema_version: 2,
     catalog_sha256: catalogSha256,
@@ -73,8 +109,8 @@ function scoreReport(candidate, catalog, catalogSha256, mode) {
       ? Number((8 * installWeight / totalWeight).toFixed(3)) : 0,
     minimum_score: 0,
     eligible: false,
-    below_target: catalog.capabilities.map((row) => row.id),
-    critical_breaches: catalog.capabilities.filter((row) => row.critical).map((row) => row.id),
+    below_target: terminalDefinitions.map((row) => row.id),
+    critical_breaches: terminalDefinitions.filter((row) => row.critical).map((row) => row.id),
     capabilities,
   };
 }
@@ -181,6 +217,59 @@ try {
       falseInheritedScore, candidate, "positive", unreviewedCatalog, catalogSha256,
     ),
     /scorer report capability INS-01 is invalid/,
+  );
+
+  const splitCatalog = structuredClone(unreviewedCatalog);
+  for (const id of ["FIX-41", "FIX-42"]) {
+    splitCatalog.capabilities.push({
+      ...splitCatalog.capabilities.find((row) => row.id === "FIX-01"),
+      id,
+      name: `Split ${id}`,
+      split_from: "FIX-01",
+    });
+  }
+  for (const mode of ["positive", "negative", "recovery"]) {
+    const splitReport = scoreReport(candidate, splitCatalog, catalogSha256, mode === "recovery" ? "positive" : mode);
+    assert.equal(validateObservedScoreReport(
+      splitReport, candidate, mode === "recovery" ? "positive" : mode, splitCatalog, catalogSha256,
+    ), splitReport);
+    const parent = splitReport.capabilities.find((row) => row.id === "FIX-01");
+    assert.deepEqual(
+      { score: parent.score, maturity: parent.maturity, reason: parent.reason },
+      { score: 0, maturity: "derived_descendant_floor", reason: "descendant_floor" },
+    );
+    assert.ok(!splitReport.below_target.includes("FIX-01"));
+    assert.ok(["FIX-41", "FIX-42"].every((id) => splitReport.below_target.includes(id)));
+  }
+
+  const oversizedCatalog = structuredClone(unreviewedCatalog);
+  while (oversizedCatalog.capabilities.length <= 512) {
+    const index = oversizedCatalog.capabilities.length;
+    const first = String.fromCharCode(65 + Math.floor(index / (26 * 26)) % 26);
+    const second = String.fromCharCode(65 + Math.floor(index / 26) % 26);
+    const third = String.fromCharCode(65 + index % 26);
+    oversizedCatalog.capabilities.push({
+      ...oversizedCatalog.capabilities[0],
+      id: `${first}${second}${third}-${String(index % 100).padStart(2, "0")}`,
+      name: `Bounded observer row ${index}`,
+    });
+  }
+  const oversizedReport = scoreReport(candidate, oversizedCatalog, catalogSha256, "positive");
+  await assert.rejects(
+    async () => validateObservedScoreReport(
+      oversizedReport, candidate, "positive", oversizedCatalog, catalogSha256,
+    ),
+    /capability catalog inventory is invalid/,
+  );
+
+  const singletonCatalog = structuredClone(splitCatalog);
+  singletonCatalog.capabilities = singletonCatalog.capabilities.filter((row) => row.id !== "FIX-42");
+  const singletonReport = scoreReport(candidate, singletonCatalog, catalogSha256, "positive");
+  await assert.rejects(
+    async () => validateObservedScoreReport(
+      singletonReport, candidate, "positive", singletonCatalog, catalogSha256,
+    ),
+    /at least two direct children/,
   );
 
   const workflow = await readFile(".github/workflows/observe-score-capability.yml", "utf8");
