@@ -1679,6 +1679,140 @@ try {
     row.score === 0 && row.maturity === "unavailable" && row.reason === "atomicity_unresolved"),
   "v2 migration must never inherit or manufacture a parent capability score");
 
+  const splitCatalog = JSON.parse(await readFile(path.join(repository, "evals", "capabilities.json"), "utf8"));
+  const splitParent = splitCatalog.capabilities.find((row) => row.id === "ORC-05");
+  for (const id of ["ORC-07", "ORC-08"]) {
+    splitCatalog.capabilities.push({
+      ...Object.fromEntries(Object.entries(splitParent).filter(([key]) => !["id", "name"].includes(key))),
+      id,
+      name: `Atomic routing child ${id}`,
+      split_from: "ORC-05",
+    });
+  }
+  const installParent = splitCatalog.capabilities.find((row) => row.id === "INS-01");
+  for (const id of ["INS-11", "INS-12"]) {
+    splitCatalog.capabilities.push({
+      ...installParent,
+      id,
+      name: `Atomic install child ${id}`,
+      split_from: "INS-01",
+    });
+  }
+  await writeFile(path.join(repository, "evals", "capabilities.json"), `${JSON.stringify(splitCatalog, null, 2)}\n`);
+  const splitDesign = JSON.parse(await readFile(path.join(repository, "evals", "scenarios.json"), "utf8"));
+  for (const capabilityId of ["ORC-07", "ORC-08", "INS-11", "INS-12"]) {
+    for (const scenario of ["positive", "negative", "recovery"]) {
+      splitDesign.scenarios.push({
+        capability_id: capabilityId,
+        scenario,
+        case_id: `${capabilityId.toLowerCase()}-${scenario}`,
+        observer_kind: "native_thread",
+        authority_status: "authority_unavailable",
+        missing_authority: "scenario_consumer_binding",
+      });
+    }
+  }
+  await writeFile(path.join(repository, "evals", "scenarios.json"), `${JSON.stringify(splitDesign, null, 2)}\n`);
+  await git(["add", "evals/capabilities.json", "evals/scenarios.json"]);
+  await git(["commit", "--quiet", "-m", "split one capability for parent floor scoring"]);
+  candidate.commit = await git(["rev-parse", "HEAD"]);
+  candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
+  const splitCatalogBytes = await execFileAsync("git", ["-C", repository, "show", `${candidate.commit}:evals/capabilities.json`], {
+    encoding: null,
+    env: gitEnvironment,
+  }).then((result) => result.stdout);
+  const splitEvidence = {
+    schema_version: 1,
+    catalog_sha256: sha(splitCatalogBytes),
+    candidate: { ...candidate },
+    attempt_inventory: { status: "unavailable", locator: "provider attestation unavailable" },
+    observations: [],
+    open_gaps: [],
+  };
+  const splitEvidencePath = path.join(temporaryRoot, "split-catalog-evidence.json");
+  await writeFile(splitEvidencePath, `${JSON.stringify(splitEvidence, null, 2)}\n`);
+  const splitScore = await scoreEvidence({ evidencePath: splitEvidencePath });
+  const derivedParent = splitScore.capabilities.find((row) => row.id === "ORC-05");
+  assert.deepEqual(
+    { score: derivedParent.score, maturity: derivedParent.maturity, reason: derivedParent.reason },
+    { score: 0, maturity: "derived_descendant_floor", reason: "descendant_floor" },
+    "a nonterminal parent must derive the floor of its terminal descendants",
+  );
+  assert.ok(splitScore.capabilities.filter((row) => ["ORC-07", "ORC-08"].includes(row.id)).every((row) =>
+    row.score === 0 && row.reason === "atomicity_unresolved"),
+  "split children must remain zero without independent atomicity authority");
+  assert.ok(!splitScore.below_target.includes("ORC-05"),
+    "a visible nonterminal parent must not duplicate its descendants in aggregate target failures");
+  assert.ok(["ORC-07", "ORC-08"].every((id) => splitScore.below_target.includes(id)),
+    "every terminal split child must remain represented in aggregate target failures");
+
+  const parentCampaignEvidence = structuredClone(attested.evidence);
+  parentCampaignEvidence.catalog_sha256 = sha(splitCatalogBytes);
+  parentCampaignEvidence.candidate = { ...candidate };
+  const parentCampaignEvidencePath = path.join(attested.directory, "parent-campaign-evidence.json");
+  await writeFile(parentCampaignEvidencePath, `${JSON.stringify(parentCampaignEvidence, null, 2)}\n`);
+  await assert.rejects(
+    () => scoreEvidence({ evidencePath: parentCampaignEvidencePath }),
+    /nonterminal capability INS-01 cannot receive direct evidence/,
+    "an attested campaign declaring a now-nonterminal capability must fail before signature replay",
+  );
+
+  const parentObservationEvidence = JSON.parse(await readFile(unavailable.evidencePath, "utf8"));
+  splitEvidence.observations = [structuredClone(parentObservationEvidence.observations[0])];
+  splitEvidence.observations[0].capability_id = "ORC-05";
+  await writeFile(splitEvidencePath, `${JSON.stringify(splitEvidence, null, 2)}\n`);
+  await assert.rejects(
+    () => scoreEvidence({ evidencePath: splitEvidencePath }),
+    /nonterminal capability ORC-05 cannot receive direct evidence/,
+    "a nonterminal parent observation must fail before stale artifact or case bindings can be scored",
+  );
+
+  splitEvidence.observations = [];
+  splitEvidence.open_gaps = [{
+    capability_id: "ORC-05",
+    severity: "material",
+    description: "direct parent evidence is forbidden",
+    locator: "fixture:parent-gap",
+  }];
+  await writeFile(splitEvidencePath, `${JSON.stringify(splitEvidence, null, 2)}\n`);
+  await assert.rejects(
+    () => scoreEvidence({ evidencePath: splitEvidencePath }),
+    /nonterminal capability ORC-05 cannot receive direct evidence/,
+    "a nonterminal parent must reject direct evidence instead of duplicating child campaigns",
+  );
+
+  const oversizedCatalog = structuredClone(splitCatalog);
+  const baseRow = oversizedCatalog.capabilities[0];
+  while (oversizedCatalog.capabilities.length <= 512) {
+    const index = oversizedCatalog.capabilities.length;
+    const first = String.fromCharCode(65 + Math.floor(index / (26 * 26)) % 26);
+    const second = String.fromCharCode(65 + Math.floor(index / 26) % 26);
+    const third = String.fromCharCode(65 + index % 26);
+    oversizedCatalog.capabilities.push({
+      ...baseRow,
+      id: `${first}${second}${third}-${String(index % 100).padStart(2, "0")}`,
+      name: `Bounded graph row ${index}`,
+      split_from: null,
+    });
+  }
+  const oversizedCatalogPath = path.join(temporaryRoot, "oversized-capabilities.json");
+  await writeFile(oversizedCatalogPath, `${JSON.stringify(oversizedCatalog, null, 2)}\n`);
+  await assert.rejects(
+    () => validateCatalogFile(oversizedCatalogPath),
+    /bounded graph size/,
+    "catalog traversal must reject graphs larger than its explicit recursion bound",
+  );
+
+  const singletonCatalog = structuredClone(splitCatalog);
+  singletonCatalog.capabilities = singletonCatalog.capabilities.filter((row) => row.id !== "ORC-08");
+  const singletonCatalogPath = path.join(temporaryRoot, "singleton-split-capabilities.json");
+  await writeFile(singletonCatalogPath, `${JSON.stringify(singletonCatalog, null, 2)}\n`);
+  await assert.rejects(
+    () => validateCatalogFile(singletonCatalogPath),
+    /at least two direct children/,
+    "a runtime consumer must reject the same singleton split forbidden by catalog evolution",
+  );
+
   console.log("capability score tests passed");
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
