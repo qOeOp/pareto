@@ -151,58 +151,6 @@ export function buildConsumptionReceipt({
   };
 }
 
-export function validateConsumedReport(report, { candidate, catalog, catalogSha256 }) {
-  exactKeys(report, [
-    "below_target", "candidate", "capabilities", "catalog_sha256", "critical_breaches", "eligible",
-    "evidence_ceiling", "evidence_limit", "minimum_score", "schema_version", "target_score", "weighted_score",
-  ], "consumed score report");
-  if (report.schema_version !== 2 || report.catalog_sha256 !== catalogSha256 ||
-      JSON.stringify(report.candidate) !== JSON.stringify(candidate) || report.target_score !== catalog.target_score ||
-      report.evidence_ceiling !== 6 ||
-      report.evidence_limit !== "single_attested_fixed_observer_campaign; varied_repetition_and_provider_attempt_inventory_unavailable" ||
-      report.minimum_score !== 0 || report.eligible !== false || !Array.isArray(report.capabilities) ||
-      report.capabilities.length !== catalog.capabilities.length) {
-    fail("consumed score report global gate is invalid");
-  }
-
-  const expectedIds = catalog.capabilities.map((row) => row.id);
-  const expectedCritical = catalog.capabilities.filter((row) => row.critical).map((row) => row.id);
-  if (JSON.stringify(report.below_target) !== JSON.stringify(expectedIds) ||
-      JSON.stringify(report.critical_breaches) !== JSON.stringify(expectedCritical)) {
-    fail("consumed score report coverage is incomplete");
-  }
-
-  let weighted = 0;
-  let totalWeight = 0;
-  for (const [index, definition] of catalog.capabilities.entries()) {
-    const row = report.capabilities[index];
-    exactKeys(row, [
-      "attested_campaign_count", "consumer", "critical", "domain", "gap_count", "id", "maturity", "name",
-      "observation_count", "owner", "reason", "score", "unavailable_count", "weight",
-    ], `consumed score capability ${definition.id}`);
-    const evalCapability = definition.id === "EVAL-02";
-    const expected = {
-      ...definition,
-      score: evalCapability ? 6 : 0,
-      maturity: evalCapability ? "dynamic" : "absent",
-      reason: evalCapability ? "single_attested_score_observer_campaign" : "no_passing_evidence",
-      observation_count: 0,
-      attested_campaign_count: evalCapability ? 1 : 0,
-      unavailable_count: 0,
-      gap_count: 0,
-    };
-    if (JSON.stringify(row) !== JSON.stringify(expected)) {
-      fail(`consumed score capability ${definition.id} is invalid`);
-    }
-    weighted += row.score * row.weight;
-    totalWeight += row.weight;
-  }
-  if (report.weighted_score !== Number((weighted / totalWeight).toFixed(3))) {
-    fail("consumed score report weighted score is invalid");
-  }
-  return report;
-}
-
 async function git(...args) {
   const result = await execFileAsync(gitPath, [...gitOptions, "-C", root, ...args], {
     encoding: "utf8",
@@ -250,7 +198,9 @@ async function consume({ campaignDirectory, output, sourceRunId, sourceRunMetada
     await writeFile(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
     let result;
     try {
-      result = await execFileAsync(process.execPath, [path.join(root, "scripts", "capability-score.mjs"), evidencePath], {
+      result = await execFileAsync(process.execPath, [
+        path.join(root, "scripts", "capability-score.mjs"), "--consume-attested-campaign", evidencePath,
+      ], {
         cwd: root,
         encoding: "utf8",
         env: cleanEnvironment,
@@ -263,11 +213,11 @@ async function consume({ campaignDirectory, output, sourceRunId, sourceRunMetada
       result = error;
     }
     const reportBytes = Buffer.from(result.stdout, "utf8");
-    const report = validateConsumedReport(parseUniqueJson(reportBytes, "consumed score report"), {
-      candidate,
-      catalog,
-      catalogSha256: sha256(catalogBytes),
-    });
+    const report = parseUniqueJson(reportBytes, "consumed score report");
+    exactKeys(report, [
+      "below_target", "candidate", "capabilities", "catalog_sha256", "critical_breaches", "eligible",
+      "evidence_ceiling", "evidence_limit", "minimum_score", "schema_version", "target_score", "weighted_score",
+    ], "consumed score report");
     const receipt = buildConsumptionReceipt({
       sourceRun,
       sourceRunMetadataSha256: sha256(sourceRunMetadataBytes),

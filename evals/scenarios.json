@@ -1,5 +1,61 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
+  "attested_protocols": {
+    "install-v1": {
+      "adapter": "scripts/campaign-verifiers/install.mjs",
+      "consumer_paths": {},
+      "consumer_workflow_name": null,
+      "coverage": {"environments":["linux","win32"],"trials_per_environment":3},
+      "observer": "scripts/observe-install-capability.mjs",
+      "protocol": "pareto-fixed-observer-protocol/v1",
+      "runtime_paths": {
+        "json_helper_blob": "scripts/json.mjs",
+        "package_json_blob": "package.json",
+        "package_lock_blob": "package-lock.json",
+        "scenario_authority_blob": "evals/scenarios.json"
+      },
+      "subject_paths": {
+        "codex_agents_tree": "codex/agents",
+        "codex_session_hook_blob": "codex/hooks/qoeop-trade-session-start.mjs",
+        "installer_blob": "scripts/install-codex.mjs",
+        "skill_tree": "skills/run-bounded-mission"
+      },
+      "workflow": ".github/workflows/observe-install-capability.yml",
+      "workflow_name": "observe-install-capability"
+    },
+    "score-v1": {
+      "adapter": "scripts/campaign-verifiers/score.mjs",
+      "consumer_paths": {
+        "script": "scripts/consume-score-capability.mjs",
+        "workflow": ".github/workflows/consume-score-capability.yml"
+      },
+      "consumer_workflow_name": "consume-score-capability",
+      "coverage": {"environments":["linux","win32"],"trials_per_environment":1},
+      "observer": "scripts/observe-score-capability.mjs",
+      "protocol": "pareto-fixed-observer-protocol/v1",
+      "runtime_paths": {
+        "json_helper_blob": "scripts/json.mjs",
+        "package_json_blob": "package.json",
+        "package_lock_blob": "package-lock.json",
+        "scenario_authority_blob": "evals/scenarios.json"
+      },
+      "subject_paths": {
+        "catalog_blob": "evals/capabilities.json",
+        "contract_blob": "evals/CONTRACT.md",
+        "scorer_blob": "scripts/capability-score.mjs"
+      },
+      "workflow": ".github/workflows/observe-score-capability.yml",
+      "workflow_name": "observe-score-capability"
+    }
+  },
+  "fixed_observers": {
+    "INS-01": {"parameters":{"kind":"skill"},"protocol":"install-v1"},
+    "INS-03": {"parameters":{"kind":"profile","profile":"mission-planner.toml"},"protocol":"install-v1"},
+    "INS-05": {"parameters":{"kind":"profile","profile":"mission-evaluator.toml"},"protocol":"install-v1"},
+    "INS-07": {"parameters":{"kind":"profile","profile":"mission-researcher.toml"},"protocol":"install-v1"},
+    "INS-09": {"parameters":{"kind":"profile","profile":"fast-builder.toml"},"protocol":"install-v1"},
+    "EVAL-02": {"parameters":{"source_capability":"INS-01"},"protocol":"score-v1"}
+  },
   "scenarios": [
     {"capability_id":"KRN-01","scenario":"positive","case_id":"answer-only-nonactivation","observer_kind":"native_thread","authority_status":"authority_unavailable","missing_authority":"host_native_provenance","executable_suite":"golden"},
     {"capability_id":"KRN-01","scenario":"negative","case_id":"quoted-token-nonactivation","observer_kind":"native_thread","authority_status":"authority_unavailable","missing_authority":"host_native_provenance","executable_suite":"golden"},

@@ -14,46 +14,23 @@ import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 const observerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const expectedRepository = "https://github.com/qOeOp/pareto";
 const ownedProfiles = ["fast-builder.toml", "mission-evaluator.toml", "mission-planner.toml", "mission-researcher.toml"];
-const capabilities = Object.freeze({
-  "INS-01": Object.freeze({
-    cases: Object.freeze({
-      positive: "portable-skill-install-and-loader-discovery",
-      negative: "stale-lock-rejected-without-install-drift",
-      recovery: "installed-skill-drift-repaired-and-discovered",
-    }),
-    kind: "skill",
-    observation: "observation",
-    slug: "ins-01",
-  }),
-  "INS-03": Object.freeze({
-    cases: Object.freeze({ positive: "ins-03-positive", negative: "ins-03-negative", recovery: "ins-03-recovery" }),
-    kind: "profile",
-    observation: "observation-ins-03",
-    profile: "mission-planner.toml",
-    slug: "ins-03",
-  }),
-  "INS-05": Object.freeze({
-    cases: Object.freeze({ positive: "ins-05-positive", negative: "ins-05-negative", recovery: "ins-05-recovery" }),
-    kind: "profile",
-    observation: "observation-ins-05",
-    profile: "mission-evaluator.toml",
-    slug: "ins-05",
-  }),
-  "INS-07": Object.freeze({
-    cases: Object.freeze({ positive: "ins-07-positive", negative: "ins-07-negative", recovery: "ins-07-recovery" }),
-    kind: "profile",
-    observation: "observation-ins-07",
-    profile: "mission-researcher.toml",
-    slug: "ins-07",
-  }),
-  "INS-09": Object.freeze({
-    cases: Object.freeze({ positive: "ins-09-positive", negative: "ins-09-negative", recovery: "ins-09-recovery" }),
-    kind: "profile",
-    observation: "observation-ins-09",
-    profile: "fast-builder.toml",
-    slug: "ins-09",
-  }),
-});
+const scenarioDesignBytes = await readFile(path.join(observerRoot, "evals", "scenarios.json"));
+rejectDuplicateJsonObjectMembers(scenarioDesignBytes.toString("utf8"), "scenario authority");
+const scenarioDesign = JSON.parse(scenarioDesignBytes);
+const capabilities = Object.freeze(Object.fromEntries(Object.entries(scenarioDesign.fixed_observers ?? {})
+  .filter(([, binding]) => binding?.protocol === "install-v1")
+  .map(([capabilityId, binding]) => {
+    const rows = (scenarioDesign.scenarios ?? []).filter((row) => row.capability_id === capabilityId);
+    const cases = Object.fromEntries(rows.map((row) => [row.scenario, row.case_id]));
+    const slug = capabilityId.toLowerCase();
+    return [capabilityId, Object.freeze({
+      cases: Object.freeze(cases),
+      kind: binding.parameters.kind,
+      observation: binding.parameters.kind === "skill" ? "observation" : `observation-${slug}`,
+      ...(binding.parameters.profile === undefined ? {} : { profile: binding.parameters.profile }),
+      slug,
+    })];
+  })));
 const sha256Pattern = /^sha256:[a-f0-9]{64}$/;
 const oidPattern = /^[a-f0-9]{40}$/;
 

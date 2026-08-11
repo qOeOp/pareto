@@ -29,12 +29,20 @@ after its candidate or matrix changes.
 ## Case design
 
 `capabilities.json` is the only leaf inventory. `scenarios.json` gives every leaf exactly one positive,
-negative, and recovery design slot and fixes the required observer class. It contains no score, result,
-run, artifact, attempt, owner, weight, consumer, or campaign state. A complete design matrix proves only
-that no leaf/scenario was omitted; `authority_unavailable` remains non-evidence and cannot raise a score.
-Schema v2 admits `implemented` only for the fixed INS-01 and EVAL-02 observers after the scorer consumes
-their exact committed positive, negative, and recovery case bindings. The matrix field alone never proves
-that an observer ran and never raises a score.
+negative, and recovery design slot, fixes the required observer class, and binds the versioned fixed-observer
+protocols available to that slot. It contains no score, result, run, artifact, attempt, owner, weight,
+consumer outcome, or campaign state. A complete design matrix proves only that no leaf/scenario was omitted;
+`authority_unavailable` remains non-evidence and cannot raise a score. Schema v3 derives the set eligible for
+fixed-observer admission from `fixed_observers`; it does not hard-code capability IDs in the scorer. Each
+binding selects one base-owned protocol and bounded parameters. The protocol owns exact subject, runtime,
+observer, adapter, workflow, coverage, and downstream-consumer paths. Its adapter may validate semantic facts
+and return only a content digest; it cannot declare score, maturity, authority, coverage, or case identity.
+Coverage is an exact protocol contract, not a caller-selected range: `install-v1` is Linux and Windows with
+three trials each, while the sole admitted `score-v1` binding is `EVAL-02` consuming `INS-01` once per
+environment. Validation requires the install workflow's capability matrices to equal the committed bindings;
+another score binding requires a separate base-first protocol migration rather than descriptor-only admission.
+All three scenarios for a capability are either implemented together or unavailable together. The matrix
+field alone never proves that an observer ran and never raises a score.
 The missing-authority class fixes the observer kind rather than letting a case author downgrade it.
 `executable_suite`, when present, creates a two-way binding to exactly one golden or holdout case; omitting
 or moving that case fails validation. It is corpus structure only, not evidence that the required observer ran.
@@ -47,11 +55,14 @@ executes candidate code, reads candidate matrix/corpus blobs by exact event head
 catalog field, slot, case definition, suite, observer, and missing-authority binding, and permits only a new
 executable case on a previously unbound slot. Schema, catalog, case, or authority-state migration therefore
 requires a separate base-first change.
-The workflow, checker, validator self-test, JSON parser, and package manifest/lock are exact protected control-plane blobs. Their
+The workflow, checker, protocol adapters, validator self-test, JSON parser, and package manifest/lock are exact protected control-plane blobs. Their
 migration requires explicit repository-owner bypass; a scenario candidate cannot authorize its own checker.
-The schema-v2 migration itself keeps every slot unavailable. Only a later PR may switch the six fixed-observer
-slots to `implemented`, and the already-canonical base checker rejects any simultaneous observer, scorer,
-workflow, validator, parser, package, or case-control change.
+The schema-v3 migration is bootstrap-only. It may preserve already-admitted authority but cannot authorize a
+new protocol or new capability campaign. Only a later PR may switch one fixed observer's complete three-slot
+set to `implemented`, and the already-canonical base checker rejects any simultaneous protocol, observer,
+adapter, scorer, workflow, validator, parser, package, or case-control change. Adding or changing a protocol
+requires its own base-first migration; the first campaign produced by that migration is permanently bootstrap
+evidence.
 The PR that first introduces this workflow is bootstrap-only because its base cannot run a workflow it does
 not yet contain. Authority begins only after merge and a subsequent exact-head PR dynamically passes the
 base-owned check; until then no anti-omission claim is admitted.
@@ -233,13 +244,14 @@ dynamic observation and scores 6. Six separately scheduled and individually sign
 establish representative repetition at 8 only when all six slots and signatures verify. Independent
 observer and provider-complete attempt requirements remain unavailable rather than being inferred from
 the signatures.
-The next observer schema runs three fresh positive/negative/recovery trials in each of Linux and Windows
-as six separately scheduled and attested jobs. Its bootstrap aggregator rejects missing, duplicate, and
-cross-subject slots and records each observation and bundle digest; substitution resistance remains
-unavailable until the later scorer verifies every recorded bundle against its observation bytes.
-Its first canonical campaign is bootstrap evidence only. A later scorer may raise only `INS-01` to 8
-after it verifies the campaign signature, the exact six-slot matrix, every raw observation envelope,
-and every nested signature against the raw file bytes. Repetition by one fixed observer still does not
+The `install-v1` observer protocol runs three fresh positive/negative/recovery trials in each of Linux
+and Windows as six separately scheduled and attested jobs. Its bootstrap aggregator rejects missing,
+duplicate, and cross-subject slots and records each observation and bundle digest; substitution resistance
+remains unavailable until the later scorer verifies every recorded bundle against its observation bytes.
+Its first canonical campaign is bootstrap evidence only. A later unchanged scorer may raise only the
+capability named by the exact committed fixed-observer binding to 8 after it verifies the campaign signature,
+the exact six-slot matrix, every raw observation envelope, every nested signature, and adapter-derived facts
+against the raw file bytes. Repetition by one fixed observer still does not
 satisfy the independent-observer requirement, prove process isolation between the same-repository
 observer and subject, or authorize 9.5.
 An attested campaign cannot share one scorer process with locally loaded Promptfoo, YAML, rollout, or
@@ -265,7 +277,7 @@ API rather than environment overrides; the observer atomically claims a previous
 refuses pre-existing state, atomically moves the claimed directory to an isolated sibling custody,
 and verifies its identity before removal in `finally`.
 
-Profile-file installation uses the same fixed workflow but never relabels an `INS-01` observation.
+Profile-file installation uses the same protocol but never relabels an `INS-01` observation.
 `INS-03`, `INS-05`, `INS-07`, and `INS-09` each receive a fresh job, temporary root, observation,
 observation signature, six-slot campaign, and campaign signature. The positive path binds the exact
 source and installed profile bytes, the complete four-profile same-lock bundle, foreign-state
@@ -281,7 +293,7 @@ scenario authority remains unavailable until both Linux and Windows observations
 `main`; a later strict scorer revision must verify every per-capability observation and signature before
 any profile capability receives a score.
 
-`EVAL-02` uses a separate fixed observer to execute the canonical scorer CLI as a black box against
+`EVAL-02` is the first `score-v1` binding. It executes the canonical scorer CLI as a black box against
 one already-attested INS-01 campaign. Its positive path requires the signed campaign to score only
 INS-01 at 8 while the global minimum stays 0 and eligibility stays false. Its negative path injects
 one explicit critical-gap control and one unknown high-score field; the former must reduce the affected
@@ -289,9 +301,10 @@ capability to 0 and the latter must be rejected before scoring. Recovery removes
 reuses the unchanged signed input, and requires a fresh scorer process to reproduce the original report
 byte-for-byte after canonicalization. One Linux and one Windows observation are signed separately;
 the observation and aggregate jobs have no OIDC authority, while signing jobs download bytes without
-checking out or executing candidate code. The observer independently replays the exact 39-row catalog,
+checking out or executing candidate code. The observer independently challenges the canonical scorer against the exact 39-row catalog,
 per-row scores and counts, weighted score, below-target set, critical-breach set, and global gate rather
-than trusting a report summary. The signed input campaign is retained with the output so the reports and
+than trusting a report summary. It is a test oracle, not a second scoring authority: normal and receipt-bound
+score interpretation remains exclusively in `capability-score.mjs`. The signed input campaign is retained with the output so the reports and
 controls remain replayable. The first campaign generated before a campaign consumer existed is permanently
 `bootstrap_only`, non-authorizing, and cannot raise a score. Later observations retain the exact positive,
 negative, recovery, and unknown-field diagnostic bytes under their signed digests and are marked
@@ -302,6 +315,12 @@ scorer/catalog/contract/observer/consumer workflow/consumer script blobs, the fi
 and digests, the three reports, and the diagnostic. The signed consumption receipt must also bind the exact
 source run, input campaign and bundle digests, consumer Git identity, scorer/catalog identities, and complete
 report; the replay artifact retains the source run metadata and full downloaded campaign.
+The consumer invokes an explicit pending-consumption scorer mode only to construct that report. Normal scoring
+rejects a `score-v1` campaign without the receipt. A later candidate verifies the receipt bundle and exact
+source-run metadata, requires a strict observer-commit to consumer-commit to current-candidate ancestry chain,
+and requires every protocol, adapter, observer, consumer, scorer, catalog, scenario, contract, and runtime blob
+to remain unchanged across that chain before assigning the score. The pending report is non-authorizing by
+itself and cannot be submitted as final evidence.
 The observed commit itself can never consume its campaign. Manual dispatch
 does not prove a complete attempt inventory, representative repetition, independent observation, or the
 8/9.5 anchors; failures and replacement runs remain unavailable rather than being selected away.
