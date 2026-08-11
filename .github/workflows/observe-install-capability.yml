@@ -75,6 +75,7 @@ jobs:
   attest-observation:
     name: attest-${{ matrix.capability.slug }}-${{ matrix.runner }}-${{ matrix.trial }}
     needs: observe
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -134,6 +135,7 @@ jobs:
   aggregate:
     name: aggregate-${{ matrix.capability.slug }}
     needs: attest-observation
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -178,6 +180,7 @@ jobs:
   attest-campaign:
     name: attest-complete-${{ matrix.capability.slug }}-campaign
     needs: aggregate
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:

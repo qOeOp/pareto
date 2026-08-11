@@ -6,7 +6,12 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
-import { classifyProfileConfigWarning } from "./observe-install-capability.mjs";
+import {
+  classifyProfileConfigWarning,
+  createObserverLifecycle,
+  observerRuntimeBounds,
+  terminateTimedOutChild,
+} from "./observe-install-capability.mjs";
 
 const execFileAsync = promisify(execFile);
 const root = await mkdtemp(path.join(os.tmpdir(), "pareto-ins01-aggregate-test-"));
@@ -162,6 +167,41 @@ async function aggregate(capabilityId, observations, output) {
 }
 
 try {
+  assert.deepEqual(observerRuntimeBounds, {
+    appServerProbeMs: 30_000,
+    cleanup: { force: true, maxRetries: 8, recursive: true, retryDelay: 250 },
+    terminationMs: 5_000,
+  });
+  {
+    const lifecycle = createObserverLifecycle();
+    const signals = [];
+    let close;
+    const completion = new Promise((resolve) => {
+      close = resolve;
+    });
+    const child = {
+      kill(signal) {
+        signals.push(signal);
+        if (signal === "SIGKILL") setTimeout(() => close({ code: null, signal }), 0);
+        return true;
+      },
+    };
+    await terminateTimedOutChild(child, completion, "forced escalation probe", lifecycle, 5);
+    assert.deepEqual(signals, ["SIGTERM", "SIGKILL"]);
+    let cleaned = false;
+    assert.equal(await lifecycle.cleanup(async () => { cleaned = true; }), true);
+    assert.equal(cleaned, true);
+  }
+  {
+    const lifecycle = createObserverLifecycle();
+    await assert.rejects(
+      terminateTimedOutChild({ kill: () => true }, new Promise(() => {}), "unclosed probe", lifecycle, 1),
+      /unclosed probe could not terminate after timeout/,
+    );
+    let cleaned = false;
+    assert.equal(await lifecycle.cleanup(async () => { cleaned = true; }), false);
+    assert.equal(cleaned, false);
+  }
   const profilePath = "/tmp/codex-home/agents/mission-planner.toml";
   const malformedSummary = `Ignoring malformed agent role definition: failed to parse agent role file at ${profilePath}: TOML parse error at line 1, column 34\n  |\n1 | name = [pareto_observer_malformed\n  |                                  ^\nunclosed array, expected \`]\`\n`;
   const sandboxSummary = "Codex could not find bubblewrap on PATH. Install bubblewrap with your OS package manager. " +
@@ -205,9 +245,12 @@ try {
   }
   assert.doesNotMatch(observeJob, /id-token: write|actions\/attest@/);
   assert.match(observationAttestJob, /needs: observe/);
+  assert.match(observationAttestJob, /if: \$\{\{ !cancelled\(\) \}\}/);
   assert.match(observationAttestJob, /id-token: write/);
+  assert.match(aggregateJob, /if: \$\{\{ !cancelled\(\) \}\}/);
   assert.doesNotMatch(aggregateJob, /id-token: write|actions\/attest@/);
   assert.match(campaignAttestJob, /needs: aggregate/);
+  assert.match(campaignAttestJob, /if: \$\{\{ !cancelled\(\) \}\}/);
   assert.match(campaignAttestJob, /id-token: write/);
   assert.doesNotMatch(campaignAttestJob, /actions\/checkout@|observe-install-capability\.mjs/);
   assert.equal((workflow.match(/uses: actions\/attest@1e69f48acb82d1966a394da916b4c1698aa569d6/g) ?? []).length, 2);
