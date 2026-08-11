@@ -19,7 +19,7 @@ try {
   runGit("checkout", "--quiet", "-b", "main");
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
   for (const file of [
-    "evals/CONTRACT.md", "evals/capabilities.json", "evals/atomicity-admission.json", "evals/scenarios.json",
+    "evals/CONTRACT.md", "evals/capabilities.json", "evals/scenarios.json",
     "evals/cases/golden.yaml", "evals/cases/holdout.yaml",
     ".github/workflows/scenario-authority.yml", ".github/workflows/observe-install-capability.yml",
     ".github/workflows/observe-score-capability.yml", ".github/workflows/consume-score-capability.yml",
@@ -40,6 +40,10 @@ try {
     await mkdir(path.dirname(target), { recursive: true });
     await writeFile(target, await readFile(path.join(root, file)));
   }
+  // The matrix owns its admission sequence; never import the outer repository's
+  // current review decision into this isolated fixture.
+  await writeFile(path.join(fixture, "evals/atomicity-admission.json"),
+    `${JSON.stringify({ schema_version: 1, decision: null }, null, 2)}\n`);
   // Keep one intentionally incomplete canonical slot in this isolated fixture so the
   // monotonic executable-case checks remain meaningful after the current corpus is complete.
   const fixtureDesignPath = path.join(fixture, "evals/scenarios.json");
