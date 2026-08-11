@@ -316,6 +316,9 @@ try {
   await execFileAsync("git", ["clone", "--quiet", sourceRepository, repository], { env: gitEnvironment });
   await execFileAsync("git", ["-c", "core.autocrlf=true", "clone", "--quiet", sourceRepository, windowsRepository], { env: gitEnvironment });
   await git(["remote", "set-url", "origin", "https://github.com/qOeOp/pareto.git"]);
+  const windowsCatalogPath = path.join(windowsRepository, "evals", "capabilities.json");
+  const windowsCatalogSource = (await readFile(windowsCatalogPath, "utf8")).replace(/\r\n/g, "\n");
+  await writeFile(windowsCatalogPath, windowsCatalogSource.replace(/\n/g, "\r\n"));
   const isolatedStatus = await execFileAsync("git", [
     ...trustedGitOptions("linux"), "-C", windowsRepository, "status", "--porcelain=v1", "--untracked-files=all",
   ], { encoding: "utf8", env: observerGitEnvironment });
