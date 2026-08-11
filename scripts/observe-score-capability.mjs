@@ -168,16 +168,61 @@ async function safeFile(directory, name, label, maximum = 32 * 1024 * 1024) {
   return { bytes: await readFile(resolved), path: resolved };
 }
 
+function observedCatalogContract(catalog) {
+  if (![1, 2].includes(catalog?.schema_version) || catalog.target_score !== 9.5 ||
+      !Array.isArray(catalog.capabilities) || catalog.capabilities.length === 0) {
+    fail("capability catalog inventory is invalid");
+  }
+  const baseKeys = ["id", "domain", "name", "owner", "consumer", "weight", "critical"];
+  const rows = new Map();
+  const parents = new Set();
+  for (const row of catalog.capabilities) {
+    exactKeys(row, catalog.schema_version === 1 ? baseKeys : [...baseKeys, "atomicity", "split_from"],
+      "capability catalog row");
+    if (!/^[A-Z]{3,4}-\d{2}$/.test(row.id) || rows.has(row.id) || row.weight !== 1 ||
+        typeof row.critical !== "boolean" || ["domain", "name", "owner", "consumer"].some((key) =>
+          typeof row[key] !== "string" || row[key].length === 0)) {
+      fail("capability catalog inventory is invalid");
+    }
+    if (catalog.schema_version === 2) {
+      if (row.atomicity !== "unreviewed" ||
+          (row.split_from !== null && (typeof row.split_from !== "string" ||
+            !/^[A-Z]{3,4}-\d{2}$/.test(row.split_from)))) {
+        fail("capability catalog atomicity is invalid");
+      }
+      if (row.split_from !== null) parents.add(row.split_from);
+    }
+    rows.set(row.id, row);
+  }
+  if (catalog.schema_version === 2) {
+    for (const row of rows.values()) {
+      if (row.split_from !== null && (!rows.has(row.split_from) || row.split_from === row.id)) {
+        fail("capability catalog lineage is invalid");
+      }
+      const lineage = new Set([row.id]);
+      let parent = row.split_from;
+      while (parent !== null) {
+        if (lineage.has(parent)) fail("capability catalog lineage is invalid");
+        lineage.add(parent);
+        parent = rows.get(parent).split_from;
+      }
+    }
+  }
+  return {
+    rows: [...rows.values()],
+    unreviewedTerminalIds: new Set(catalog.schema_version === 2
+      ? [...rows.keys()].filter((id) => !parents.has(id))
+      : []),
+  };
+}
+
 export function validateObservedScoreReport(report, candidate, mode, catalog, catalogSha256) {
   exactKeys(report, [
     "below_target", "candidate", "capabilities", "catalog_sha256", "critical_breaches", "eligible",
     "evidence_ceiling", "evidence_limit", "minimum_score", "schema_version", "target_score", "weighted_score",
   ], "scorer report");
-  const catalogRows = catalog?.capabilities;
-  if (!Array.isArray(catalogRows) || catalogRows.length !== 39 ||
-      new Set(catalogRows.map((row) => row?.id)).size !== catalogRows.length) {
-    fail("capability catalog inventory is invalid");
-  }
+  const catalogContract = observedCatalogContract(catalog);
+  const catalogRows = catalogContract.rows;
   if (JSON.stringify(canonical(report.candidate)) !== JSON.stringify(canonical(candidate)) || report.schema_version !== 2 ||
       report.catalog_sha256 !== catalogSha256 || report.target_score !== catalog.target_score ||
       report.evidence_ceiling !== 8 || report.minimum_score !== 0 || report.eligible !== false ||
@@ -200,11 +245,14 @@ export function validateObservedScoreReport(report, candidate, mode, catalog, ca
     ], `scorer report capability ${row.id}`);
     const definition = catalogById.get(row.id);
     const install = row.id === "INS-01";
-    const expected = install && mode === "positive"
-      ? { score: 8, maturity: "representative", reason: "repeated_attested_fixed_observer_campaign", gap_count: 0 }
-      : install && mode === "negative"
-        ? { score: 0, maturity: "contradicted", reason: "critical_gap", gap_count: 1 }
-        : { score: 0, maturity: "absent", reason: "no_passing_evidence", gap_count: 0 };
+    const unreviewed = catalogContract.unreviewedTerminalIds.has(row.id);
+    const expected = unreviewed
+      ? { score: 0, maturity: "unavailable", reason: "atomicity_unresolved", gap_count: install && mode === "negative" ? 1 : 0 }
+      : install && mode === "positive"
+        ? { score: 8, maturity: "representative", reason: "repeated_attested_fixed_observer_campaign", gap_count: 0 }
+        : install && mode === "negative"
+          ? { score: 0, maturity: "contradicted", reason: "critical_gap", gap_count: 1 }
+          : { score: 0, maturity: "absent", reason: "no_passing_evidence", gap_count: 0 };
     if (["domain", "name", "owner", "consumer", "weight", "critical"].some((key) => row[key] !== definition[key]) ||
         row.score !== expected.score || row.maturity !== expected.maturity || row.reason !== expected.reason ||
         row.observation_count !== 0 || row.attested_campaign_count !== (install ? 1 : 0) ||
@@ -213,7 +261,7 @@ export function validateObservedScoreReport(report, candidate, mode, catalog, ca
     }
   }
   const totalWeight = catalogRows.reduce((sum, row) => sum + row.weight, 0);
-  const expectedWeightedScore = mode === "positive"
+  const expectedWeightedScore = mode === "positive" && !catalogContract.unreviewedTerminalIds.has("INS-01")
     ? Number((8 * catalogById.get("INS-01").weight / totalWeight).toFixed(3))
     : 0;
   if (report.weighted_score !== expectedWeightedScore) fail("scorer report weighted score is invalid");

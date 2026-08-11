@@ -21,6 +21,7 @@ try {
     "evals/capabilities.json", "evals/scenarios.json", "evals/cases/golden.yaml", "evals/cases/holdout.yaml",
     ".github/workflows/scenario-authority.yml", ".github/workflows/observe-install-capability.yml",
     ".github/workflows/observe-score-capability.yml", ".github/workflows/consume-score-capability.yml",
+    "scripts/capability-catalog.mjs",
     "scripts/check-scenario-authority.mjs",
     "scripts/self-test.mjs", "scripts/validate.mjs", "scripts/capability-score.mjs", "scripts/observe-install-capability.mjs",
     "scripts/observe-score-capability.mjs", "scripts/consume-score-capability.mjs", "scripts/json.mjs",
@@ -32,7 +33,7 @@ try {
     await writeFile(target, await readFile(path.join(root, file)));
   }
   // Keep one intentionally incomplete canonical slot in this isolated fixture so the
-  // monotonic-addition checks remain meaningful after the real corpus reaches 117/117.
+  // monotonic executable-case checks remain meaningful after the current corpus is complete.
   const fixtureDesignPath = path.join(fixture, "evals/scenarios.json");
   const fixtureGoldenPath = path.join(fixture, "evals/cases/golden.yaml");
   const fixtureDesign = JSON.parse(await readFile(fixtureDesignPath, "utf8"));
@@ -55,6 +56,162 @@ try {
   };
   const designPath = path.join(fixture, "evals/scenarios.json");
   const goldenPath = path.join(fixture, "evals/cases/golden.yaml");
+  const catalogPath = path.join(fixture, "evals/capabilities.json");
+
+  const migrateCatalogToV2 = async () => {
+    const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
+    catalog.schema_version = 2;
+    catalog.capabilities = catalog.capabilities.map((row) => ({
+      ...row,
+      atomicity: "unreviewed",
+      split_from: null,
+    }));
+    await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
+  };
+  const appendSplit = async (parentId, childIds, omittedSlot = null) => {
+    const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
+    const parent = catalog.capabilities.find((row) => row.id === parentId);
+    for (const childId of childIds) {
+      catalog.capabilities.push({
+        id: childId,
+        domain: parent.domain,
+        name: `Atomic child ${childId}`,
+        owner: parent.owner,
+        consumer: parent.consumer,
+        weight: 1,
+        critical: parent.critical,
+        atomicity: "unreviewed",
+        split_from: parentId,
+      });
+    }
+    await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    for (const childId of childIds) {
+      for (const scenario of ["positive", "negative", "recovery"]) {
+        if (`${childId}/${scenario}` === omittedSlot) continue;
+        design.scenarios.push({
+          capability_id: childId,
+          scenario,
+          case_id: `${childId.toLowerCase()}-${scenario}`,
+          observer_kind: "fixed_real_consumer",
+          authority_status: "authority_unavailable",
+          missing_authority: "scenario_consumer_binding",
+        });
+      }
+    }
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  };
+
+  const migration = await commitMutation("catalog-v2-migration", migrateCatalogToV2);
+  const migrationResult = checkScenarioAuthority({ repo: fixture, base, candidate: migration });
+  assert.equal(migrationResult.slots, 117);
+
+  for (const [field, value] of [
+    ["trials_per_scenario", 4],
+    ["environments", 3],
+    ["independent_observers", 3],
+  ]) {
+    const migrationDrift = await commitMutation(`migration-${field}-drift`, async () => {
+      await migrateCatalogToV2();
+      const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
+      catalog.default_requirements[field] = value;
+      await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
+    });
+    assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: migrationDrift }),
+      /changed canonical catalog scoring or evidence requirements/);
+
+    const v2Drift = await commitMutation(`v2-${field}-drift`, async () => {
+      const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
+      catalog.default_requirements[field] = value;
+      await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
+    }, migration);
+    assert.throws(() => checkScenarioAuthority({ repo: fixture, base: migration, candidate: v2Drift }),
+      /changed canonical catalog scoring or evidence requirements/);
+  }
+
+  const split = await commitMutation("atomic-split", async () => {
+    await appendSplit("ORC-05", ["ORC-07", "ORC-08"]);
+  }, migration);
+  const splitResult = checkScenarioAuthority({ repo: fixture, base: migration, candidate: split });
+  assert.equal(splitResult.slots, 123);
+
+  const oneChild = await commitMutation("one-child-split", async () => {
+    await appendSplit("ORC-05", ["ORC-07"]);
+  }, migration);
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base: migration, candidate: oneChild }),
+    /split requires at least two new children/);
+
+  const missingChildSlot = await commitMutation("missing-child-slot", async () => {
+    await appendSplit("ORC-05", ["ORC-07", "ORC-08"], "ORC-08/recovery");
+  }, migration);
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base: migration, candidate: missingChildSlot }),
+    /scenario slots must equal the 123-slot capability catalog/);
+
+  const changedCanonicalCapability = await commitMutation("changed-canonical-capability", async () => {
+    const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
+    catalog.capabilities[0].name = "Rewritten authority";
+    await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
+  }, migration);
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base: migration, candidate: changedCanonicalCapability }),
+    /changed or reordered canonical capability KRN-01/);
+
+  const deletedCanonicalCapability = await commitMutation("deleted-canonical-capability", async () => {
+    const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
+    catalog.capabilities.pop();
+    await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
+  }, migration);
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base: migration, candidate: deletedCanonicalCapability }),
+    /deleted canonical capabilities/);
+
+  const inheritedCase = await commitMutation("inherited-case", async () => {
+    await appendSplit("ORC-05", ["ORC-07", "ORC-08"]);
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    const parentCase = design.scenarios.find((row) => row.capability_id === "ORC-05").case_id;
+    design.scenarios.find((row) => row.capability_id === "ORC-07").case_id = parentCase;
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  }, migration);
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base: migration, candidate: inheritedCase }),
+    /scenario design has duplicate identity/);
+
+  const resplitParent = await commitMutation("resplit-parent", async () => {
+    await appendSplit("ORC-05", ["ORC-09", "ORC-10"]);
+  }, split);
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base: split, candidate: resplitParent }),
+    /must split one canonical terminal capability/);
+
+  const selfParent = await commitMutation("self-parent", async () => {
+    await appendSplit("ORC-05", ["ORC-07", "ORC-08"]);
+    const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
+    catalog.capabilities.find((row) => row.id === "ORC-07").split_from = "ORC-07";
+    await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
+  }, migration);
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base: migration, candidate: selfParent }),
+    /split parent is invalid/);
+
+  const cyclicLineage = await commitMutation("cyclic-lineage", async () => {
+    const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
+    catalog.capabilities.find((row) => row.id === "KRN-01").split_from = "KRN-02";
+    catalog.capabilities.find((row) => row.id === "KRN-02").split_from = "KRN-01";
+    await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
+  }, migration);
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base: migration, candidate: cyclicLineage }),
+    /capability lineage contains a cycle/);
+
+  const multipleParents = await commitMutation("multiple-parents", async () => {
+    const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
+    catalog.capabilities[0].split_from = ["KRN-02", "KRN-03"];
+    await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
+  }, migration);
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base: migration, candidate: multipleParents }),
+    /split_from is invalid/);
+
+  const unverifiedAtomicity = await commitMutation("unverified-atomicity", async () => {
+    const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
+    catalog.capabilities[0].atomicity = "atomic";
+    await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
+  }, migration);
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base: migration, candidate: unverifiedAtomicity }),
+    /atomicity requires a future independent authority consumer/);
 
   const addition = await commitMutation("addition", async () => {
     const design = JSON.parse(await readFile(designPath, "utf8"));
@@ -227,7 +384,7 @@ try {
     await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
   });
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: catalogDrift }),
-    /changed the canonical capability catalog/);
+    /changed the canonical v1 capability catalog/);
 
   const topLevelScore = await commitMutation("top-level-score", async () => {
     const design = JSON.parse(await readFile(designPath, "utf8"));

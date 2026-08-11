@@ -34,15 +34,26 @@ function canonical(value) {
 }
 
 function scoreReport(candidate, catalog, catalogSha256, mode) {
+  const parents = new Set(catalog.schema_version === 2
+    ? catalog.capabilities.filter((row) => row.split_from !== null).map((row) => row.split_from)
+    : []);
+  const unreviewedTerminals = new Set(catalog.schema_version === 2
+    ? catalog.capabilities.filter((row) => !parents.has(row.id)).map((row) => row.id)
+    : []);
   const capabilities = catalog.capabilities.map((definition) => {
     const install = definition.id === "INS-01";
-    const expected = install && mode === "positive"
-      ? { score: 8, maturity: "representative", reason: "repeated_attested_fixed_observer_campaign", gap_count: 0 }
-      : install && mode === "negative"
-        ? { score: 0, maturity: "contradicted", reason: "critical_gap", gap_count: 1 }
-        : { score: 0, maturity: "absent", reason: "no_passing_evidence", gap_count: 0 };
+    const expected = unreviewedTerminals.has(definition.id)
+      ? { score: 0, maturity: "unavailable", reason: "atomicity_unresolved", gap_count: install && mode === "negative" ? 1 : 0 }
+      : install && mode === "positive"
+        ? { score: 8, maturity: "representative", reason: "repeated_attested_fixed_observer_campaign", gap_count: 0 }
+        : install && mode === "negative"
+          ? { score: 0, maturity: "contradicted", reason: "critical_gap", gap_count: 1 }
+          : { score: 0, maturity: "absent", reason: "no_passing_evidence", gap_count: 0 };
+    const scoringDefinition = Object.fromEntries(
+      ["id", "domain", "name", "owner", "consumer", "weight", "critical"].map((key) => [key, definition[key]]),
+    );
     return {
-      ...definition,
+      ...scoringDefinition,
       ...expected,
       observation_count: 0,
       attested_campaign_count: install ? 1 : 0,
@@ -58,7 +69,8 @@ function scoreReport(candidate, catalog, catalogSha256, mode) {
     target_score: catalog.target_score,
     evidence_ceiling: 8,
     evidence_limit: "repeated_attested_fixed_observer_campaign; independent_observer_process_isolation_and_provider_attempt_inventory_unavailable",
-    weighted_score: mode === "positive" ? Number((8 * installWeight / totalWeight).toFixed(3)) : 0,
+    weighted_score: mode === "positive" && !unreviewedTerminals.has("INS-01")
+      ? Number((8 * installWeight / totalWeight).toFixed(3)) : 0,
     minimum_score: 0,
     eligible: false,
     below_target: catalog.capabilities.map((row) => row.id),
@@ -128,8 +140,9 @@ async function aggregate(output) {
 try {
   const candidate = { repository: "https://github.com/qOeOp/pareto", commit: "a".repeat(40), tree: "b".repeat(40) };
   const catalog = {
+    schema_version: 1,
     target_score: 9.5,
-    capabilities: ["INS-01", "EVAL-02", ...Array.from({ length: 37 }, (_, index) => `FIX-${String(index + 1).padStart(2, "0")}`)]
+    capabilities: ["INS-01", "EVAL-02", ...Array.from({ length: 39 }, (_, index) => `FIX-${String(index + 1).padStart(2, "0")}`)]
       .map((id) => ({
         id, domain: "fixture", name: `Fixture ${id}`, owner: "fixture", consumer: "fixture",
         weight: 1, critical: ["INS-01", "EVAL-02"].includes(id),
@@ -143,6 +156,31 @@ try {
   await assert.rejects(
     async () => validateObservedScoreReport(spreadReport, candidate, "positive", catalog, catalogSha256),
     /scorer report capability FIX-01 is invalid/,
+  );
+
+  const unreviewedCatalog = structuredClone(catalog);
+  unreviewedCatalog.schema_version = 2;
+  unreviewedCatalog.capabilities = unreviewedCatalog.capabilities.map((row) => ({
+    ...row,
+    atomicity: "unreviewed",
+    split_from: null,
+  }));
+  const unreviewedReport = scoreReport(candidate, unreviewedCatalog, catalogSha256, "positive");
+  assert.equal(validateObservedScoreReport(
+    unreviewedReport, candidate, "positive", unreviewedCatalog, catalogSha256,
+  ), unreviewedReport);
+  const falseInheritedScore = structuredClone(unreviewedReport);
+  Object.assign(falseInheritedScore.capabilities.find((row) => row.id === "INS-01"), {
+    score: 8,
+    maturity: "representative",
+    reason: "repeated_attested_fixed_observer_campaign",
+  });
+  falseInheritedScore.weighted_score = Number((8 / unreviewedCatalog.capabilities.length).toFixed(3));
+  await assert.rejects(
+    async () => validateObservedScoreReport(
+      falseInheritedScore, candidate, "positive", unreviewedCatalog, catalogSha256,
+    ),
+    /scorer report capability INS-01 is invalid/,
   );
 
   const workflow = await readFile(".github/workflows/observe-score-capability.yml", "utf8");

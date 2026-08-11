@@ -3,6 +3,7 @@ import { lstat, readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
+import { capabilityScenarios, validateCapabilityCatalog } from "./capability-catalog.mjs";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -179,18 +180,9 @@ function validateScenarioDesigns(catalog, design, cases) {
   if (design.schema_version !== 3 || !Array.isArray(design.scenarios)) {
     fail("scenario design identity is invalid");
   }
-  if (!Array.isArray(catalog.capabilities) || catalog.capabilities.length !== 39) {
-    fail("capability catalog must retain exactly 39 leaves");
-  }
-  const capabilityIds = new Set();
-  for (const capability of catalog.capabilities) {
-    if (!/^[A-Z]{3,4}-\d{2}$/.test(capability.id) || capabilityIds.has(capability.id)) {
-      fail("capability catalog contains an invalid or duplicate leaf");
-    }
-    capabilityIds.add(capability.id);
-  }
-
-  const scenarios = new Set(["positive", "negative", "recovery"]);
+  const catalogContract = validateCapabilityCatalog(catalog, "capability catalog");
+  const capabilityIds = new Set(catalogContract.capabilities.keys());
+  const scenarios = capabilityScenarios;
   const observerKinds = new Set([
     "native_thread",
     "fixed_real_consumer",
