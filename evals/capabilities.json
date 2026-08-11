@@ -18,7 +18,7 @@
     "independent_observers": 2
   },
   "capabilities": [
-    { "id": "KRN-01", "domain": "kernel", "name": "activation and entry boundaries", "owner": "SKILL.md", "consumer": "host Skill activation", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": null },
+    { "id": "KRN-01", "domain": "kernel", "name": "activation and entry boundaries", "owner": "SKILL.md", "consumer": "host Skill activation", "weight": 1, "critical": true, "atomicity": "atomic", "split_from": null },
     { "id": "KRN-02", "domain": "kernel", "name": "Frame authority and effect boundaries", "owner": "SKILL.md", "consumer": "main lifecycle", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": null },
     { "id": "PLN-01", "domain": "planning", "name": "decision evidence and external research", "owner": "planning-decision-evidence.md", "consumer": "Plan decision", "weight": 1, "critical": false, "atomicity": "unreviewed", "split_from": null },
     { "id": "PLN-02", "domain": "planning", "name": "credible alternatives and reuse", "owner": "planning-decision-workflow.md", "consumer": "Plan admission", "weight": 1, "critical": false, "atomicity": "unreviewed", "split_from": null },
