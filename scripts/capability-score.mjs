@@ -71,6 +71,21 @@ function fail(message) {
   throw new Error(message);
 }
 
+export function fixedObserverProtocolVersion(capabilityId, protocolId) {
+  if (protocolId === "install-skill-v2") {
+    if (capabilityId !== "INS-01") fail(`${capabilityId} fixed observer protocol is unsupported`);
+    return "pareto-fixed-observer-protocol/v2";
+  }
+  if (["install-v1", "score-v1"].includes(protocolId)) return "pareto-fixed-observer-protocol/v1";
+  fail(`${capabilityId} fixed observer protocol is unsupported`);
+}
+
+export function attestedCampaignVerifierKind(protocolId) {
+  if (protocolId === "install-v1") return "install";
+  if (protocolId === "score-v1") return "score";
+  fail("attested campaign protocol is unsupported");
+}
+
 function exactKeys(value, expected, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail(`${label} must be an object`);
   const actual = Object.keys(value).sort();
@@ -515,7 +530,7 @@ async function verifyCommittedFixedObserverBindings(repositoryRoot, candidate, c
     exactKeys(protocol,
       ["adapter", "consumer_paths", "consumer_workflow_name", "coverage", "observer", "protocol", "runtime_paths", "subject_paths", "workflow", "workflow_name"],
       `fixed observer ${capabilityId} protocol`);
-    if (protocol.protocol !== "pareto-fixed-observer-protocol/v1") {
+    if (protocol.protocol !== fixedObserverProtocolVersion(capabilityId, binding.protocol)) {
       fail(`${capabilityId} fixed observer protocol version is unsupported`);
     }
     const capabilityRows = [];
@@ -1823,15 +1838,15 @@ async function verifyAttestedCampaign(entry, evidenceDirectory, candidate, fixed
         !fixedObserverAuthority.get(authority.binding.parameters.source_capability)?.implemented)) {
     fail(`${capabilityId ?? "unknown"} attested campaign lacks implemented scenario authority`);
   }
-  if (authority.binding.protocol === "install-v1") {
+  const verifierKind = attestedCampaignVerifierKind(authority.binding.protocol);
+  if (verifierKind === "install") {
     return verifyInstallCampaign(entry, evidenceDirectory, candidate, authority, loaded);
   }
-  if (authority.binding.protocol === "score-v1") {
+  if (verifierKind === "score") {
     return verifyScoreCampaign(
       entry, evidenceDirectory, candidate, authority, fixedObserverAuthority, loaded, allowPendingConsumption,
     );
   }
-  fail("attested campaign protocol is unsupported");
 }
 
 function validateObservation(observation, capabilities, requirements) {
