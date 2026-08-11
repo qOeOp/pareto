@@ -14,6 +14,25 @@ import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 const observerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const expectedRepository = "https://github.com/qOeOp/pareto";
 const ownedProfiles = ["fast-builder.toml", "mission-evaluator.toml", "mission-planner.toml", "mission-researcher.toml"];
+export const observerRuntimeBounds = Object.freeze({
+  cleanup: Object.freeze({ force: true, maxRetries: 8, recursive: true, retryDelay: 250 }),
+  appServerProbeMs: 30_000,
+  terminationMs: 5_000,
+});
+
+export function createObserverLifecycle() {
+  let cleanupAllowed = true;
+  return Object.freeze({
+    async cleanup(operation) {
+      if (!cleanupAllowed) return false;
+      await operation();
+      return true;
+    },
+    holdCleanup() {
+      cleanupAllowed = false;
+    },
+  });
+}
 const scenarioDesignBytes = await readFile(path.join(observerRoot, "evals", "scenarios.json"));
 rejectDuplicateJsonObjectMembers(scenarioDesignBytes.toString("utf8"), "scenario authority");
 const scenarioDesign = JSON.parse(scenarioDesignBytes);
@@ -52,6 +71,31 @@ function digest(value) {
 
 function canonicalEqual(left, right) {
   return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
+}
+
+export async function terminateTimedOutChild(
+  child,
+  completion,
+  label,
+  lifecycle,
+  terminationMs = observerRuntimeBounds.terminationMs,
+) {
+  child.kill("SIGTERM");
+  let outcome = await Promise.race([
+    completion,
+    delay(terminationMs).then(() => null),
+  ]);
+  if (!outcome) {
+    child.kill("SIGKILL");
+    outcome = await Promise.race([
+      completion,
+      delay(terminationMs).then(() => null),
+    ]);
+  }
+  if (!outcome) {
+    lifecycle.holdCleanup();
+    fail(`${label} could not terminate after timeout`);
+  }
 }
 
 function exactKeys(value, expected, label) {
@@ -273,7 +317,7 @@ async function removeWindowsAgentsRoot(root, identity) {
     if (!replacement) await rename(custody, root).catch(() => {});
     fail("Windows runner user Skill root identity changed before cleanup");
   }
-  await rm(custody, { force: true, recursive: true });
+  await rm(custody, observerRuntimeBounds.cleanup);
 }
 
 async function expectedInstallation(subjectRoot, root) {
@@ -335,7 +379,7 @@ function diagnosticDigest(result) {
   return digest(Buffer.from(`${result.status}\n${result.signal ?? ""}\n${result.error ?? ""}\n${result.stderr}`));
 }
 
-async function listInstalledSkill({ codexEntry, cwd, roots, expectedDescription }) {
+async function listInstalledSkill({ codexEntry, cwd, roots, expectedDescription, lifecycle }) {
   const executable = await fileIdentity(codexEntry);
   const child = spawn(process.execPath, [executable.path, "app-server"], {
     cwd,
@@ -452,10 +496,12 @@ async function listInstalledSkill({ codexEntry, cwd, roots, expectedDescription 
     method: "initialize",
     params: { clientInfo: { name: "pareto_ins01_observer", title: "Pareto INS-01 Observer", version: "1.0.0" } },
   })}\n`);
-  const outcome = await Promise.race([completion, delay(10_000).then(() => null)]);
+  const outcome = await Promise.race([
+    completion,
+    delay(observerRuntimeBounds.appServerProbeMs).then(() => null),
+  ]);
   if (!outcome) {
-    child.kill("SIGTERM");
-    await Promise.race([completion, delay(2_000)]);
+    await terminateTimedOutChild(child, completion, "app-server Skill probe", lifecycle);
     fail("app-server Skill probe timed out");
   }
   lines.close();
@@ -496,7 +542,7 @@ async function listInstalledSkill({ codexEntry, cwd, roots, expectedDescription 
   };
 }
 
-async function probeAgentProfileLoader({ codexEntry, cwd, roots, profile, expectMalformed }) {
+async function probeAgentProfileLoader({ codexEntry, cwd, roots, profile, expectMalformed, lifecycle }) {
   const executable = await fileIdentity(codexEntry);
   const profilePath = (await realpath(path.join(roots.codex, "agents", profile))).replaceAll("\\", "/");
   const child = spawn(process.execPath, [executable.path, "app-server"], {
@@ -579,10 +625,12 @@ async function probeAgentProfileLoader({ codexEntry, cwd, roots, profile, expect
     method: "initialize",
     params: { clientInfo: { name: "pareto_profile_observer", title: "Pareto Profile Observer", version: "1.0.0" } },
   })}\n`);
-  const outcome = await Promise.race([completion, delay(10_000).then(() => null)]);
+  const outcome = await Promise.race([
+    completion,
+    delay(observerRuntimeBounds.appServerProbeMs).then(() => null),
+  ]);
   if (!outcome) {
-    child.kill("SIGTERM");
-    await Promise.race([completion, delay(2_000)]);
+    await terminateTimedOutChild(child, completion, "app-server profile probe", lifecycle);
     fail("app-server profile probe timed out");
   }
   lines.close();
@@ -707,6 +755,7 @@ async function observe({ capabilityId, subjectRoot, codexEntry, output, trial })
   const observer = observerIdentity();
   const temporary = await mkdtemp(path.join(tmpdir(), `pareto-${capability.slug}-observer-`));
   const windowsAgentsRoot = platform() === "win32" ? path.join(homedir(), ".agents") : null;
+  const lifecycle = createObserverLifecycle();
   let windowsAgentsIdentity = null;
   try {
   if (windowsAgentsRoot) {
@@ -756,7 +805,7 @@ async function observe({ capabilityId, subjectRoot, codexEntry, output, trial })
     const positiveOwnedProfiles = await ownedProfileDigest(roots.codex);
     const positiveProfileState = await profileInstallationDigest(destinationSkill, roots.codex, foreignState);
     const positiveLoader = await probeAgentProfileLoader({
-      codexEntry, cwd: workspace, roots, profile: capability.profile, expectMalformed: false,
+      codexEntry, cwd: workspace, roots, profile: capability.profile, expectMalformed: false, lifecycle,
     });
 
     await writeFile(destinationProfile, "name = [pareto_observer_malformed");
@@ -768,7 +817,7 @@ async function observe({ capabilityId, subjectRoot, codexEntry, output, trial })
       "profile recovery precondition",
     );
     const negativeLoader = await probeAgentProfileLoader({
-      codexEntry, cwd: workspace, roots, profile: capability.profile, expectMalformed: true,
+      codexEntry, cwd: workspace, roots, profile: capability.profile, expectMalformed: true, lifecycle,
     });
     if (await profileInstallationDigest(destinationSkill, roots.codex, foreignState) !== driftedState ||
         await foreignStateDigest(foreignState) !== expectedForeignState) {
@@ -778,7 +827,7 @@ async function observe({ capabilityId, subjectRoot, codexEntry, output, trial })
     requireCompleted(installer(subjectRoot, roots, lock), "profile recovery installer consumer");
     requireCompleted(installer(subjectRoot, roots, lock, true), "profile recovery installer verification");
     const recoveryLoader = await probeAgentProfileLoader({
-      codexEntry, cwd: workspace, roots, profile: capability.profile, expectMalformed: false,
+      codexEntry, cwd: workspace, roots, profile: capability.profile, expectMalformed: false, lifecycle,
     });
     const recoveredProfileBytes = await readFile(destinationProfile);
     const recoveredOwnedProfiles = await ownedProfileDigest(roots.codex);
@@ -847,7 +896,7 @@ async function observe({ capabilityId, subjectRoot, codexEntry, output, trial })
   }
 
   const positiveLoader = await listInstalledSkill({
-    codexEntry, cwd: workspace, roots: loaderRoots, expectedDescription: description,
+    codexEntry, cwd: workspace, roots: loaderRoots, expectedDescription: description, lifecycle,
   });
   await writeFile(badLock, `${JSON.stringify({ schema_version: 2, ...subject, skill_tree: "0".repeat(40) })}\n`);
   const negative = installer(subjectRoot, roots, badLock);
@@ -863,7 +912,7 @@ async function observe({ capabilityId, subjectRoot, codexEntry, output, trial })
   requireCompleted(installer(subjectRoot, roots, lock), "recovery installer consumer");
   requireCompleted(installer(subjectRoot, roots, lock, true), "recovery installer verification");
   const recoveryLoader = await listInstalledSkill({
-    codexEntry, cwd: workspace, roots: loaderRoots, expectedDescription: description,
+    codexEntry, cwd: workspace, roots: loaderRoots, expectedDescription: description, lifecycle,
   });
   if (await treeDigest(destinationSkill) !== sourceManifest ||
       await installationDigest(roots.agents, roots.codex) !== installedState ||
@@ -921,12 +970,12 @@ async function observe({ capabilityId, subjectRoot, codexEntry, output, trial })
   });
   await writeFile(output, `${JSON.stringify(envelope)}\n`, { flag: "wx" });
   } finally {
-    await Promise.all([
-      rm(temporary, { force: true, recursive: true }),
+    await lifecycle.cleanup(() => Promise.all([
+      rm(temporary, observerRuntimeBounds.cleanup),
       windowsAgentsIdentity
         ? removeWindowsAgentsRoot(windowsAgentsRoot, windowsAgentsIdentity)
         : Promise.resolve(),
-    ]);
+    ]));
   }
 }
 
