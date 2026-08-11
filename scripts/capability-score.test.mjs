@@ -1639,6 +1639,38 @@ try {
     "a changed Codex dependency lock must invalidate older install observations before signature replay",
   );
 
+  const v2Catalog = JSON.parse(await readFile(path.join(repository, "evals", "capabilities.json"), "utf8"));
+  v2Catalog.schema_version = 2;
+  v2Catalog.capabilities = v2Catalog.capabilities.map((row) => ({
+    ...row,
+    atomicity: "unreviewed",
+    split_from: null,
+  }));
+  await writeFile(path.join(repository, "evals", "capabilities.json"), `${JSON.stringify(v2Catalog, null, 2)}\n`);
+  await git(["add", "evals/capabilities.json"]);
+  await git(["commit", "--quiet", "-m", "migrate unreviewed atomic catalog"]);
+  candidate.commit = await git(["rev-parse", "HEAD"]);
+  candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
+  const v2CatalogBytes = await execFileAsync("git", ["-C", repository, "show", `${candidate.commit}:evals/capabilities.json`], {
+    encoding: null,
+    env: gitEnvironment,
+  }).then((result) => result.stdout);
+  const unreviewedEvidencePath = path.join(temporaryRoot, "unreviewed-catalog-evidence.json");
+  await writeFile(unreviewedEvidencePath, `${JSON.stringify({
+    schema_version: 1,
+    catalog_sha256: sha(v2CatalogBytes),
+    candidate: { ...candidate },
+    attempt_inventory: { status: "unavailable", locator: "provider attestation unavailable" },
+    observations: [],
+    open_gaps: [],
+  }, null, 2)}\n`);
+  const unreviewedScore = await scoreEvidence({ evidencePath: unreviewedEvidencePath });
+  assert.equal(unreviewedScore.eligible, false);
+  assert.equal(unreviewedScore.minimum_score, 0);
+  assert.ok(unreviewedScore.capabilities.every((row) =>
+    row.score === 0 && row.maturity === "unavailable" && row.reason === "atomicity_unresolved"),
+  "v2 migration must never inherit or manufacture a parent capability score");
+
   console.log("capability score tests passed");
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });

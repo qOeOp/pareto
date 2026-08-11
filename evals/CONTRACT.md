@@ -191,6 +191,20 @@ scorer reports both the weighted aggregate and the minimum leaf score. Completio
 at least 9.5 and every critical leaf to pass; no weight, domain aggregate, or unrelated strong leaf may
 hide a weaker capability.
 
+Catalog v1 is the frozen legacy inventory. A base-owned control may migrate it once to v2 by preserving
+every row in order and adding only `atomicity: unreviewed` and `split_from: null`; migration cannot add,
+delete, reorder, score, or relabel a capability. Later v2 evolution is append-only. One change may split
+one or more current terminal capabilities, but each split appends at least two children, every child names
+one already-canonical terminal parent, and all prior rows remain field-equivalent and order-stable. A parent remains scored;
+children start at zero with fresh positive, negative, and recovery slots, unavailable consumer authority,
+and no inherited case or evidence. A previously split parent cannot receive later siblings.
+
+`unreviewed` is the only currently admitted atomicity state. The scorer forces every unreviewed terminal
+to zero with `atomicity_unresolved`, even if evidence names it. An `atomic` state stays unsupported until a
+separate, independently consumable review authority exists; a catalog author, count, name, split shape, or
+PR text cannot self-certify it. This fail-closed migration deliberately invalidates legacy aggregate scores
+instead of copying a bundled parent's maturity into narrower children.
+
 The scorer consumes content-addressed raw evidence, not agent-authored numeric scores. Deterministic
 replay accepts only a complete Promptfoo artifact that passes the production row, assertion, raw-turn,
 activation, candidate, suite, provider, model, and effort validator; the committed case supplies its
@@ -301,7 +315,7 @@ capability to 0 and the latter must be rejected before scoring. Recovery removes
 reuses the unchanged signed input, and requires a fresh scorer process to reproduce the original report
 byte-for-byte after canonicalization. One Linux and one Windows observation are signed separately;
 the observation and aggregate jobs have no OIDC authority, while signing jobs download bytes without
-checking out or executing candidate code. The observer independently challenges the canonical scorer against the exact 39-row catalog,
+checking out or executing candidate code. The observer independently challenges the canonical scorer against every row in the exact committed catalog,
 per-row scores and counts, weighted score, below-target set, critical-breach set, and global gate rather
 than trusting a report summary. It is a test oracle, not a second scoring authority: normal and receipt-bound
 score interpretation remains exclusively in `capability-score.mjs`. The signed input campaign is retained with the output so the reports and
@@ -328,7 +342,7 @@ does not prove a complete attempt inventory, representative repetition, independ
 The CLI is an explicit operator gate, not a host Goal integration: it exits nonzero for every report
 whose minimum leaf is below 9.5. The candidate repository must match the scorer checkout's exact origin;
 its commit must be the clean checkout `HEAD`, its tree must resolve exactly, and its committed catalog
-blob must equal the catalog being scored. The catalog is the checked-in 39-leaf authority; callers
+blob must equal the catalog being scored. The checked-in catalog is the complete leaf authority; callers
 cannot substitute a smaller catalog. An explicit unavailable observation scores that leaf zero with
 an explicit count and reason. An unavailable provider inventory is reported as the global evidence
 limit rather than hidden by selected passes.

@@ -336,7 +336,9 @@ async function verifiedSigstoreRuntime(temporaryRoot) {
 
 function validateCatalog(catalog) {
   exactKeys(catalog, ["schema_version", "target_score", "local_trace_ceiling", "score_anchors", "default_requirements", "capabilities"], "catalog");
-  if (catalog.schema_version !== 1 || catalog.target_score !== 9.5 || catalog.local_trace_ceiling !== 2) fail("catalog version, target, or local trace ceiling is unsupported");
+  if (![1, 2].includes(catalog.schema_version) || catalog.target_score !== 9.5 || catalog.local_trace_ceiling !== 2) {
+    fail("catalog version, target, or local trace ceiling is unsupported");
+  }
   exactKeys(catalog.score_anchors, ["absent_or_contradicted", "declared", "reachable", "dynamic", "representative", "varied_no_material_gap"], "score anchors");
   const expectedAnchors = { absent_or_contradicted: 0, declared: 2, reachable: 4, dynamic: 6, representative: 8, varied_no_material_gap: 9.5 };
   if (Object.entries(expectedAnchors).some(([key, value]) => catalog.score_anchors[key] !== value)) {
@@ -344,21 +346,62 @@ function validateCatalog(catalog) {
   }
   exactKeys(catalog.default_requirements, ["scenarios", "sources", "trials_per_scenario", "environments", "independent_observers"], "default requirements");
   const requirements = catalog.default_requirements;
-  if (!Array.isArray(requirements.scenarios) || requirements.scenarios.length < 3 || new Set(requirements.scenarios).size !== requirements.scenarios.length) fail("catalog scenarios are invalid");
-  if (!Array.isArray(requirements.sources) || requirements.sources.length !== sourceKinds.size || requirements.sources.some((kind) => !sourceKinds.has(kind))) fail("catalog sources are invalid");
-  if (!Number.isInteger(requirements.trials_per_scenario) || requirements.trials_per_scenario < 3 || !Number.isInteger(requirements.environments) || requirements.environments < 2 || !Number.isInteger(requirements.independent_observers) || requirements.independent_observers < 2) fail("catalog varied-evidence requirements are too weak");
+  if (JSON.stringify(requirements.scenarios) !== JSON.stringify([...scenarios]) ||
+      !Array.isArray(requirements.sources) || requirements.sources.length !== sourceKinds.size ||
+      requirements.sources.some((kind) => !sourceKinds.has(kind)) ||
+      !Number.isInteger(requirements.trials_per_scenario) || requirements.trials_per_scenario < 3 ||
+      !Number.isInteger(requirements.environments) || requirements.environments < 2 ||
+      !Number.isInteger(requirements.independent_observers) || requirements.independent_observers < 2) {
+    fail("catalog varied-evidence requirements are invalid or too weak");
+  }
   if (!Array.isArray(catalog.capabilities) || catalog.capabilities.length === 0) fail("catalog capabilities are empty");
-  const ids = new Set();
+  const capabilities = new Map();
+  const rawRows = new Map();
+  const parents = new Set();
   for (const capability of catalog.capabilities) {
-    exactKeys(capability, ["id", "domain", "name", "owner", "consumer", "weight", "critical"], "capability");
+    exactKeys(capability, catalog.schema_version === 1
+      ? ["id", "domain", "name", "owner", "consumer", "weight", "critical"]
+      : ["id", "domain", "name", "owner", "consumer", "weight", "critical", "atomicity", "split_from"],
+    "capability");
     const id = atom(capability.id, "capability id");
-    if (!/^[A-Z]{3,4}-\d{2}$/.test(id) || ids.has(id)) fail(`capability id is invalid or duplicated: ${id}`);
-    ids.add(id);
+    if (!/^[A-Z]{3,4}-\d{2}$/.test(id) || capabilities.has(id)) fail(`capability id is invalid or duplicated: ${id}`);
     for (const key of ["domain", "name", "owner", "consumer"]) atom(capability[key], `capability ${id} ${key}`);
     if (capability.weight !== 1) fail(`capability ${id} weight must remain one so weights cannot hide a weak leaf`);
     if (typeof capability.critical !== "boolean") fail(`capability ${id} critical must be boolean`);
+    if (catalog.schema_version === 2) {
+      if (capability.atomicity !== "unreviewed") {
+        fail(`capability ${id} atomicity requires a future independent authority consumer`);
+      }
+      if (capability.split_from !== null &&
+          (typeof capability.split_from !== "string" || !/^[A-Z]{3,4}-\d{2}$/.test(capability.split_from))) {
+        fail(`capability ${id} split parent is invalid`);
+      }
+      if (capability.split_from !== null) parents.add(capability.split_from);
+    }
+    rawRows.set(id, capability);
+    capabilities.set(id, Object.fromEntries(["id", "domain", "name", "owner", "consumer", "weight", "critical"]
+      .map((key) => [key, capability[key]])));
   }
-  return new Map(catalog.capabilities.map((capability) => [capability.id, capability]));
+  if (catalog.schema_version === 2) {
+    for (const capability of rawRows.values()) {
+      if (capability.split_from !== null && (!rawRows.has(capability.split_from) || capability.split_from === capability.id)) {
+        fail(`capability ${capability.id} split parent is invalid`);
+      }
+      const lineage = new Set([capability.id]);
+      let parent = capability.split_from;
+      while (parent !== null) {
+        if (lineage.has(parent)) fail("capability lineage contains a cycle");
+        lineage.add(parent);
+        parent = rawRows.get(parent).split_from;
+      }
+    }
+  }
+  return {
+    capabilities,
+    unreviewedTerminalIds: new Set(catalog.schema_version === 2
+      ? [...capabilities.keys()].filter((id) => !parents.has(id))
+      : []),
+  };
 }
 
 export function parseCapabilityResult(message, label) {
@@ -417,20 +460,20 @@ async function committedCapabilityCases(repositoryRoot, candidate, capabilities)
   return cases;
 }
 
-async function verifyCommittedFixedObserverBindings(repositoryRoot, candidate) {
+async function verifyCommittedFixedObserverBindings(repositoryRoot, candidate, capabilities) {
   const bytes = await gitBytes(repositoryRoot, ["show", `${candidate.commit}:evals/scenarios.json`]).catch(() => null);
   if (!bytes) fail("committed scenario authority is unavailable from the candidate");
   const { value: design } = parseUniqueJson(bytes, "scenario authority");
   exactKeys(design, ["schema_version", "attested_protocols", "fixed_observers", "scenarios"], "scenario authority");
   if (design.schema_version !== 3 || !design.attested_protocols || Array.isArray(design.attested_protocols) ||
       !design.fixed_observers || Array.isArray(design.fixed_observers) ||
-      !Array.isArray(design.scenarios) || design.scenarios.length !== 117) {
+      !Array.isArray(design.scenarios) || design.scenarios.length !== capabilities.size * scenarios.size) {
     fail("scenario authority identity is invalid");
   }
   const rows = new Map();
   for (const row of design.scenarios) {
     if (!row || typeof row !== "object" || Array.isArray(row) ||
-        typeof row.capability_id !== "string" || !scenarios.has(row.scenario) ||
+        typeof row.capability_id !== "string" || !capabilities.has(row.capability_id) || !scenarios.has(row.scenario) ||
         typeof row.case_id !== "string") {
       fail("scenario authority row is invalid");
     }
@@ -543,7 +586,7 @@ export async function verifyCommittedNativeTurn({ repositoryRoot, prompt, output
   const candidate = { repository: origin, commit, tree };
   const catalogBytes = await verifyCandidate(repositoryRoot, candidate);
   const { value: catalog } = parseUniqueJson(catalogBytes, "capability catalog");
-  const capabilities = validateCatalog(catalog);
+  const capabilities = validateCatalog(catalog).capabilities;
   const cases = await committedCapabilityCases(repositoryRoot, candidate, capabilities);
   const matching = [...cases.values()].filter((entry) => entry.prompt === prompt);
   if (matching.length !== 1) fail("native turn prompt does not match exactly one committed capability case");
@@ -590,7 +633,7 @@ export async function verifyCommittedCapabilityResult({ repositoryRoot, result }
   const candidate = { repository: origin, commit: result.candidate.commit, tree: result.candidate.tree };
   const catalogBytes = await verifyCandidate(repositoryRoot, candidate);
   const { value: catalog } = parseUniqueJson(catalogBytes, "capability catalog");
-  const capabilities = validateCatalog(catalog);
+  const capabilities = validateCatalog(catalog).capabilities;
   const cases = await committedCapabilityCases(repositoryRoot, candidate, capabilities);
   const committedCase = cases.get(result.case_id);
   if (!committedCase) fail("native result does not name one committed capability case");
@@ -1740,8 +1783,9 @@ async function scoreEvidenceInternal({ evidencePath }, allowAttested, allowPendi
   if (!/^[a-f0-9]{40}$/.test(evidence.candidate.commit) || !/^[a-f0-9]{40}$/.test(evidence.candidate.tree)) fail("candidate Git identity is invalid");
   const catalogBytes = await verifyCandidate(root, evidence.candidate);
   const { value: catalog } = parseUniqueJson(catalogBytes, "capability catalog");
-  const capabilities = validateCatalog(catalog);
-  const fixedObserverAuthority = await verifyCommittedFixedObserverBindings(root, evidence.candidate);
+  const catalogContract = validateCatalog(catalog);
+  const capabilities = catalogContract.capabilities;
+  const fixedObserverAuthority = await verifyCommittedFixedObserverBindings(root, evidence.candidate, capabilities);
   if (evidence.catalog_sha256 !== digest(catalogBytes)) fail("evidence catalog binding is stale or invalid");
   exactKeys(evidence.attempt_inventory, ["status", "locator"], "attempt inventory");
   if (evidence.attempt_inventory.status !== "unavailable") fail("provider-attested attempt inventory is not supported by this scorer");
@@ -1806,9 +1850,12 @@ async function scoreEvidenceInternal({ evidencePath }, allowAttested, allowPendi
     const observations = evidence.observations.filter((entry) => entry.capability_id === capability.id);
     const capabilityCampaigns = attestedCampaigns.filter((entry) => entry.capability_id === capability.id);
     const gaps = gapsByCapability.get(capability.id) ?? [];
+    const score = catalogContract.unreviewedTerminalIds.has(capability.id)
+      ? { score: 0, maturity: "unavailable", reason: "atomicity_unresolved" }
+      : scoreCapability(observations, gaps, catalog.local_trace_ceiling, capabilityCampaigns);
     return {
       ...capability,
-      ...scoreCapability(observations, gaps, catalog.local_trace_ceiling, capabilityCampaigns),
+      ...score,
       observation_count: observations.length,
       attested_campaign_count: capabilityCampaigns.length,
       unavailable_count: observations.filter((entry) => entry.result === "unavailable").length,

@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
+import { capabilityScenarios, compareCapabilityCatalogs } from "./capability-catalog.mjs";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const defaultRepo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -204,6 +205,7 @@ const protectedFields = [
 ];
 const coreControlPlaneFiles = [
   ".github/workflows/scenario-authority.yml",
+  "scripts/capability-catalog.mjs",
   "scripts/check-scenario-authority.mjs",
   "scripts/self-test.mjs",
   "scripts/validate.mjs",
@@ -240,14 +242,19 @@ export function checkScenarioAuthority({ repo = defaultRepo, base, candidate }) 
   }
   const baseCatalog = parseJsonBlob(resolvedRepo, base, "evals/capabilities.json", "base capability catalog");
   const candidateCatalog = parseJsonBlob(resolvedRepo, candidate, "evals/capabilities.json", "candidate capability catalog");
-  if (JSON.stringify(canonical(candidateCatalog)) !== JSON.stringify(canonical(baseCatalog))) {
-    fail("candidate changed the canonical capability catalog");
+  const catalogEvolution = compareCapabilityCatalogs(baseCatalog, candidateCatalog);
+  const catalogChanged = catalogEvolution.migrated || catalogEvolution.appendedIds.size > 0;
+  const expectedSlots = catalogEvolution.candidate.capabilities.size * capabilityScenarios.size;
+  if (candidateSlots.size !== expectedSlots) {
+    fail(`candidate scenario slots must equal the ${expectedSlots}-slot capability catalog`);
   }
-  if (candidateSlots.size !== baseSlots.size) fail("candidate scenario slots must equal canonical base slots");
 
   for (const [slot, baseRow] of baseSlots) {
     const candidateRow = candidateSlots.get(slot);
     if (!candidateRow) fail(`candidate deleted canonical scenario slot ${slot}`);
+    if (catalogChanged && JSON.stringify(canonical(candidateRow)) !== JSON.stringify(canonical(baseRow))) {
+      fail(`catalog evolution cannot change canonical scenario slot ${slot}`);
+    }
     for (const field of protectedFields) {
       if (candidateRow[field] !== baseRow[field]) fail(`candidate changed canonical ${slot} field ${field}`);
     }
@@ -266,6 +273,18 @@ export function checkScenarioAuthority({ repo = defaultRepo, base, candidate }) 
     if (baseRow.executable_suite === undefined && candidateRow.executable_suite !== undefined &&
         !["golden", "holdout"].includes(candidateRow.executable_suite)) {
       fail(`candidate added invalid ${slot} executable suite`);
+    }
+  }
+
+  for (const capabilityId of catalogEvolution.appendedIds) {
+    for (const scenario of capabilityScenarios) {
+      const slot = `${capabilityId}/${scenario}`;
+      const row = candidateSlots.get(slot);
+      if (!row || baseSlots.has(slot) || row.case_id !== `${capabilityId.toLowerCase()}-${scenario}` ||
+          row.observer_kind !== "fixed_real_consumer" || row.authority_status !== "authority_unavailable" ||
+          row.missing_authority !== "scenario_consumer_binding" || row.executable_suite !== undefined) {
+        fail(`new capability ${capabilityId} must start with one unavailable zero-evidence ${scenario} slot`);
+      }
     }
   }
   for (const capabilityId of fixedObserverCapabilities) {

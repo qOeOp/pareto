@@ -624,12 +624,28 @@ try {
   );
   const baseValidation = await runProductionValidator();
   const scenarioDesignPath = path.join(validatorFixture, "evals", "scenarios.json");
+  const capabilityCatalogPath = path.join(validatorFixture, "evals", "capabilities.json");
+  const capabilityCatalogSource = await readFile(capabilityCatalogPath, "utf8");
   const scenarioDesignSource = await readFile(scenarioDesignPath, "utf8");
   const baseScenarioDesign = JSON.parse(scenarioDesignSource);
+  const expectedScenarioCount = baseScenarioDesign.scenarios.length;
   const baseImplemented = baseScenarioDesign.scenarios.filter((row) => row.authority_status === "implemented").length;
   const baseUnavailable = baseScenarioDesign.scenarios.length - baseImplemented;
   assert.match(baseValidation.stdout,
-    new RegExp(`Validated 1 Skill, \\d+ executable cases, and 117 scenario designs \\(${baseImplemented} implemented authorities, ${baseUnavailable} unavailable\\); committed baselines are disabled`));
+    new RegExp(`Validated 1 Skill, \\d+ executable cases, and ${expectedScenarioCount} scenario designs \\(${baseImplemented} implemented authorities, ${baseUnavailable} unavailable\\); committed baselines are disabled`));
+
+  const v2Catalog = JSON.parse(capabilityCatalogSource);
+  v2Catalog.schema_version = 2;
+  v2Catalog.capabilities = v2Catalog.capabilities.map((row) => ({
+    ...row,
+    atomicity: "unreviewed",
+    split_from: null,
+  }));
+  await writeFile(capabilityCatalogPath, `${JSON.stringify(v2Catalog, null, 2)}\n`, "utf8");
+  const v2Validation = await runProductionValidator();
+  assert.match(v2Validation.stdout,
+    new RegExp(`Validated 1 Skill, \\d+ executable cases, and ${expectedScenarioCount} scenario designs`));
+  await writeFile(capabilityCatalogPath, capabilityCatalogSource, "utf8");
 
   const challengeScenarioDesign = async (mutate, pattern, label) => {
     const challenged = JSON.parse(scenarioDesignSource);
@@ -639,7 +655,7 @@ try {
     await writeFile(scenarioDesignPath, scenarioDesignSource, "utf8");
   };
   await challengeScenarioDesign((design) => design.scenarios.pop(),
-    /(?:fixed observer .* scenario authority must be atomic|scenario design must contain exactly 117 unique leaf\/scenario slots)/,
+    new RegExp(`(?:fixed observer .* scenario authority must be atomic|scenario design must contain exactly ${expectedScenarioCount} unique leaf/scenario slots)`),
     "missing scenario design slot must fail closed");
   await challengeScenarioDesign((design) => {
     design.scenarios[1].case_id = design.scenarios[0].case_id;
