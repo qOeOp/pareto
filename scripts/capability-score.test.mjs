@@ -14,8 +14,16 @@ import { capabilityEvidenceForValidatedResult, runtimeCasesForInstalledSkill } f
 const execFileAsync = promisify(execFile);
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "capability-score-test-"));
 const catalogPath = path.resolve("evals/capabilities.json");
-const catalogBytes = await readFile(catalogPath);
-const catalog = JSON.parse(catalogBytes);
+const canonicalCatalogBytes = await readFile(catalogPath);
+const canonicalCatalog = JSON.parse(canonicalCatalogBytes);
+const catalog = canonicalCatalog.schema_version === 2
+  ? {
+      ...canonicalCatalog,
+      schema_version: 1,
+      capabilities: canonicalCatalog.capabilities.map(({ atomicity, split_from, ...row }) => row),
+    }
+  : canonicalCatalog;
+const catalogBytes = Buffer.from(`${JSON.stringify(catalog, null, 2)}\n`);
 const sha = (bytes) => `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
 const canonical = (value) => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])])) : value;
 const uuid = (value) => {
