@@ -21,6 +21,13 @@ cheapest repository or consumer probe that can distinguish each material path. L
 evidence](planning-decision-evidence.md) only when bounded history, ambiguity, or current external
 facts can change that decision.
 
+For Bounded or High-consequence work, name at most three architecture-killing assumptions: facts
+whose failure would invalidate the Outcome or consumer, force a different owner or lifecycle, cross a
+critical floor, or make the leading route unsafe or uneconomic. Order them by qualitative decision
+value - likelihood of being wrong, avoidable consequence and irreversibility, against probe cost -
+without inventing scores or telemetry. Test the leading assumption with the cheapest
+decision-changing vertical falsifier before broadening the candidate.
+
 For each authority, choose one disposition: reuse it; repair or migrate it while deleting its
 superseded path; create it only when no current owner can express the contract; or keep the decision
 Mission-only when no stable consumer needs repository state. A requested Spec, template, or test does
@@ -78,6 +85,11 @@ Checks, diff size, prose volume, or revision count never select the route. Bind 
 first changed decision, replace the Plan after `replan`, and clear it after `reframe` until a new Plan
 is admitted.
 
+Alternate between Frame and Plan only when a new observation changes one of their owned fields. A
+leaf-specific difference stays candidate-local only while the admitted owner, path, responsibility,
+boundary, and oracle still hold; otherwise route by the first changed Frame or Plan field. No
+decision-changing observation means Stop, not another deliberation or review loop.
+
 ## Make slices falsifiable
 
 Use independent slices only when their candidate or Stop must be independently rejectable. Each slice
@@ -85,3 +97,9 @@ names its consumer, dependency, cheapest decisive check, and earliest `replan`/`
 For a failing check, reproduce the exact failure, localize one cause, make the smallest coherent
 correction, and rerun that check plus the narrowest relevant regression. Convergence follows causal
 closure, not attempt counts.
+
+Before expanding a shared skeleton across many leaves, exercise it through one materially different
+consumer or failure/recovery slice; a near-duplicate happy path is not independent evidence. Once the
+relevant consumers demonstrate a critical invariant, preserve it with the smallest executable fitness
+function in an existing owner or gate. Do not create a framework, downgrade a low-frequency critical
+path, or treat that check as proof of value outside its observed boundary.
