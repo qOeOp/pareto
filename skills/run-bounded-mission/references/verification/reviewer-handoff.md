@@ -12,6 +12,11 @@ manifest, and verified digests. Supply the complete Frame and Plan, one risk len
 evidence locators or explicit `unavailable`, and a neutral review-control locator independent of the
 candidate.
 
+The candidate is acceptance-ready only when no known pending write, effect, or required
+deterministic check can change the candidate, control, risk map, lens, or decisive evidence before
+fan-in. Finish those actions before dispatch; a review launched into known candidate churn is
+unsupported even when its starting commit is immutable.
+
 Main opens every locator before launch and records exact candidate/control identities, repository
 status, and affected-file and tree fingerprints for comparison after return. Mutable worktree paths,
 prose summaries, reconstructed commands, inaccessible evidence, and candidate-owned control are
@@ -50,6 +55,12 @@ not justify it.
 
 All reviewers consume the same candidate and control, one lens each, without sibling results. Delay,
 timeout, unsupported transport, invalid output, or a finding never creates a retry or repacket.
+
+A candidate-local correction creates a new acceptance-ready candidate identity even when Frame and
+Plan do not change. Because independent review binds the complete candidate, any candidate change
+stales the prior review set; once the new boundary is frozen, derive its current risk map and dispatch
+the required lenses once against that identity. Main's deterministic evidence stales only where
+affected. Never relabel or retry the prior packet.
 
 ## Reviewer boundary and return
 

@@ -30,14 +30,33 @@ candidate-controlled protocols stop dispatch.
 Route by unresolved difficulty, consequence, consumer quality floor, and material risk - not quota,
 marketing labels, or availability alone.
 
+Dispatch only at one of three stability windows:
+
+- **pre-mutation decision frontier:** the exact structural or evidence question can still change the
+  next Main decision, its upstream inputs are frozen, Main has exhausted cheaper direct evidence, and
+  the dependent mutation has not begun;
+- **frozen mechanical execution boundary:** every builder field and safe oracle is frozen under the
+  execution owner, with no unresolved decision or overlapping writer;
+- **acceptance-ready coherence boundary:** candidate, control, Frame, Plan, risk map, and decisive
+  evidence are frozen, and no known pending write or deterministic check can change the reviewed
+  identity before fan-in.
+
+Outside those windows, Main continues directly or freezes only the dependent decision. A lane is
+admitted only when its return can change the next decision and no planned action before fan-in will
+make its input stale. Dispatch and fan in once per exact role, question, and frozen input identity;
+progress, token budget, delay, candidate churn, a finding, or unavailable output does not create a new
+identity. A new material decision or a newly acceptance-ready candidate/control/lens binding is a
+new identity; reopen only the lanes required by that new identity.
+
 | Need                                                                    | Lowest sufficient route                              | Stop / fallback                                                 |
 | ----------------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------- |
 | Frame, Plan admission, cross-owner/safety judgment, synthesis, Finalize | authorized main                                      | never delegate                                                  |
-| evidenced structural challenge                                          | one `mission_planner` proposal                       | main decides                                                    |
-| one decision-changing current/external fact                             | one `mission_researcher` brief                       | main or freeze dependent decision                               |
+| pre-mutation evidenced structural challenge                             | one `mission_planner` proposal                       | main decides                                                    |
+| pre-mutation decision-changing current/external fact                    | one `mission_researcher` brief                       | main or freeze dependent decision                               |
 | ordinary implementation                                                 | authorized main                                      | never delegate                                                  |
 | exact low-risk mechanical leaf                                          | `fast_builder` only when all fields below are frozen | authorized main only if unavailable before dispatch             |
-| frozen-candidate semantic risk                                          | reviewer-handoff's zero/one/two lens set             | unsupported; no retry                                           |
+| acceptance-ready ambiguous risk coverage                                | one `mission_planner` scope challenge                | main completes or splits the risk map                           |
+| acceptance-ready frozen-candidate semantic risk                         | reviewer-handoff's zero/one/two lens set             | unsupported; no retry for that identity                         |
 
 For each dispatch, bind immutable Origin, exact question/outcome and consumer, owner/write authority,
 inputs/dependencies, risk and effects, required output, quality floor/oracle, Stop, interaction
@@ -59,6 +78,10 @@ does not become task communication or a durable ledger.
 `not_triggered`, `evidence_unavailable`, `needs_user_alignment`, `frame_mismatch`,
 `mechanism_rejected`, or `ready_for_plan_admission`, with owner, smallest candidate, alternatives,
 kill conditions, verification, and effect gates when ready.
+
+At an acceptance-ready coherence boundary, reviewer handoff may instead give one planner the frozen
+risk map for a scope challenge. It returns only missing, duplicate, or non-falsifiable risk proposals;
+it does not review the candidate, alter Plan admission, select lenses, or authorize acceptance.
 
 `mission_researcher` receives one `domain_premise` or `reuse/prior_art` question, exact sources and
 Stop, and returns decisive primary locators, conflicts, limits, reproduction, and the Plan consequence.
