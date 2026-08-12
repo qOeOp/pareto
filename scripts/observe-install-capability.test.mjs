@@ -229,6 +229,8 @@ try {
     `process.argv[1] = "-"; await import(${JSON.stringify(pathToFileURL(path.resolve("scripts/observe-install-capability.mjs")).href)})`,
   ], { cwd: process.cwd(), encoding: "utf8", env: gitEnvironment });
   const workflow = (await readFile(".github/workflows/observe-install-capability.yml", "utf8")).replaceAll("\r\n", "\n");
+  const skillWorkflow = (await readFile(".github/workflows/observe-install-skill-capability.yml", "utf8"))
+    .replaceAll("\r\n", "\n");
   const scorer = await readFile("scripts/capability-score.mjs", "utf8");
   const observeJob = workflow.slice(workflow.indexOf("  observe:"), workflow.indexOf("  attest-observation:"));
   const observationAttestJob = workflow.slice(workflow.indexOf("  attest-observation:"), workflow.indexOf("  aggregate:"));
@@ -236,13 +238,15 @@ try {
   const campaignAttestJob = workflow.slice(workflow.indexOf("  attest-campaign:"));
   assert.match(workflow, /trial:\s*\n\s+- 1\s*\n\s+- 2\s*\n\s+- 3/);
   assert.equal((workflow.match(/--trial \$\{\{ matrix\.trial \}\}/g) ?? []).length, 1);
-  for (const [capabilityId, capability] of Object.entries(capabilities)) {
+  for (const [capabilityId, capability] of Object.entries(capabilities).filter(([id]) => id !== "INS-01")) {
     assert.match(
       observeJob,
       new RegExp(`- id: ${capabilityId}\\n\\s+observation: ${capability.observation}\\n\\s+slug: ${capability.slug}`),
     );
     assert.match(workflow, new RegExp(`--capability \\$\\{\\{ matrix\\.capability\\.id \\}\\}`));
   }
+  assert.doesNotMatch(workflow, /- id: INS-01(?:\r?\n|$)/);
+  assert.match(skillWorkflow, /--capability INS-01/);
   assert.doesNotMatch(observeJob, /id-token: write|actions\/attest@/);
   assert.match(observationAttestJob, /needs: observe/);
   assert.match(observationAttestJob, /if: \$\{\{ !cancelled\(\) \}\}/);

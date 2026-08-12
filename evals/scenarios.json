@@ -74,7 +74,7 @@
     }
   },
   "fixed_observers": {
-    "INS-01": {"parameters":{"kind":"skill"},"protocol":"install-v1"},
+    "INS-01": {"parameters":{"kind":"skill"},"protocol":"install-skill-v2"},
     "INS-03": {"parameters":{"kind":"profile","profile":"mission-planner.toml"},"protocol":"install-v1"},
     "INS-05": {"parameters":{"kind":"profile","profile":"mission-evaluator.toml"},"protocol":"install-v1"},
     "INS-07": {"parameters":{"kind":"profile","profile":"mission-researcher.toml"},"protocol":"install-v1"},
@@ -196,9 +196,9 @@
     {"capability_id":"EVAL-01","scenario":"positive","case_id":"native-trajectory-local-boundary","observer_kind":"native_thread","authority_status":"authority_unavailable","missing_authority":"provider_complete_attempt_inventory","executable_suite":"golden"},
     {"capability_id":"EVAL-01","scenario":"negative","case_id":"self-authored-native-pass-rejected","observer_kind":"native_thread","authority_status":"authority_unavailable","missing_authority":"provider_complete_attempt_inventory","executable_suite":"golden"},
     {"capability_id":"EVAL-01","scenario":"recovery","case_id":"native-trace-recovery-without-rewrite","observer_kind":"native_thread","authority_status":"authority_unavailable","missing_authority":"provider_complete_attempt_inventory","executable_suite":"golden"},
-    {"capability_id":"EVAL-02","scenario":"positive","case_id":"signed-campaign-produces-bounded-report","observer_kind":"fixed_real_consumer","authority_status":"implemented","missing_authority":null,"executable_suite":"golden"},
-    {"capability_id":"EVAL-02","scenario":"negative","case_id":"score-cannot-hide-failed-floor","observer_kind":"fixed_real_consumer","authority_status":"implemented","missing_authority":null,"executable_suite":"golden"},
-    {"capability_id":"EVAL-02","scenario":"recovery","case_id":"score-recovers-after-gap-removal","observer_kind":"fixed_real_consumer","authority_status":"implemented","missing_authority":null,"executable_suite":"golden"},
+    {"capability_id":"EVAL-02","scenario":"positive","case_id":"signed-campaign-produces-bounded-report","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"fixed_consumer_observer","executable_suite":"golden"},
+    {"capability_id":"EVAL-02","scenario":"negative","case_id":"score-cannot-hide-failed-floor","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"fixed_consumer_observer","executable_suite":"golden"},
+    {"capability_id":"EVAL-02","scenario":"recovery","case_id":"score-recovers-after-gap-removal","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"fixed_consumer_observer","executable_suite":"golden"},
     {"capability_id":"KRN-03","scenario":"positive","case_id":"krn-03-positive","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding"},
     {"capability_id":"KRN-03","scenario":"negative","case_id":"krn-03-negative","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding"},
     {"capability_id":"KRN-03","scenario":"recovery","case_id":"krn-03-recovery","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding"},

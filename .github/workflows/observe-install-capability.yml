@@ -14,9 +14,6 @@ jobs:
       fail-fast: false
       matrix:
         capability:
-          - id: INS-01
-            observation: observation
-            slug: ins-01
           - id: INS-03
             observation: observation-ins-03
             slug: ins-03
@@ -82,9 +79,6 @@ jobs:
       fail-fast: false
       matrix:
         capability:
-          - id: INS-01
-            observation: observation
-            slug: ins-01
           - id: INS-03
             observation: observation-ins-03
             slug: ins-03
@@ -142,8 +136,6 @@ jobs:
       fail-fast: false
       matrix:
         capability:
-          - id: INS-01
-            slug: ins-01
           - id: INS-03
             slug: ins-03
           - id: INS-05
@@ -187,8 +179,6 @@ jobs:
       fail-fast: false
       matrix:
         capability:
-          - id: INS-01
-            slug: ins-01
           - id: INS-03
             slug: ins-03
           - id: INS-05
