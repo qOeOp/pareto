@@ -272,11 +272,18 @@ function validateScenarioDesigns(catalog, design, cases) {
     }
     if (["install-v1", "install-skill-v2"].includes(observer.protocol)) {
       const kind = observer.parameters.kind;
-      validateExactKeys(observer.parameters, new Set(kind === "profile" ? ["kind", "profile"] : ["kind"]),
+      if (observer.protocol === "install-skill-v2" && (capabilityId !== "INS-01" || kind !== "skill")) {
+        fail(`fixed observer ${capabilityId} install parameters are invalid`);
+      }
+      const parameterKeys = observer.protocol === "install-skill-v2"
+        ? ["kind", "workflow_id"]
+        : kind === "profile" ? ["kind", "profile"] : ["kind"];
+      validateExactKeys(observer.parameters, new Set(parameterKeys),
         `fixed observer ${capabilityId} parameters`);
       if (!new Set(["skill", "profile"]).has(kind) ||
           (kind === "profile" && !/^[a-z0-9-]+\.toml$/.test(observer.parameters.profile)) ||
-          (observer.protocol === "install-skill-v2" && (capabilityId !== "INS-01" || kind !== "skill"))) {
+          (observer.protocol === "install-skill-v2" &&
+            !/^[1-9][0-9]{0,19}$/.test(observer.parameters.workflow_id))) {
         fail(`fixed observer ${capabilityId} install parameters are invalid`);
       }
     } else if (observer.protocol === "score-v1") {
@@ -407,6 +414,7 @@ async function validateFixedObserverWorkflowBindings(design) {
 
   const v2Protocol = design.attested_protocols["install-skill-v2"];
   if (!v2Protocol) return;
+  const v2WorkflowId = design.fixed_observers["INS-01"]?.parameters?.workflow_id;
   const v2Workflow = parseYaml(await readFile(path.join(root, v2Protocol.workflow), "utf8"));
   if (v2Workflow?.name !== "observe-install-skill-capability" ||
       JSON.stringify(Object.keys(v2Workflow.jobs ?? {})) !==
@@ -420,9 +428,21 @@ async function validateFixedObserverWorkflowBindings(design) {
         JSON.stringify(["Linux", "Windows"]) ||
       JSON.stringify(v2Workflow.jobs["attest-observation"]?.strategy?.matrix?.trial) !==
         JSON.stringify([1, 2, 3]) ||
+      v2Workflow.jobs.observe?.if !==
+        "github.ref == 'refs/heads/main' && github.run_number == 1 && github.run_attempt == 1" ||
+      ["attest-observation", "aggregate", "attest-campaign"].some((job) =>
+        v2Workflow.jobs[job]?.if !== "${{ !cancelled() && github.run_number == 1 && github.run_attempt == 1 }}") ||
       v2Workflow.jobs.aggregate?.name !== "aggregate-ins-01" ||
       v2Workflow.jobs["attest-campaign"]?.name !== "attest-complete-ins-01-campaign") {
     fail("install-skill-v2 workflow differs from its fixed INS-01 attempt matrix");
+  }
+  const aggregateStep = v2Workflow.jobs.aggregate?.steps?.find((step) =>
+    step?.name === "Aggregate the exact Linux and Windows observations");
+  if (!String(aggregateStep?.run).includes('--run-id "${{ github.run_id }}"') ||
+      !String(aggregateStep?.run).includes('--run-number "${{ github.run_number }}"') ||
+      !String(aggregateStep?.run).includes('--run-attempt "${{ github.run_attempt }}"') ||
+      !String(aggregateStep?.run).includes(`--workflow-id "${v2WorkflowId}"`)) {
+    fail("install-skill-v2 workflow does not sign its first-run identity");
   }
 
   const consumerWorkflow = parseYaml(await readFile(
@@ -430,7 +450,7 @@ async function validateFixedObserverWorkflowBindings(design) {
   ));
   const consumeSteps = consumerWorkflow?.jobs?.consume?.steps ?? [];
   const inventoryStep = consumeSteps.find((step) =>
-    step?.name === "Bind the exact source run and complete first-attempt job inventory");
+    step?.name === "Bind the signed first run and complete job inventory");
   const downloadStep = consumeSteps.find((step) => step?.name === "Download the exact INS-01 v2 campaign");
   const verifyStep = consumeSteps.find((step) => step?.name === "Verify every signed campaign input");
   const consumeStep = consumeSteps.find((step) => step?.name === "Consume the complete campaign attempt set");
@@ -438,9 +458,9 @@ async function validateFixedObserverWorkflowBindings(design) {
       JSON.stringify(Object.keys(consumerWorkflow.jobs ?? {})) !== JSON.stringify(["consume", "attest"]) ||
       consumerWorkflow.jobs.consume?.name !== "consume-ins-01-v2-campaign" ||
       consumerWorkflow.jobs.attest?.name !== "attest-ins-01-v2-consumption" ||
-      !String(inventoryStep?.run).includes("actions/workflows/observe-install-skill-capability.yml/runs?branch=main&event=workflow_dispatch&head_sha=") ||
       !String(inventoryStep?.run).includes("/attempts/1/jobs?per_page=100") ||
       !String(inventoryStep?.run).includes("gh api --paginate --slurp") ||
+      String(inventoryStep?.run).includes("actions/workflows/observe-install-skill-capability.yml/runs?") ||
       downloadStep?.with?.name !== "ins-01-v2-attested-${{ inputs.source_run_id }}" ||
       downloadStep?.with?.["run-id"] !== "${{ inputs.source_run_id }}" ||
       !String(verifyStep?.run).includes("gh attestation verify") ||
@@ -449,7 +469,7 @@ async function validateFixedObserverWorkflowBindings(design) {
       !String(verifyStep?.run).includes("--source-ref refs/heads/main") ||
       !String(verifyStep?.run).includes("--deny-self-hosted-runners") ||
       !String(consumeStep?.run).includes("scripts/consume-install-capability.mjs") ||
-      !String(consumeStep?.run).includes("--source-run-set source-run-set.json") ||
+      String(consumeStep?.run).includes("--source-run-set") ||
       !String(consumeStep?.run).includes("--attestation-verification attestation-verification.jsonl") ||
       consumerWorkflow.jobs.attest?.needs !== "consume") {
     fail("install-skill-v2 consumer workflow differs from its complete attempt contract");

@@ -27,12 +27,14 @@ try {
     ".github/workflows/observe-score-capability.yml", ".github/workflows/consume-score-capability.yml",
     "scripts/capability-catalog.mjs",
     "scripts/check-scenario-authority.mjs",
+    "scripts/check-scenario-authority.test.mjs",
     "scripts/self-test.mjs", "scripts/validate.mjs", "scripts/capability-score.mjs", "scripts/install-codex.mjs",
     "scripts/observe-install-capability.mjs", "scripts/consume-install-capability.mjs",
     "scripts/observe-score-capability.mjs", "scripts/consume-score-capability.mjs", "scripts/json.mjs",
     "scripts/campaign-verifiers/install.mjs", "scripts/campaign-verifiers/score.mjs",
     "codex/agents/fast-builder.toml", "codex/agents/mission-evaluator.toml",
     "codex/agents/mission-planner.toml", "codex/agents/mission-researcher.toml",
+    "codex/hooks/qoeop-trade-session-start.mjs",
     "skills/run-bounded-mission/SKILL.md",
     "skills/run-bounded-mission/references/orchestration/orchestration-agent-routing.md",
     "skills/run-bounded-mission/references/verification/reviewer-handoff.md",
@@ -60,6 +62,7 @@ try {
   const fixtureDesignPath = path.join(fixture, "evals/scenarios.json");
   const fixtureGoldenPath = path.join(fixture, "evals/cases/golden.yaml");
   const fixtureDesign = JSON.parse(await readFile(fixtureDesignPath, "utf8"));
+  delete fixtureDesign.fixed_observers["INS-01"].parameters.workflow_id;
   const fixtureRow = fixtureDesign.scenarios.find((entry) => entry.case_id === "ins-02-positive");
   delete fixtureRow.executable_suite;
   const fixtureGolden = (await import("yaml")).parse(await readFile(fixtureGoldenPath, "utf8"));
@@ -194,6 +197,80 @@ try {
   const consumeAdmission = async () => {
     await writeFile(admissionPath, `${JSON.stringify({ schema_version: 1, decision: null }, null, 2)}\n`);
   };
+
+  const fixedObserverMigration = await commitMutation("fixed-observer-migration", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    design.fixed_observers["INS-01"].parameters.workflow_id = "332138768";
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  });
+  checkScenarioAuthority({ repo: fixture, base, candidate: fixedObserverMigration });
+
+  const rewrittenWorkflowIdentity = await commitMutation("rewritten-workflow-identity", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    design.fixed_observers["INS-01"].parameters.workflow_id = "999";
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  }, fixedObserverMigration);
+  assert.throws(() => checkScenarioAuthority({
+    repo: fixture, base: fixedObserverMigration, candidate: rewrittenWorkflowIdentity,
+  }), /rewrote canonical fixed observer INS-01 parameter workflow_id/);
+
+  const deletedFixedObserver = await commitMutation("deleted-fixed-observer", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    delete design.fixed_observers["INS-01"];
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  }, fixedObserverMigration);
+  assert.throws(() => checkScenarioAuthority({
+    repo: fixture, base: fixedObserverMigration, candidate: deletedFixedObserver,
+  }), /deleted canonical fixed observer INS-01/);
+
+  const coverageDowngrade = await commitMutation("protocol-coverage-downgrade", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    design.attested_protocols["install-skill-v2"].coverage.trials_per_environment = 2;
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  }, fixedObserverMigration);
+  assert.throws(() => checkScenarioAuthority({
+    repo: fixture, base: fixedObserverMigration, candidate: coverageDowngrade,
+  }), /downgraded canonical protocol install-skill-v2/);
+
+  const unversionedProtocolRedirect = await commitMutation("unversioned-protocol-redirect", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    design.attested_protocols["install-skill-v2"].workflow =
+      ".github/workflows/observe-install-capability.yml";
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  }, fixedObserverMigration);
+  assert.throws(() => checkScenarioAuthority({
+    repo: fixture, base: fixedObserverMigration, candidate: unversionedProtocolRedirect,
+  }), /downgraded canonical protocol install-skill-v2/);
+
+  const migrationWithUnrelatedFile = await commitMutation("migration-with-unrelated-file", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    design.fixed_observers["INS-01"].parameters.workflow_id = "332138768";
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+    await writeFile(path.join(fixture, "unrelated.txt"), "outside the migration surface\n");
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: migrationWithUnrelatedFile }),
+    /outside its explicit control surface/);
+
+  const migrationWithUnrelatedProtocol = await commitMutation("migration-with-unrelated-protocol", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    design.fixed_observers["INS-01"].parameters.workflow_id = "332138768";
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+    const scoreObserver = path.join(fixture, "scripts", "observe-score-capability.mjs");
+    await writeFile(scoreObserver, `${await readFile(scoreObserver, "utf8")}\n// unrelated protocol drift\n`);
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: migrationWithUnrelatedProtocol }),
+    /outside its explicit control surface/);
+
+  const coordinatedUnrelatedProtocol = await commitMutation("coordinated-unrelated-protocol", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    design.fixed_observers["INS-01"].parameters.workflow_id = "332138768";
+    design.attested_protocols["score-v1"].protocol = "pareto-fixed-observer-protocol/v2";
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+    const scoreObserver = path.join(fixture, "scripts", "observe-score-capability.mjs");
+    await writeFile(scoreObserver, `${await readFile(scoreObserver, "utf8")}\n// coordinated drift\n`);
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: coordinatedUnrelatedProtocol }),
+    /must isolate one binding-owned protocol/);
 
   const migration = await commitMutation("catalog-v2-migration", migrateCatalogToV2);
   const migrationResult = checkScenarioAuthority({ repo: fixture, base, candidate: migration });
@@ -576,6 +653,74 @@ try {
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: inventedObserverAdmission }),
     /authority without an admitted fixed observer/);
 
+  const candidateOwnedObserverAdmission = await commitMutation("candidate-owned-observer-admission", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    design.fixed_observers["PLN-03"] = { parameters: { kind: "skill" }, protocol: "install-v1" };
+    for (const row of design.scenarios.filter((entry) => entry.capability_id === "PLN-03")) {
+      row.authority_status = "implemented";
+      row.missing_authority = null;
+    }
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: candidateOwnedObserverAdmission }),
+    /authority without an admitted fixed observer/);
+
+  const fixedObserverBinding = await commitMutation("fixed-observer-binding", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    design.fixed_observers["PLN-03"] = { parameters: { kind: "skill" }, protocol: "install-v1" };
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  });
+  checkScenarioAuthority({ repo: fixture, base, candidate: fixedObserverBinding });
+  const baseOwnedObserverAdmission = await commitMutation("base-owned-observer-admission", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    for (const row of design.scenarios.filter((entry) => entry.capability_id === "PLN-03")) {
+      row.authority_status = "implemented";
+      row.missing_authority = null;
+    }
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  }, fixedObserverBinding);
+  checkScenarioAuthority({ repo: fixture, base: fixedObserverBinding, candidate: baseOwnedObserverAdmission });
+
+  const promotionWithBindingRewrite = await commitMutation("promotion-with-binding-rewrite", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    design.fixed_observers["PLN-03"] = { parameters: { kind: "skill" }, protocol: "install-skill-v2" };
+    for (const row of design.scenarios.filter((entry) => entry.capability_id === "PLN-03")) {
+      row.authority_status = "implemented";
+      row.missing_authority = null;
+    }
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  }, fixedObserverBinding);
+  assert.throws(() => checkScenarioAuthority({
+    repo: fixture, base: fixedObserverBinding, candidate: promotionWithBindingRewrite,
+  }), /promotion changed base-owned binding PLN-03/);
+
+  const promotionWithProtocolRewrite = await commitMutation("promotion-with-protocol-rewrite", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    design.attested_protocols["install-v1"].protocol = "pareto-fixed-observer-protocol/v2";
+    for (const row of design.scenarios.filter((entry) => entry.capability_id === "PLN-03")) {
+      row.authority_status = "implemented";
+      row.missing_authority = null;
+    }
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  }, fixedObserverBinding);
+  assert.throws(() => checkScenarioAuthority({
+    repo: fixture, base: fixedObserverBinding, candidate: promotionWithProtocolRewrite,
+  }), /promotion changed base-owned protocol install-v1/);
+
+  const promotionWithObserverRewrite = await commitMutation("promotion-with-observer-rewrite", async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    for (const row of design.scenarios.filter((entry) => entry.capability_id === "PLN-03")) {
+      row.authority_status = "implemented";
+      row.missing_authority = null;
+    }
+    const observerPath = path.join(fixture, "scripts", "observe-install-capability.mjs");
+    await writeFile(observerPath, `${await readFile(observerPath, "utf8")}\n// promotion drift\n`);
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  }, fixedObserverBinding);
+  assert.throws(() => checkScenarioAuthority({
+    repo: fixture, base: fixedObserverBinding, candidate: promotionWithObserverRewrite,
+  }), /promotion changed base-owned control scripts\/observe-install-capability\.mjs/);
+
   const observerAndAuthorityChange = await commitMutation("observer-and-authority-change", async () => {
     const design = JSON.parse(await readFile(designPath, "utf8"));
     const row = design.scenarios.find((entry) => entry.capability_id === "INS-01");
@@ -585,29 +730,39 @@ try {
     await writeFile(observerPath, `${await readFile(observerPath, "utf8")}\n// candidate observer drift\n`);
     await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
   });
-  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: observerAndAuthorityChange }),
-    /changed protected scenario authority control scripts\/observe-install-capability\.mjs/);
+  checkScenarioAuthority({ repo: fixture, base, candidate: observerAndAuthorityChange });
 
   const selfTestDrift = await commitMutation("self-test-drift", async () => {
     const selfTestPath = path.join(fixture, "scripts", "self-test.mjs");
     await writeFile(selfTestPath, `${await readFile(selfTestPath, "utf8")}\n// candidate self-test drift\n`);
   });
-  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: selfTestDrift }),
-    /changed protected scenario authority control scripts\/self-test\.mjs/);
+  checkScenarioAuthority({ repo: fixture, base, candidate: selfTestDrift });
+
+  for (const protectedPath of [
+    "scripts/check-scenario-authority.mjs",
+    "scripts/check-scenario-authority.test.mjs",
+    "scripts/validate.mjs",
+  ]) {
+    const label = protectedPath.split("/").at(-1).replaceAll(".", "-");
+    const protectedControlDrift = await commitMutation(`protected-${label}-drift`, async () => {
+      const target = path.join(fixture, protectedPath);
+      await writeFile(target, `${await readFile(target, "utf8")}\n// unauthorized authority drift\n`);
+    });
+    assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: protectedControlDrift }),
+      new RegExp(`changed protected scenario authority control ${protectedPath.replaceAll(".", "\\.")}`));
+  }
 
   const scoreConsumerDrift = await commitMutation("score-consumer-drift", async () => {
     const consumerPath = path.join(fixture, "scripts", "consume-score-capability.mjs");
     await writeFile(consumerPath, `${await readFile(consumerPath, "utf8")}\n// candidate consumer drift\n`);
   });
-  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: scoreConsumerDrift }),
-    /changed protected scenario authority control scripts\/consume-score-capability\.mjs/);
+  checkScenarioAuthority({ repo: fixture, base, candidate: scoreConsumerDrift });
 
   const scoreConsumerWorkflowDrift = await commitMutation("score-consumer-workflow-drift", async () => {
     const workflowPath = path.join(fixture, ".github", "workflows", "consume-score-capability.yml");
     await writeFile(workflowPath, `${await readFile(workflowPath, "utf8")}\n# candidate consumer workflow drift\n`);
   });
-  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: scoreConsumerWorkflowDrift }),
-    /changed protected scenario authority control \.github\/workflows\/consume-score-capability\.yml/);
+  checkScenarioAuthority({ repo: fixture, base, candidate: scoreConsumerWorkflowDrift });
 
   const malformedAddition = await commitMutation("malformed-addition", async () => {
     const design = JSON.parse(await readFile(designPath, "utf8"));
@@ -705,7 +860,33 @@ try {
       "github.event.pull_request.base.sha", "github.event.pull_request.head.sha"));
   });
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: weakenedControl }),
-    /changed protected scenario authority control/);
+    /weakened the canonical scenario-authority workflow/);
+
+  const candidateExecutionStep = await commitMutation("candidate-execution-step", async () => {
+    const workflowPath = path.join(fixture, ".github/workflows/scenario-authority.yml");
+    await writeFile(workflowPath, (await readFile(workflowPath, "utf8")).replace(
+      "      - name: Enforce canonical scenario authority",
+      "      - run: git checkout FETCH_HEAD\n      - name: Enforce canonical scenario authority"));
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: candidateExecutionStep }),
+    /weakened the canonical scenario-authority workflow/);
+
+  const elevatedWorkflowPermission = await commitMutation("elevated-workflow-permission", async () => {
+    const workflowPath = path.join(fixture, ".github/workflows/scenario-authority.yml");
+    const workflow = (await readFile(workflowPath, "utf8")).replace(/\r?\n/g, "\r\n");
+    await writeFile(workflowPath, workflow.replace(
+      /permissions:\r?\n  contents: read/,
+      "permissions:\r\n  contents: read\r\n  pull-requests: write"));
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: elevatedWorkflowPermission }),
+    /weakened the canonical scenario-authority workflow/);
+
+  const extraWorkflowJob = await commitMutation("extra-workflow-job", async () => {
+    const workflowPath = path.join(fixture, ".github/workflows/scenario-authority.yml");
+    await writeFile(workflowPath, `${await readFile(workflowPath, "utf8")}\n  candidate-job:\n    runs-on: ubuntu-latest\n    steps:\n      - run: git checkout FETCH_HEAD\n`);
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: extraWorkflowJob }),
+    /weakened the canonical scenario-authority workflow/);
 } finally {
   await rm(fixture, { recursive: true, force: true });
 }

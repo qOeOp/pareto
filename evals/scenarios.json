@@ -74,7 +74,7 @@
     }
   },
   "fixed_observers": {
-    "INS-01": {"parameters":{"kind":"skill"},"protocol":"install-skill-v2"},
+    "INS-01": {"parameters":{"kind":"skill","workflow_id":"332138768"},"protocol":"install-skill-v2"},
     "INS-03": {"parameters":{"kind":"profile","profile":"mission-planner.toml"},"protocol":"install-v1"},
     "INS-05": {"parameters":{"kind":"profile","profile":"mission-evaluator.toml"},"protocol":"install-v1"},
     "INS-07": {"parameters":{"kind":"profile","profile":"mission-researcher.toml"},"protocol":"install-v1"},

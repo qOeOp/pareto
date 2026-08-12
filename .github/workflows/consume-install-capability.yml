@@ -31,7 +31,7 @@ jobs:
           cache: npm
           cache-dependency-path: consumer/package-lock.json
       - run: npm ci --prefix consumer --ignore-scripts
-      - name: Bind the exact source run and complete first-attempt job inventory
+      - name: Bind the signed first run and complete job inventory
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ inputs.source_run_id }}
@@ -41,10 +41,6 @@ jobs:
             exit 1
           fi
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}" > source-run-metadata.json
-          SOURCE_HEAD_SHA="$(jq -er '.head_sha | select(test("^[a-f0-9]{40}$"))' source-run-metadata.json)"
-          gh api --paginate --slurp \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/observe-install-skill-capability.yml/runs?branch=main&event=workflow_dispatch&head_sha=${SOURCE_HEAD_SHA}&per_page=100" \
-            > source-run-set.json
           gh api --paginate --slurp \
             "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/attempts/1/jobs?per_page=100" \
             > source-run-jobs.json
@@ -91,7 +87,6 @@ jobs:
           --campaign-dir campaign
           --source-run-id "${{ inputs.source_run_id }}"
           --source-run-metadata source-run-metadata.json
-          --source-run-set source-run-set.json
           --source-run-jobs source-run-jobs.json
           --attestation-verification attestation-verification.jsonl
           --output install-consumption-receipt.json
@@ -102,7 +97,6 @@ jobs:
             install-consumption-receipt.json
             attestation-verification.jsonl
             source-run-metadata.json
-            source-run-set.json
             source-run-jobs.json
             campaign/
           if-no-files-found: error

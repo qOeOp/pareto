@@ -48,6 +48,7 @@ const capabilities = Object.freeze(Object.fromEntries(Object.entries(scenarioDes
       kind: binding.parameters.kind,
       observation: binding.parameters.kind === "skill" ? "observation" : `observation-${slug}`,
       ...(binding.parameters.profile === undefined ? {} : { profile: binding.parameters.profile }),
+      ...(binding.parameters.workflow_id === undefined ? {} : { workflowId: binding.parameters.workflow_id }),
       slug,
     })];
   })));
@@ -980,7 +981,7 @@ async function observe({ capabilityId, subjectRoot, codexEntry, output, trial })
   }
 }
 
-async function aggregate({ capabilityId, inputDir, output }) {
+async function aggregate({ capabilityId, inputDir, output, runAttempt, runId, runNumber, workflowId }) {
   const capability = capabilities[capabilityId];
   if (!capability) fail("unsupported installation capability");
   const observer = observerIdentity();
@@ -1029,6 +1030,18 @@ async function aggregate({ capabilityId, inputDir, output }) {
       rows[0].subject.commit !== observer.commit) {
     fail(`${capabilityId} campaign lacks exact Linux and Windows coverage for one subject`);
   }
+  const run = runId === undefined ? null : {
+    id: runId,
+    number: runNumber,
+    attempt: runAttempt,
+    workflow_id: workflowId,
+  };
+  if ((capabilityId === "INS-01") !== (run !== null) ||
+      (run !== null && (!/^[1-9][0-9]{0,19}$/.test(run.id) || run.workflow_id !== capability.workflowId ||
+        !Number.isInteger(run.number) || run.number !== 1 ||
+        !Number.isInteger(run.attempt) || run.attempt !== 1))) {
+    fail(`${capabilityId} campaign run identity is invalid`);
+  }
   const payload = canonical({
     schema: "pareto-capability-campaign/v2",
     authority: "github_attestation_subject",
@@ -1044,6 +1057,7 @@ async function aggregate({ capabilityId, inputDir, output }) {
       .sort((left, right) => left.environment.localeCompare(right.environment) || left.trial_id - right.trial_id),
     observer,
     result: "pass",
+    ...(run === null ? {} : { run }),
     scenarios: capability.cases,
     subject: rows[0].subject,
   });
@@ -1060,7 +1074,10 @@ function parseArguments(argv) {
   for (let index = 0; index < argv.length; index += 2) {
     const flag = argv[index];
     const value = argv[index + 1];
-    if (!value || !["--capability", "--subject-root", "--codex-entry", "--input-dir", "--output", "--trial"].includes(flag) || flag in options) {
+    if (!value || ![
+      "--capability", "--subject-root", "--codex-entry", "--input-dir", "--output", "--trial",
+      "--run-id", "--run-number", "--run-attempt", "--workflow-id",
+    ].includes(flag) || flag in options) {
       fail(`unsupported, duplicate, or incomplete argument: ${flag ?? "<missing>"}`);
     }
     options[flag] = value;
@@ -1070,14 +1087,25 @@ function parseArguments(argv) {
   }
   const observing = options["--subject-root"] || options["--codex-entry"];
   const aggregating = options["--input-dir"];
+  const runValues = [
+    options["--run-id"], options["--run-number"], options["--run-attempt"], options["--workflow-id"],
+  ];
+  const hasRun = runValues.every((value) => value !== undefined);
   if (Boolean(observing) === Boolean(aggregating) ||
       (observing && (!options["--subject-root"] || !options["--codex-entry"] || !options["--trial"])) ||
-      (aggregating && (options["--subject-root"] || options["--codex-entry"] || options["--trial"]))) {
+      (aggregating && (options["--subject-root"] || options["--codex-entry"] || options["--trial"])) ||
+      runValues.some((value) => value !== undefined) !== hasRun ||
+      (hasRun && (!aggregating || options["--capability"] !== "INS-01"))) {
     fail("choose one complete observation or aggregation mode");
   }
   const trial = options["--trial"] === undefined ? undefined : Number(options["--trial"]);
   if (trial !== undefined && (!Number.isInteger(trial) || trial < 1 || trial > 3 || String(trial) !== options["--trial"])) {
     fail("--trial must be one integer from 1 through 3");
+  }
+  if (hasRun && (options["--run-number"] !== "1" || options["--run-attempt"] !== "1" ||
+      options["--workflow-id"] !== capabilities[options["--capability"]].workflowId ||
+      !/^[1-9][0-9]{0,19}$/.test(options["--run-id"]))) {
+    fail("aggregation run identity must be the first workflow run and first attempt");
   }
   return {
     capabilityId: options["--capability"],
@@ -1085,6 +1113,10 @@ function parseArguments(argv) {
     codexEntry: options["--codex-entry"] ? path.resolve(options["--codex-entry"]) : undefined,
     inputDir: options["--input-dir"] ? path.resolve(options["--input-dir"]) : undefined,
     output: path.resolve(options["--output"]),
+    runAttempt: hasRun ? Number(options["--run-attempt"]) : undefined,
+    runId: options["--run-id"],
+    runNumber: hasRun ? Number(options["--run-number"]) : undefined,
+    workflowId: options["--workflow-id"],
     trial,
   };
 }

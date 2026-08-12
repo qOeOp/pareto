@@ -8,7 +8,7 @@ permissions:
 jobs:
   observe:
     name: observe-ins-01-${{ matrix.environment.runner }}-${{ matrix.trial }}
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.run_number == 1 && github.run_attempt == 1
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -58,7 +58,7 @@ jobs:
   attest-observation:
     name: attest-ins-01-${{ matrix.runner }}-${{ matrix.trial }}
     needs: observe
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.run_number == 1 && github.run_attempt == 1 }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     strategy:
@@ -97,7 +97,7 @@ jobs:
   aggregate:
     name: aggregate-ins-01
     needs: attest-observation
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.run_number == 1 && github.run_attempt == 1 }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -117,6 +117,10 @@ jobs:
           node observer/scripts/observe-install-capability.mjs
           --capability INS-01
           --input-dir observations
+          --run-id "${{ github.run_id }}"
+          --run-number "${{ github.run_number }}"
+          --run-attempt "${{ github.run_attempt }}"
+          --workflow-id "332138768"
           --output ins-01-campaign.json
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -128,7 +132,7 @@ jobs:
   attest-campaign:
     name: attest-complete-ins-01-campaign
     needs: aggregate
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.run_number == 1 && github.run_attempt == 1 }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:

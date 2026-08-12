@@ -8,7 +8,6 @@ import {
   expectedInstallJobNames,
   validateAttestationVerification,
   validateCampaignEnvelope,
-  validateSourceRunSet,
   validateSourceRunJobs,
   validateSourceRunMetadata,
 } from "./consume-install-capability.mjs";
@@ -115,6 +114,7 @@ const campaignPayload = {
   observations,
   observer,
   result: "pass",
+  run: { attempt: 1, id: sourceRunId, number: 1, workflow_id: "332138768" },
   scenarios: cases,
   subject,
 };
@@ -124,16 +124,32 @@ const campaign = {
   payload: campaignPayload,
 };
 
-assert.equal((await validateCampaignEnvelope(campaign, { campaignRoot, cases })).observer.commit, observerCommit);
+const workflowId = "332138768";
+assert.equal((await validateCampaignEnvelope(campaign, { campaignRoot, cases, workflowId })).observer.commit,
+  observerCommit);
 await assert.rejects(
-  () => validateCampaignEnvelope({ ...campaign, content_sha256: digest("wrong") }, { campaignRoot, cases }),
+  () => validateCampaignEnvelope(campaign, { campaignRoot, cases, workflowId: "999" }),
+  /INS-01 campaign identity is invalid/,
+);
+await assert.rejects(
+  () => validateCampaignEnvelope({ ...campaign, content_sha256: digest("wrong") },
+    { campaignRoot, cases, workflowId }),
   /INS-01 campaign identity is invalid/,
 );
 await assert.rejects(
   () => validateCampaignEnvelope({
     ...campaign,
     payload: { ...campaign.payload, observations: campaign.payload.observations.slice(1) },
-  }, { campaignRoot, cases }),
+  }, { campaignRoot, cases, workflowId }),
+  /INS-01 campaign identity is invalid/,
+);
+const replacementPayload = { ...campaign.payload, run: { ...campaign.payload.run, number: 2 } };
+await assert.rejects(
+  () => validateCampaignEnvelope({
+    ...campaign,
+    content_sha256: digest(JSON.stringify(canonical(replacementPayload))),
+    payload: replacementPayload,
+  }, { campaignRoot, cases, workflowId }),
   /INS-01 campaign identity is invalid/,
 );
 await rm(campaignRoot, { force: true, recursive: true });
@@ -153,7 +169,9 @@ const metadata = {
   head_sha: observerCommit,
   status: "completed",
   conclusion: "success",
+  run_number: 1,
   run_attempt: 1,
+  workflow_id: 332138768,
   repository: { full_name: "qOeOp/pareto" },
   html_url: `https://github.com/qOeOp/pareto/actions/runs/${sourceRunId}`,
 };
@@ -173,6 +191,7 @@ const jobs = expectedInstallJobNames().map((name, index) => ({
 const sourceRun = validateSourceRunMetadata(metadata, {
   sourceRunId,
   campaignCommit: observerCommit,
+  campaignRun: campaignPayload.run,
   repository,
 });
 assert.equal(sourceRun.attempt, 1);
@@ -181,29 +200,35 @@ assert.throws(
   () => validateSourceRunMetadata({ ...metadata, run_attempt: 2 }, {
     sourceRunId,
     campaignCommit: observerCommit,
+    campaignRun: campaignPayload.run,
     repository,
   }),
   /source run metadata is invalid/,
 );
 
-const runSetPage = { total_count: 1, workflow_runs: [metadata] };
-assert.equal(validateSourceRunSet([runSetPage], {
-  sourceRunId,
-  campaignCommit: observerCommit,
-  repository,
-}).count, 1);
-assert.throws(() => validateSourceRunSet([{ total_count: 2, workflow_runs: [
-  metadata,
-  { ...metadata, id: Number(sourceRunId) + 1, conclusion: "failure" },
-] }], {
-  sourceRunId,
-  campaignCommit: observerCommit,
-  repository,
-}), /selective retry run/);
+assert.throws(
+  () => validateSourceRunMetadata({ ...metadata, run_number: 2 }, {
+    sourceRunId,
+    campaignCommit: observerCommit,
+    campaignRun: { ...campaignPayload.run, number: 2 },
+    repository,
+  }),
+  /source run metadata is invalid/,
+);
+assert.throws(
+  () => validateSourceRunMetadata({ ...metadata, workflow_id: 999 }, {
+    sourceRunId,
+    campaignCommit: observerCommit,
+    campaignRun: campaignPayload.run,
+    repository,
+  }),
+  /source run metadata is invalid/,
+);
 assert.throws(
   () => validateSourceRunMetadata({ ...metadata, conclusion: "failure" }, {
     sourceRunId,
     campaignCommit: observerCommit,
+    campaignRun: campaignPayload.run,
     repository,
   }),
   /source run metadata is invalid/,
@@ -230,7 +255,6 @@ for (const invalid of invalidInventories) {
 const receipt = buildConsumptionReceipt({
   sourceRun,
   sourceRunMetadataSha256: digest("metadata"),
-  sourceRunSetSha256: digest("run-set"),
   sourceRunJobsSha256: digest("jobs"),
   attempts,
   campaignSha256: digest("campaign"),
@@ -254,7 +278,6 @@ assert.throws(
   () => buildConsumptionReceipt({
     sourceRun,
     sourceRunMetadataSha256: digest("metadata"),
-    sourceRunSetSha256: digest("run-set"),
     sourceRunJobsSha256: digest("jobs"),
     attempts: attempts.slice(1),
     campaignSha256: digest("campaign"),

@@ -157,8 +157,11 @@ async function writeAttestedObservation({ capabilityId, environment, observer, o
 }
 
 async function aggregate(capabilityId, observations, output) {
+  const run = capabilityId === "INS-01"
+    ? ["--run-id", "123456", "--run-number", "1", "--run-attempt", "1", "--workflow-id", "332138768"]
+    : [];
   return execFileAsync(process.execPath, [
-    script, "--capability", capabilityId, "--input-dir", observations, "--output", output,
+    script, "--capability", capabilityId, "--input-dir", observations, ...run, "--output", output,
   ], {
     cwd: repository,
     encoding: "utf8",
@@ -247,6 +250,11 @@ try {
   }
   assert.doesNotMatch(workflow, /- id: INS-01(?:\r?\n|$)/);
   assert.match(skillWorkflow, /--capability INS-01/);
+  assert.match(skillWorkflow, /github\.run_number == 1 && github\.run_attempt == 1/);
+  assert.match(skillWorkflow, /--run-id "\$\{\{ github\.run_id \}\}"/);
+  assert.match(skillWorkflow, /--run-number "\$\{\{ github\.run_number \}\}"/);
+  assert.match(skillWorkflow, /--run-attempt "\$\{\{ github\.run_attempt \}\}"/);
+  assert.match(skillWorkflow, /--workflow-id "332138768"/);
   assert.doesNotMatch(observeJob, /id-token: write|actions\/attest@/);
   assert.match(observationAttestJob, /needs: observe/);
   assert.match(observationAttestJob, /if: \$\{\{ !cancelled\(\) \}\}/);
@@ -308,6 +316,12 @@ try {
     assert.equal(campaign.schema, "pareto-capability-campaign-envelope/v1");
     assert.equal(campaign.payload.schema, "pareto-capability-campaign/v2");
     assert.equal(campaign.payload.capability_id, capabilityId);
+    if (capabilityId === "INS-01") {
+      assert.deepEqual(campaign.payload.run,
+        { attempt: 1, id: "123456", number: 1, workflow_id: "332138768" });
+    } else {
+      assert.equal("run" in campaign.payload, false);
+    }
     assert.deepEqual(campaign.payload.scenarios, capability.cases);
     assert.deepEqual(campaign.payload.coverage, { environments: ["linux", "win32"], trials_per_environment: 3 });
     assert.equal(campaign.payload.observations.length, 6);
@@ -323,6 +337,33 @@ try {
       ["linux:1", "linux:2", "linux:3", "win32:1", "win32:2", "win32:3"],
     );
   }
+
+  await assert.rejects(
+    () => execFileAsync(process.execPath, [
+      script,
+      "--capability", "INS-01",
+      "--input-dir", path.join(root, "observations-ins-01"),
+      "--run-id", "123457",
+      "--run-number", "2",
+      "--run-attempt", "1",
+      "--workflow-id", "332138768",
+      "--output", path.join(root, "replacement-campaign.json"),
+    ], { cwd: repository, encoding: "utf8", env: gitEnvironment }),
+    (error) => error.code === 1 && /first workflow run and first attempt/.test(error.stderr),
+  );
+  await assert.rejects(
+    () => execFileAsync(process.execPath, [
+      script,
+      "--capability", "INS-01",
+      "--input-dir", path.join(root, "observations-ins-01"),
+      "--run-id", "123458",
+      "--run-number", "1",
+      "--run-attempt", "1",
+      "--workflow-id", "999",
+      "--output", path.join(root, "wrong-workflow-campaign.json"),
+    ], { cwd: repository, encoding: "utf8", env: gitEnvironment }),
+    (error) => error.code === 1 && /first workflow run and first attempt/.test(error.stderr),
+  );
 
   const observations = path.join(root, "observations-ins-03");
   const windowsTrial3 = path.join(observations, "ins-03-Windows-3");

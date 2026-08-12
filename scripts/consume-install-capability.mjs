@@ -98,11 +98,11 @@ async function boundedCampaignFile(campaignRoot, relative, label) {
   return readFile(resolved);
 }
 
-export async function validateCampaignEnvelope(campaign, { campaignRoot, cases }) {
+export async function validateCampaignEnvelope(campaign, { campaignRoot, cases, workflowId }) {
   exactKeys(campaign, ["schema", "content_sha256", "payload"], "INS-01 campaign envelope");
   exactKeys(campaign.payload, [
     "schema", "authority", "capability_id", "coverage", "environments", "observations",
-    "observer", "result", "scenarios", "subject",
+    "observer", "result", "run", "scenarios", "subject",
   ], "INS-01 campaign payload");
   exactKeys(campaign.payload.observer, ["commit", "script_blob", "tree"], "INS-01 campaign observer");
   exactKeys(campaign.payload.subject, [
@@ -110,6 +110,7 @@ export async function validateCampaignEnvelope(campaign, { campaignRoot, cases }
     "installer_blob",
   ], "INS-01 campaign subject");
   exactKeys(campaign.payload.scenarios, ["negative", "positive", "recovery"], "INS-01 campaign scenarios");
+  exactKeys(campaign.payload.run, ["attempt", "id", "number", "workflow_id"], "INS-01 campaign run");
   const expectedSlots = ["linux:1", "linux:2", "linux:3", "win32:1", "win32:2", "win32:3"];
   const observations = campaign.payload.observations;
   const actualSlots = Array.isArray(observations)
@@ -131,6 +132,8 @@ export async function validateCampaignEnvelope(campaign, { campaignRoot, cases }
       JSON.stringify(campaign.payload.coverage) !==
         JSON.stringify({ environments: ["linux", "win32"], trials_per_environment: 3 }) ||
       JSON.stringify(campaign.payload.environments) !== JSON.stringify(["linux", "win32"]) ||
+      !runIdPattern.test(campaign.payload.run.id) || campaign.payload.run.number !== 1 ||
+      campaign.payload.run.attempt !== 1 || campaign.payload.run.workflow_id !== workflowId ||
       JSON.stringify(actualSlots) !== JSON.stringify(expectedSlots) ||
       !oidPattern.test(campaign.payload.observer.commit) ||
       !oidPattern.test(campaign.payload.observer.script_blob) ||
@@ -191,23 +194,28 @@ export async function validateCampaignEnvelope(campaign, { campaignRoot, cases }
     const bundleBytes = await boundedCampaignFile(campaignRoot, row.bundle_path, "INS-01 observation bundle");
     if (sha256(bundleBytes) !== row.bundle_sha256) fail("INS-01 observation bundle digest is invalid");
   }
-  return { observer: campaign.payload.observer, subject: campaign.payload.subject };
+  return { observer: campaign.payload.observer, run: campaign.payload.run, subject: campaign.payload.subject };
 }
 
-export function validateSourceRunMetadata(metadata, { sourceRunId, campaignCommit, repository }) {
+export function validateSourceRunMetadata(metadata, { sourceRunId, campaignCommit, campaignRun, repository }) {
   if (!runIdPattern.test(sourceRunId) || !oidPattern.test(campaignCommit) ||
       String(metadata?.id) !== sourceRunId || metadata?.name !== "observe-install-skill-capability" ||
       metadata?.path !== ".github/workflows/observe-install-skill-capability.yml" ||
       metadata?.event !== "workflow_dispatch" || metadata?.head_branch !== "main" ||
       metadata?.head_sha !== campaignCommit || metadata?.status !== "completed" ||
-      metadata?.conclusion !== "success" || metadata?.run_attempt !== 1 ||
+      metadata?.conclusion !== "success" || metadata?.run_number !== 1 || metadata?.run_attempt !== 1 ||
+      String(metadata?.workflow_id) !== campaignRun?.workflow_id ||
+      campaignRun?.id !== sourceRunId || campaignRun?.number !== metadata.run_number ||
+      campaignRun?.attempt !== metadata.run_attempt ||
       metadata?.repository?.full_name?.toLowerCase() !== repositorySlug(repository).toLowerCase() ||
       metadata?.html_url !== `https://github.com/${metadata.repository.full_name}/actions/runs/${sourceRunId}`) {
     fail("source run metadata is invalid");
   }
   return {
     id: sourceRunId,
+    number: 1,
     attempt: 1,
+    workflow_id: campaignRun.workflow_id,
     repository: metadata.repository.full_name,
     workflow: metadata.path,
     event: metadata.event,
@@ -216,31 +224,6 @@ export function validateSourceRunMetadata(metadata, { sourceRunId, campaignCommi
     conclusion: metadata.conclusion,
     url: metadata.html_url,
   };
-}
-
-export function validateSourceRunSet(pages, { sourceRunId, campaignCommit, repository }) {
-  if (!Array.isArray(pages) || pages.length === 0 || pages.length > 10) {
-    fail("source workflow run inventory is invalid");
-  }
-  const runs = [];
-  for (const [index, page] of pages.entries()) {
-    exactKeys(page, ["total_count", "workflow_runs"], `source workflow runs page ${index + 1}`);
-    if (!Number.isInteger(page.total_count) || !Array.isArray(page.workflow_runs)) {
-      fail("source workflow run inventory page is invalid");
-    }
-    runs.push(...page.workflow_runs);
-  }
-  if (pages.some((page) => page.total_count !== 1) || runs.length !== 1) {
-    fail("source workflow run inventory contains a missing or selective retry run");
-  }
-  const run = runs[0];
-  if (String(run?.id) !== sourceRunId || run?.name !== "observe-install-skill-capability" ||
-      run?.event !== "workflow_dispatch" || run?.head_branch !== "main" || run?.head_sha !== campaignCommit ||
-      run?.status !== "completed" || run?.conclusion !== "success" || run?.run_attempt !== 1 ||
-      run?.repository?.full_name?.toLowerCase() !== repositorySlug(repository).toLowerCase()) {
-    fail("source workflow run inventory does not match the exact successful campaign");
-  }
-  return { count: 1, source_run_id: sourceRunId };
 }
 
 export function validateAttestationVerification(bytes) {
@@ -310,10 +293,10 @@ export function validateSourceRunJobs(pages, { sourceRunId }) {
 }
 
 export function buildConsumptionReceipt({
-  sourceRun, sourceRunMetadataSha256, sourceRunSetSha256, sourceRunJobsSha256, attempts,
+  sourceRun, sourceRunMetadataSha256, sourceRunJobsSha256, attempts,
   campaignSha256, bundleSha256, attestationVerificationSha256, campaignObserver, consumer,
 }) {
-  if ([sourceRunMetadataSha256, sourceRunSetSha256, sourceRunJobsSha256, campaignSha256, bundleSha256,
+  if ([sourceRunMetadataSha256, sourceRunJobsSha256, campaignSha256, bundleSha256,
     attestationVerificationSha256]
     .every((value) => shaPattern.test(value)) === false ||
       !oidPattern.test(campaignObserver?.commit) || !oidPattern.test(campaignObserver?.tree) ||
@@ -327,7 +310,6 @@ export function buildConsumptionReceipt({
     source_run: {
       ...sourceRun,
       metadata_sha256: sourceRunMetadataSha256,
-      run_set_sha256: sourceRunSetSha256,
       jobs_sha256: sourceRunJobsSha256,
     },
     input: {
@@ -373,6 +355,7 @@ async function validateCampaignGitIdentity({ observer, subject, repository, scen
   const rows = scenarioDesign?.scenarios?.filter((row) => row.capability_id === "INS-01") ?? [];
   const cases = Object.fromEntries(rows.map((row) => [row.scenario, row.case_id]));
   if (binding?.protocol !== "install-skill-v2" || binding?.parameters?.kind !== "skill" ||
+      !/^[1-9][0-9]{0,19}$/.test(binding.parameters.workflow_id) ||
       JSON.stringify(Object.keys(cases).sort()) !== JSON.stringify(["negative", "positive", "recovery"])) {
     fail("install-skill-v2 is not the canonical INS-01 binding");
   }
@@ -406,21 +389,20 @@ async function validateCampaignGitIdentity({ observer, subject, repository, scen
       subject.installer_blob !== sourceObjects["scripts/install-codex.mjs"]) {
     fail("INS-01 campaign controls or subject drifted before consumption");
   }
-  return { cases, commit, sourceCommit };
+  return { cases, commit, sourceCommit, workflowId: binding.parameters.workflow_id };
 }
 
 async function consume({
-  campaignDirectory, output, sourceRunId, sourceRunMetadata, sourceRunSet, sourceRunJobs,
+  campaignDirectory, output, sourceRunId, sourceRunMetadata, sourceRunJobs,
   attestationVerification,
 }) {
   const campaignRoot = path.resolve(campaignDirectory);
-  const [campaignBytes, bundleBytes, metadataBytes, runSetBytes, jobsBytes, verificationBytes, scenarioBytes,
+  const [campaignBytes, bundleBytes, metadataBytes, jobsBytes, verificationBytes, scenarioBytes,
     commit, tree, repository,
     workflowBlob, scriptBlob, scenarioBlob] = await Promise.all([
     readFile(path.join(campaignRoot, "ins-01-campaign.json")),
     readFile(path.join(campaignRoot, "ins-01-campaign-attestation.json")),
     readFile(path.resolve(sourceRunMetadata)),
-    readFile(path.resolve(sourceRunSet)),
     readFile(path.resolve(sourceRunJobs)),
     readFile(path.resolve(attestationVerification)),
     readFile(path.join(root, "evals", "scenarios.json")),
@@ -439,18 +421,15 @@ async function consume({
     repository,
     scenarioDesign,
   });
-  const { observer: campaignObserver } = await validateCampaignEnvelope(campaign, {
+  const { observer: campaignObserver, run: campaignRun } = await validateCampaignEnvelope(campaign, {
     campaignRoot,
     cases: preliminary.cases,
+    workflowId: preliminary.workflowId,
   });
   const sourceRun = validateSourceRunMetadata(parseUniqueJson(metadataBytes, "source run metadata"), {
     sourceRunId,
     campaignCommit: campaignObserver.commit,
-    repository,
-  });
-  validateSourceRunSet(parseUniqueJson(runSetBytes, "source workflow run inventory"), {
-    sourceRunId,
-    campaignCommit: campaignObserver.commit,
+    campaignRun,
     repository,
   });
   const attempts = validateSourceRunJobs(parseUniqueJson(jobsBytes, "source run jobs"), { sourceRunId });
@@ -458,7 +437,6 @@ async function consume({
   const receipt = buildConsumptionReceipt({
     sourceRun,
     sourceRunMetadataSha256: sha256(metadataBytes),
-    sourceRunSetSha256: sha256(runSetBytes),
     sourceRunJobsSha256: sha256(jobsBytes),
     attempts,
     campaignSha256: sha256(campaignBytes),
@@ -480,21 +458,19 @@ async function consume({
 if (import.meta.main === true) {
   try {
     const args = process.argv.slice(2);
-    if (args.length !== 14 || args[0] !== "--campaign-dir" || args[2] !== "--source-run-id" ||
-        args[4] !== "--source-run-metadata" || args[6] !== "--source-run-set" ||
-        args[8] !== "--source-run-jobs" || args[10] !== "--attestation-verification" ||
-        args[12] !== "--output" ||
+    if (args.length !== 12 || args[0] !== "--campaign-dir" || args[2] !== "--source-run-id" ||
+        args[4] !== "--source-run-metadata" || args[6] !== "--source-run-jobs" ||
+        args[8] !== "--attestation-verification" || args[10] !== "--output" ||
         args.filter((_, index) => index % 2 === 1).some((value) => !value)) {
-      fail("usage: consume-install-capability.mjs --campaign-dir <path> --source-run-id <id> --source-run-metadata <path> --source-run-set <path> --source-run-jobs <path> --attestation-verification <path> --output <path>");
+      fail("usage: consume-install-capability.mjs --campaign-dir <path> --source-run-id <id> --source-run-metadata <path> --source-run-jobs <path> --attestation-verification <path> --output <path>");
     }
     await consume({
       campaignDirectory: args[1],
       sourceRunId: args[3],
       sourceRunMetadata: args[5],
-      sourceRunSet: args[7],
-      sourceRunJobs: args[9],
-      attestationVerification: args[11],
-      output: args[13],
+      sourceRunJobs: args[7],
+      attestationVerification: args[9],
+      output: args[11],
     });
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));

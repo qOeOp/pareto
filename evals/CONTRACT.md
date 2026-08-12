@@ -51,21 +51,30 @@ non-authorizing: coordinated edits to both the matrix and corpus are not anti-om
 canonical-base consumer must reject deletion, suite movement, or authority-class downgrade before any such
 claim can be admitted.
 For pull requests, the base-owned `scenario-authority` workflow is that consumer: it never checks out or
-executes candidate code, reads candidate matrix/corpus blobs by exact event head, preserves every canonical
-catalog field, slot, case definition, suite, observer, and missing-authority binding, and permits only a new
-executable case on a previously unbound slot. Schema, catalog, case, or authority-state migration therefore
-requires a separate base-first change.
-The workflow, checker, protocol adapters, validator self-test, JSON parser, and package manifest/lock are exact protected control-plane blobs. Their
-migration requires explicit repository-owner bypass; a scenario candidate cannot authorize its own checker.
-The schema-v3 migration is bootstrap-only. It may preserve already-admitted authority but cannot authorize a
-new protocol or new capability campaign. Only a later PR may switch one fixed observer's complete three-slot
-set to `implemented`, and the already-canonical base checker rejects any simultaneous protocol, observer,
-adapter, scorer, workflow, validator, parser, package, or case-control change. Adding or changing a protocol
-requires its own base-first migration; the first campaign produced by that migration is permanently bootstrap
-evidence.
-The PR that first introduces this workflow is bootstrap-only because its base cannot run a workflow it does
-not yet contain. Authority begins only after merge and a subsequent exact-head PR dynamically passes the
-base-owned check; until then no anti-omission claim is admitted.
+executes candidate code, reads candidate matrix/corpus blobs by exact event head, preserves canonical catalog
+fields, slots, case definitions, suites, observer classes, and authority state, and validates protocol evolution
+through the base checker. Protocols and fixed observers cannot disappear; coverage and protocol versions cannot
+downgrade; a protocol identity/path change requires a strict version increase; same-protocol parameters cannot
+be rewritten; and declared control and subject paths must exist. A candidate-added fixed observer cannot promote
+authority in the same PR: its binding must first become base-owned. A binding migration may touch only the
+scenario authority and its referenced protocol controls and tests; at most one protocol
+definition may migrate, and it cannot be unrelated to a simultaneous binding change. The workflow itself must
+retain read-only permissions, one base-owned job with five exact ordered steps, exact
+candidate fetch, and exact base/candidate invocation.
+
+Promoting a previously unavailable fixed-observer slot to implemented is narrower still: the binding, protocol
+descriptor, and every referenced control must remain byte-identical to their base-owned versions, and the PR may
+change only the scenario matrix and its golden or holdout cases. Promotion therefore consumes an already-reviewed
+observer instead of rewriting the evidence path that is supposed to justify the promotion.
+
+Observer, consumer, and their tests are ordinary reviewed code changes when the candidate still satisfies those
+invariants. The scenario-authority checker, its authority tests, and validator remain byte-identical to the base;
+changing the gate itself requires a finite repository-owner bootstrap and cannot ride a protocol migration. The
+candidate's checker cannot authorize the same PR because the workflow executes the unchanged base checker. This
+separates migration safety from semantic review without adding a migration ledger, exception label, or second
+authority. The one transition
+that replaces the former exact-byte rule is bootstrap-only because its base still enforces that obsolete rule;
+later conforming protocol and control upgrades must pass normally rather than repeat an expected-failure bypass.
 
 `cases/golden.yaml` and `cases/holdout.yaml` are the executable text corpus authority. Descriptions carry the
 suite selector; prompts express generalized consumer tasks without private repositories, task
@@ -335,14 +344,20 @@ and verifies its identity before removal in `finally`.
 campaign can use it. It reuses the install observer and semantic adapter, but owns a separate four-stage
 workflow containing exactly six Linux/Windows trial jobs, six observation-attestation jobs, one aggregate,
 and one campaign-attestation job. A separate canonical consumer binds the exact successful first-attempt
-workflow run, the exhaustive same-workflow/head/event dispatch-run set, the complete 14-job inventory returned
-by GitHub, all six verified observation attestations, the verified campaign attestation, and its own Git identity
-into a signed consumption receipt. Missing, duplicate, extra, failed, cancelled, or rerun jobs or dispatches
-reject the complete campaign; a successful replacement cannot hide an earlier attempt. The consumer also
+workflow run, the complete 14-job inventory returned by GitHub, all six verified observation attestations,
+the verified campaign attestation, and its own Git identity into a signed consumption receipt. The canonical
+workflow runs only when GitHub's monotonic workflow `run_number` and immutable `run_attempt` are both `1`.
+The INS-01 fixed-observer binding owns the platform workflow ID; the workflow signs that ID with the run ID,
+number, and attempt, and the consumer reads the same binding instead of defining a parallel value. The consumer
+requires GitHub metadata to retain that same workflow ID. A deleted or same-path recreated workflow therefore
+cannot reset the accepted counter, and a deleted failure cannot reset the
+next run number to `1`, so a later successful dispatch cannot replace the first run. Missing, duplicate, extra,
+failed, cancelled, or rerun jobs reject the complete campaign. Current REST run listings are not completeness
+authority because repository writers can delete them. The consumer also
 replays every observation through the install adapter and rejects subject, scenario, or Git-control drift before
 signing. The protocol does not bind
 INS-01 in the PR that introduces it and does not change any score. A later base-owned migration may bind only
-INS-01 with `{kind: skill}`. A still later scorer must verify the observation bundles, campaign, consumption
+INS-01 with `{kind: skill, workflow_id: <platform ID>}`. A still later scorer must verify the observation bundles, campaign, consumption
 receipt, source metadata and job inventory, plus strict observer-to-consumer-to-current ancestry and unchanged
 control/subject blobs, before the deterministic 9.5 anchor can be considered. `install-v1` remains capped at 8,
 and provider-mediated capabilities retain their provider/native provenance requirements.
