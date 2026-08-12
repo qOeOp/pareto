@@ -8,6 +8,8 @@ import { promisify } from "node:util";
 import { pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
 import {
+  attestedCampaignVerifierKind,
+  fixedObserverProtocolVersion,
   nodeSupportsSigstore,
   validateCatalogFile,
   verifyCommittedNativeTurn,
@@ -854,6 +856,20 @@ async function scoreCampaignFixture(name, sourceInstall, sourceCandidate, consum
 }
 
 try {
+  assert.equal(fixedObserverProtocolVersion("INS-01", "install-skill-v2"),
+    "pareto-fixed-observer-protocol/v2");
+  assert.equal(fixedObserverProtocolVersion("INS-03", "install-v1"),
+    "pareto-fixed-observer-protocol/v1");
+  assert.equal(fixedObserverProtocolVersion("EVAL-02", "score-v1"),
+    "pareto-fixed-observer-protocol/v1");
+  assert.throws(() => fixedObserverProtocolVersion("INS-03", "install-skill-v2"),
+    /fixed observer protocol is unsupported/);
+  assert.throws(() => fixedObserverProtocolVersion("INS-01", "unknown-v1"),
+    /fixed observer protocol is unsupported/);
+  assert.equal(attestedCampaignVerifierKind("install-v1"), "install");
+  assert.equal(attestedCampaignVerifierKind("score-v1"), "score");
+  assert.throws(() => attestedCampaignVerifierKind("install-skill-v2"),
+    /attested campaign protocol is unsupported/);
   assert.equal(nodeSupportsSigstore("22.22.1"), false);
   assert.equal(nodeSupportsSigstore("22.22.2"), true);
   assert.equal(nodeSupportsSigstore("23.9.9"), false);
