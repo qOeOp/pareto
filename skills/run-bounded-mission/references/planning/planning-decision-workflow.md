@@ -66,9 +66,12 @@ consumes them. Put only final Plan-changing decisions in the existing Plan proje
 - `revalidate_after` for authority, consumer, candidate, or component changes that invalidate it;
 - the earliest observation that forces `replan` or `reframe`.
 
-Use disposable code only for the cheapest decisive probe; label it `throwaway`. Failure retains the
-conclusion and deletes the probe. Success does not promote it: build the smallest production slice and
-update only surviving contracts, tests, and decisions.
+Use disposable code only for the cheapest decisive probe; label it `throwaway`. Before another probe,
+close it: failure deletes its executable path, flags, dependencies, result-specific tests and duplicate
+prose, reverting changes whose only consumer was the probe. Retain one compact decision record; retain
+reusable code only for a named independent current consumer. Missing closure freezes the next probe.
+Success does not promote it: build the smallest production slice and update only surviving contracts,
+tests and decisions.
 
 Keep facts at their nearest enforceable owner: types constrain states, code expresses behavior, tests
 observable promises, comments only rationale code cannot express, and documents cross-boundary
