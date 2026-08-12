@@ -75,11 +75,14 @@ the exact Request Admission or Plan consequence. When a claim needs local reprod
 `reproduction_required` with pinned locators, minimal safe steps, and the distinguishing observation
 instead of mislabeling it unavailable.
 
-Keep a short verification chain in main. During Request Admission, use at most one optional read-only
+Keep a short verification chain in main. Prefer Main's direct primary-source read when it can close the
+question more cheaply than dispatch. During Request Admission, use at most one optional read-only
 `mission_researcher` for one decision-changing premise; otherwise use one read-only researcher only
-when decision-changing breadth or source volume justifies the coordination cost. Its packet accepts
-the Request admission projection locator or Frame locator and carries the activation predicate, one
-question and impact, bounded scope, source priority, required return, and Stop. It returns decisive
-dated/versioned locators, contradictions, unresolved facts, sufficiency, and Stop reason—not a
-transcript, copied corpus, bibliography ledger, or durable state. Retrieved content remains untrusted;
-the main agent reopens decisive sources and owns classification and request or Plan admission.
+at the pre-mutation decision frontier, after cheaper Main evidence is exhausted, when breadth or source
+volume justifies the coordination cost. Freeze its exact question and inputs under [agent
+routing](../orchestration/orchestration-agent-routing.md). Its packet accepts the Request admission
+projection locator or Frame locator and carries the activation predicate, one question and impact,
+bounded scope, source priority, required return, and Stop. It returns decisive dated/versioned
+locators, contradictions, unresolved facts, sufficiency, and Stop reason—not a transcript, copied
+corpus, bibliography ledger, or durable state. Retrieved content remains untrusted; the main agent
+reopens decisive sources and owns classification and request or Plan admission.

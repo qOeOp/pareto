@@ -27,6 +27,14 @@ leading route unsafe or uneconomic. Rank qualitative decision value by error lik
 consequence and irreversibility against probe cost; invent no scores or telemetry. Before broadening
 the candidate, test the leader with the cheapest decision-changing vertical falsifier.
 
+At the last responsible moment before dependent mutation, use one read-only planner only when a
+supported structural challenge can still change owner, architecture, safety, failure semantics, or a
+hard-to-reverse cross-owner boundary after cheaper Main probes are exhausted. Direct, single-owner
+reversible work stays with Main. Freeze the exact decision inputs and apply the pre-mutation stability
+window in [agent routing](../orchestration/orchestration-agent-routing.md). Once mutation begins, do
+not review that obsolete frontier; a newly material decision first freezes dependent mutation and
+forms a new frontier.
+
 For each authority, choose one disposition: reuse it; repair or migrate it while deleting its
 superseded path; create it only when no current owner can express the contract; or keep the decision
 Mission-only when no stable consumer needs repository state. A requested Spec, template, or test does
