@@ -21,12 +21,11 @@ cheapest repository or consumer probe that can distinguish each material path. L
 evidence](planning-decision-evidence.md) only when bounded history, ambiguity, or current external
 facts can change that decision.
 
-For Bounded or High-consequence work, name at most three architecture-killing assumptions: facts
-whose failure would invalidate the Outcome or consumer, force a different owner or lifecycle, cross a
-critical floor, or make the leading route unsafe or uneconomic. Order them by qualitative decision
-value - likelihood of being wrong, avoidable consequence and irreversibility, against probe cost -
-without inventing scores or telemetry. Test the leading assumption with the cheapest
-decision-changing vertical falsifier before broadening the candidate.
+For Bounded or High-consequence work, name at most three architecture-killing assumptions: failures
+that invalidate Outcome or consumer, change owner or lifecycle, cross a critical floor, or make the
+leading route unsafe or uneconomic. Rank qualitative decision value by error likelihood, avoidable
+consequence and irreversibility against probe cost; invent no scores or telemetry. Before broadening
+the candidate, test the leader with the cheapest decision-changing vertical falsifier.
 
 For each authority, choose one disposition: reuse it; repair or migrate it while deleting its
 superseded path; create it only when no current owner can express the contract; or keep the decision
@@ -67,6 +66,15 @@ consumes them. Put only final Plan-changing decisions in the existing Plan proje
 - `revalidate_after` for authority, consumer, candidate, or component changes that invalidate it;
 - the earliest observation that forces `replan` or `reframe`.
 
+Use disposable code only for the cheapest decisive probe; label it `throwaway`. Failure retains the
+conclusion and deletes the probe. Success does not promote it: build the smallest production slice and
+update only surviving contracts, tests, and decisions.
+
+Keep facts at their nearest enforceable owner: types constrain states, code expresses behavior, tests
+observable promises, comments only rationale code cannot express, and documents cross-boundary
+contracts, user or operational guidance, and architectural decisions. Link rather than copy; retain no
+duplicate implementation truth.
+
 Do not retain exploration logs, option diaries, parallel Specs, or a second packet/schema. Every final
 decision needs a downstream consumer; unknown essential evidence freezes only its dependent decision.
 The sole Execute-admission result is the complete current Plan projection. Replace it and the current
@@ -85,10 +93,9 @@ Checks, diff size, prose volume, or revision count never select the route. Bind 
 first changed decision, replace the Plan after `replan`, and clear it after `reframe` until a new Plan
 is admitted.
 
-Alternate between Frame and Plan only when a new observation changes one of their owned fields. A
-leaf-specific difference stays candidate-local only while the admitted owner, path, responsibility,
-boundary, and oracle still hold; otherwise route by the first changed Frame or Plan field. No
-decision-changing observation means Stop, not another deliberation or review loop.
+`replan` or `reframe` only when an observation changes a Plan or Frame field, respectively. A leaf
+difference is candidate-local only while its admitted owner, path, responsibility, boundary, and
+oracle hold; otherwise route at the first changed field. No decision-changing observation means Stop.
 
 ## Make slices falsifiable
 
@@ -98,8 +105,8 @@ For a failing check, reproduce the exact failure, localize one cause, make the s
 correction, and rerun that check plus the narrowest relevant regression. Convergence follows causal
 closure, not attempt counts.
 
-Before expanding a shared skeleton across many leaves, exercise it through one materially different
-consumer or failure/recovery slice; a near-duplicate happy path is not independent evidence. Once the
-relevant consumers demonstrate a critical invariant, preserve it with the smallest executable fitness
-function in an existing owner or gate. Do not create a framework, downgrade a low-frequency critical
-path, or treat that check as proof of value outside its observed boundary.
+Before expanding a shared skeleton, test it through one materially different consumer or
+failure/recovery slice; a near-duplicate happy path is not independent evidence. Preserve any critical
+invariant demonstrated by relevant consumers with the smallest executable fitness function in an
+existing owner or gate. Create no framework, downgrade no low-frequency critical path, and claim no
+value beyond the observed boundary.
