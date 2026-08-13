@@ -377,6 +377,27 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedRecoveryOwner, /Plan projection, a compaction summary, or recovery prose does not restore Execute/);
   assert.match(installedRecoveryOwner, /Before the first later mutation or unissued effect/);
   assert.match(installedRecoveryOwner, /emit the complete current Mission checkpoint with exact live/);
+  const installedAgentRoutingOwner = await readFile(join(
+    agentsRoot,
+    "skills",
+    "run-bounded-mission",
+    "references",
+    "orchestration",
+    "orchestration-agent-routing.md",
+  ), "utf8");
+  const dispatchRootGate = installedAgentRoutingOwner.indexOf(
+    "Before dispatch, put the exact immutable Skill root already bound for this Mission",
+  );
+  const hostDispatchEffect = installedAgentRoutingOwner.indexOf("One complete host dispatch is");
+  assert.ok(dispatchRootGate >= 0 && dispatchRootGate < hostDispatchEffect);
+  assert.match(installedAgentRoutingOwner,
+    /missing, unreadable, mismatched, mutable, or candidate-controlled root freezes dispatch\s+before any host effect/);
+  assert.match(installedAgentRoutingOwner,
+    /never derive one from repository cwd, an installation convention, inherited\s+context, or the candidate/);
+  assert.match(installedAgentRoutingOwner,
+    /Apply the selected route's Stop\/fallback: Main continues directly only\s+where that route permits; otherwise freeze the dependent decision/);
+  assert.doesNotMatch(installedAgentRoutingOwner,
+    /candidate\. Main continues directly or freezes only the dependent decision/);
   const installedReviewerHandoffOwner = await readFile(join(
     agentsRoot,
     "skills",
