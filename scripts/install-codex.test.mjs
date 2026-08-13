@@ -277,6 +277,20 @@ const origin = join(root, "qOeOp", "skills.git");
 
   const installedSkillFile = join(agentsRoot, "skills", "run-bounded-mission", "SKILL.md");
   const installedSkillBytes = await readFile(installedSkillFile);
+  const installedSkillSource = installedSkillBytes.toString("utf8");
+  assert.match(installedSkillSource, /the Plan\s+projection is not that checkpoint/);
+  assert.match(installedSkillSource, /After context compaction, load that recovery owner before mutation/);
+  const installedRecoveryOwner = await readFile(join(
+    agentsRoot,
+    "skills",
+    "run-bounded-mission",
+    "references",
+    "orchestration",
+    "orchestration-context-recovery.md",
+  ), "utf8");
+  assert.match(installedRecoveryOwner, /Plan projection, a compaction summary, or recovery prose does not restore Execute/);
+  assert.match(installedRecoveryOwner, /Before the first later mutation or unissued effect/);
+  assert.match(installedRecoveryOwner, /emit the complete current Mission checkpoint with exact live/);
   await writeFile(installedSkillFile, "drift\n");
   result = spawnSync(process.execPath, [installedHook], {
     encoding: "utf8",
