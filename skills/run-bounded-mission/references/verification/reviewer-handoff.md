@@ -21,6 +21,9 @@ Main opens every locator before launch and records exact candidate/control ident
 status, and affected-file and tree fingerprints for comparison after return. Mutable worktree paths,
 prose summaries, reconstructed commands, inaccessible evidence, and candidate-owned control are
 unsupported. Do not rebuild, repackage, retry, or materialize a packet to make them pass.
+Every byte fingerprint also binds an immutable byte-producing recipe: tool identity, arguments,
+working/path scope, ordering, separators, and encoding. Recovery and fan-in replay that exact recipe;
+a missing, changed, or failed recipe makes the comparison unsupported, not evidence of drift.
 
 The review input is the sole frozen evaluator packet. Its binding is candidate commit/tree (or local
 snapshot digest), base/Origin, neutral control, one lens, and exact evidence locators. From a
@@ -93,6 +96,9 @@ missing fields, mutation, unavailable required evidence, or candidate-controlled
 
 After each return, Main re-resolves and compares candidate/control identities, repository status, and
 affected-file and tree fingerprints. Any reviewer-visible mutation or drift invalidates that member.
+Call a fingerprint mismatch drift only when the same recorded byte-producing recipe resolved
+successfully on both sides; never compare a recovered or reconstructed representation with the
+recorded digest.
 Every finding is only a lead until Main independently reproduces it through the smallest real consumer;
 Main exact-deduplicates the ordered union and resolves disagreement by current authority and reproduced
 impact, never reviewer count. Unsupported evidence remains explicit and cannot authorize delivery.

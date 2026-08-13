@@ -302,6 +302,26 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedRecoveryOwner, /Plan projection, a compaction summary, or recovery prose does not restore Execute/);
   assert.match(installedRecoveryOwner, /Before the first later mutation or unissued effect/);
   assert.match(installedRecoveryOwner, /emit the complete current Mission checkpoint with exact live/);
+  const installedReviewerHandoffOwner = await readFile(join(
+    agentsRoot,
+    "skills",
+    "run-bounded-mission",
+    "references",
+    "verification",
+    "reviewer-handoff.md",
+  ), "utf8");
+  assert.match(installedReviewerHandoffOwner,
+    /Every byte fingerprint also binds an immutable byte-producing recipe:/);
+  assert.match(installedReviewerHandoffOwner,
+    /tool identity, arguments,\s+working\/path scope, ordering, separators, and encoding/);
+  assert.match(installedReviewerHandoffOwner,
+    /Recovery and fan-in replay that exact recipe/);
+  assert.match(installedReviewerHandoffOwner,
+    /a missing, changed, or failed recipe makes the comparison unsupported, not evidence of drift\./);
+  assert.match(installedReviewerHandoffOwner,
+    /same recorded byte-producing recipe resolved\s+successfully on both sides/);
+  assert.match(installedReviewerHandoffOwner,
+    /never compare a recovered or reconstructed representation with the\s+recorded digest/);
   await writeFile(installedSkillFile, "drift\n");
   result = spawnSync(process.execPath, [installedHook], {
     encoding: "utf8",
