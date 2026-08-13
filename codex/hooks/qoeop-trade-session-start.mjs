@@ -162,4 +162,14 @@ try {
     stopReason: `Pinned run-bounded-mission ${lock.commit} is not installed exactly. Run the origin/main bootstrap, then start a new Codex session.`,
     systemMessage: "qOeOp/trade Skill pin mismatch",
   });
+  process.exit(0);
+}
+
+if (input.source === "compact") {
+  output({
+    hookSpecificOutput: {
+      hookEventName: "SessionStart",
+      additionalContext: "Context compacted. Load orchestration-context-recovery.md; emit a complete Mission checkpoint before mutation or effects.",
+    },
+  });
 }

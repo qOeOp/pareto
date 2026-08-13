@@ -106,6 +106,7 @@ try {
   assert.equal(installedHooks.hooks.UserPromptSubmit[0].hooks[0].command, "node preserved-hook.mjs");
   assert.equal(installedHooks.hooks.SessionStart.length, 2);
   assert.equal(installedHooks.hooks.SessionStart[0].hooks[1].command, "node preserved-shared-hook.mjs");
+  assert.equal(installedHooks.hooks.SessionStart.at(-1).matcher, "^(startup|resume|clear|compact)$");
   installedHooks.hooks.SessionStart.at(-1).hooks.push({ type: "command", command: "node preserved-owned-group-hook.mjs" });
   await writeFile(join(codexRoot, "hooks.json"), `${JSON.stringify(installedHooks)}\n`);
   result = spawnSync(process.execPath, hookedArgv, { encoding: "utf8" });
@@ -261,6 +262,15 @@ const origin = join(root, "qOeOp", "skills.git");
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "");
+  result = spawnSync(process.execPath, [installedHook], {
+    encoding: "utf8",
+    input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "compact" }),
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const compactOutput = JSON.parse(result.stdout);
+  assert.equal(compactOutput.hookSpecificOutput.hookEventName, "SessionStart");
+  assert.match(compactOutput.hookSpecificOutput.additionalContext, /complete Mission checkpoint before mutation or effects/);
+  assert.ok(Buffer.byteLength(compactOutput.hookSpecificOutput.additionalContext) <= 128);
   const installedPinReceipt = join(codexRoot, "run-bounded-mission-install.json");
   const installedPinBytes = await readFile(installedPinReceipt);
   const stalePin = JSON.parse(installedPinBytes);
@@ -268,10 +278,11 @@ const origin = join(root, "qOeOp", "skills.git");
   await writeFile(installedPinReceipt, `${JSON.stringify(stalePin, null, 2)}\n`);
   result = spawnSync(process.execPath, [installedHook], {
     encoding: "utf8",
-    input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "startup" }),
+    input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "compact" }),
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).continue, false);
+  assert.equal(JSON.parse(result.stdout).hookSpecificOutput, undefined);
   assert.match(JSON.parse(result.stdout).stopReason, /origin\/main bootstrap/);
   await writeFile(installedPinReceipt, installedPinBytes);
 

@@ -372,7 +372,7 @@ async function mergedHooks(path, destinationHook) {
   const ownedCount = groups.flatMap((group) => group?.hooks ?? []).filter((hook) => hook?.command === command).length;
   if (ownedCount > 1) throw new Error("duplicate Codex Skill pin hooks");
   const group = {
-    matcher: "^(startup|resume|clear)$",
+    matcher: "^(startup|resume|clear|compact)$",
     hooks: [{
       type: "command",
       command,
