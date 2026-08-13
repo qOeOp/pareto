@@ -78,6 +78,10 @@ After release, add the child to the Hub active set and monitor only through the 
 
 ## Observe events without polling
 
+An explicitly requested diagnostic observer may reuse these bounded wait/read mechanics for one exact
+peer. It returns facts to lifecycle QA and never adopts the peer's Goal, active set, DAG, custody,
+effects, or endpoint; child interpretation remains Hub-only.
+
 An observation window is admitted by one explicit user request, one unseen terminal or
 needs-attention receipt, or one checkpointed next observation action. Callback transport is an
 optional early wake: it may report a structural authority gap, changed dependency receipt, or terminal
@@ -92,14 +96,18 @@ lists. If any handoff-relevant evidence lacks a usable locator or is malformed, 
 unavailable, say so inline and fail closed for the affected action. Locators may compress only
 available, well-formed evidence.
 
-For ordinary custody, issue at most one cursor-bound bounded wait over the complete exact active set in
-one scheduling slice. Choose a nonzero bound from current task state or a known external deadline. An
-explicit status request uses one timeoutMs: 0 snapshot. Use one bounded thread read only when an
-admitted receipt or user question requires history.
+For ordinary child custody, issue at most one cursor-bound bounded wait over the complete exact active
+set in one scheduling slice. Choose a nonzero bound from current task state or a known external
+deadline. An explicit status request uses one timeoutMs: 0 snapshot. Use one bounded thread read only
+when an admitted receipt or user question requires history.
 
-Only unseen terminal or needs-attention content changes the DAG, authority, candidate validity,
-release predicate, or endpoint. An unchanged, duplicate, timed-out, or non-actionable observation
-produces no commentary, message, history read, repository/GitHub/Goal effect, or immediate
+For a diagnostic peer, use one cursor-bound wait; if unavailable, use one bounded read only for the
+explicit request or checkpointed next action. If neither is callable, return `evidence_unavailable`
+with a finite Stop. Never busy-read, resubscribe immediately, demand callbacks, or message the peer.
+
+For a Hub child, only unseen terminal or needs-attention content changes the DAG, authority, candidate
+validity, release predicate, or endpoint. An unchanged, duplicate, timed-out, or non-actionable
+observation produces no commentary, message, history read, repository/GitHub/Goal effect, or immediate
 resubscription: record the next observation action and silently yield.
 
 For each continued target require cursor continuity, target/host identity, and non-regressing
@@ -108,7 +116,7 @@ Malformed, unknown, discontinuous, or incomplete evidence freezes only affected 
 compact needs-attention result with the exact predicate and earliest useful read. Task, reviewer,
 transport, or host unavailability never creates a retry loop or a new task.
 
-At a changed window, reconcile each stable component once against current Goal, task, Git, GitHub,
+For a Hub child at a changed window, reconcile each stable component once against current Goal, task, Git, GitHub,
 dependency, and authority facts. Main reproduces decisive consumer conflicts and records each member
 accepted, rejected, or superseded_by. Then emit one replacement checkpoint and release a direct
 successor's recorded next owner in the same turn. One receipt never triggers repeated global passes.
