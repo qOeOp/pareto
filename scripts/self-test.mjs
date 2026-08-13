@@ -634,18 +634,10 @@ try {
   assert.match(baseValidation.stdout,
     new RegExp(`Validated 1 Skill, \\d+ executable cases, and ${expectedScenarioCount} scenario designs \\(${baseImplemented} implemented authorities, ${baseUnavailable} unavailable\\); committed baselines are disabled`));
 
-  const v2Catalog = JSON.parse(capabilityCatalogSource);
-  v2Catalog.schema_version = 2;
-  v2Catalog.capabilities = v2Catalog.capabilities.map((row) => ({
-    ...row,
-    atomicity: "unreviewed",
-    split_from: null,
-  }));
-  await writeFile(capabilityCatalogPath, `${JSON.stringify(v2Catalog, null, 2)}\n`, "utf8");
-  const v2Validation = await runProductionValidator();
-  assert.match(v2Validation.stdout,
-    new RegExp(`Validated 1 Skill, \\d+ executable cases, and ${expectedScenarioCount} scenario designs`));
-  await writeFile(capabilityCatalogPath, capabilityCatalogSource, "utf8");
+  const currentCatalog = JSON.parse(capabilityCatalogSource);
+  assert.equal(currentCatalog.schema_version, 2);
+  assert.ok(currentCatalog.capabilities.some((row) => row.split_from !== null),
+    "current catalog must preserve its reviewed capability lineage");
 
   const challengeScenarioDesign = async (mutate, pattern, label) => {
     const challenged = JSON.parse(scenarioDesignSource);
