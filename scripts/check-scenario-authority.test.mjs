@@ -46,6 +46,19 @@ try {
   // how many atomic decisions canonical main has already consumed.
   const fixtureCatalogPath = path.join(fixture, "evals/capabilities.json");
   const fixtureCatalog = JSON.parse(await readFile(fixtureCatalogPath, "utf8"));
+  const occupiedCapabilityIds = new Set(fixtureCatalog.capabilities.map((row) => row.id));
+  const fixtureCapabilityIds = Array.from({ length: 100 }, (_, index) =>
+    `ORC-${String(99 - index).padStart(2, "0")}`)
+    .filter((id) => !occupiedCapabilityIds.has(id))
+    .slice(0, 4);
+  assert.equal(fixtureCapabilityIds.length, 4,
+    "scenario-authority fixture requires four unused orchestration capability IDs");
+  const [splitChildA, splitChildB, resplitChildA, resplitChildB] = fixtureCapabilityIds;
+  const splitChildIds = [splitChildA, splitChildB];
+  const splitOwnerOverrides = {
+    [splitChildA]: "mission-planner.toml",
+    [splitChildB]: "mission-evaluator.toml",
+  };
   fixtureCatalog.schema_version = 1;
   fixtureCatalog.capabilities = fixtureCatalog.capabilities.map(({
     atomicity: _atomicity, split_from: _splitFrom, ...capability
@@ -230,31 +243,25 @@ try {
   }
 
   const splitReview = await commitMutation("atomic-split-review", async () => {
-    await admitAtomicity("ORC-05", "split", ["ORC-07", "ORC-08"]);
+    await admitAtomicity("ORC-05", "split", splitChildIds);
   }, migration);
   checkScenarioAuthority({ repo: fixture, base: migration, candidate: splitReview });
 
   const split = await commitMutation("atomic-split", async () => {
     const source = await readFile(designPath, "utf8");
     await writeFile(designPath, source.replace(/\r?\n/g, "\r\n"));
-    await appendSplit("ORC-05", ["ORC-07", "ORC-08"]);
+    await appendSplit("ORC-05", splitChildIds);
     await consumeAdmission();
   }, splitReview);
   const splitResult = checkScenarioAuthority({ repo: fixture, base: splitReview, candidate: split });
   assert.equal(splitResult.slots, fixtureDesign.scenarios.length + 6);
 
   const distinctOwnerReview = await commitMutation("distinct-child-owner-review", async () => {
-    await admitAtomicity("ORC-05", "split", ["ORC-07", "ORC-08"], {
-      "ORC-07": "mission-planner.toml",
-      "ORC-08": "mission-evaluator.toml",
-    });
+    await admitAtomicity("ORC-05", "split", splitChildIds, splitOwnerOverrides);
   }, migration);
   checkScenarioAuthority({ repo: fixture, base: migration, candidate: distinctOwnerReview });
   const distinctOwnerSplit = await commitMutation("distinct-child-owner-split", async () => {
-    await appendSplit("ORC-05", ["ORC-07", "ORC-08"], null, {
-      "ORC-07": "mission-planner.toml",
-      "ORC-08": "mission-evaluator.toml",
-    });
+    await appendSplit("ORC-05", splitChildIds, null, splitOwnerOverrides);
     await consumeAdmission();
   }, distinctOwnerReview);
   checkScenarioAuthority({ repo: fixture, base: distinctOwnerReview, candidate: distinctOwnerSplit });
@@ -264,10 +271,7 @@ try {
     await writeFile(path.join(fixture, "shadow-profile", "mission-planner.toml"), "name = 'shadow'\n");
   }, distinctOwnerReview);
   const duplicateOwnerSplit = await commitMutation("duplicate-child-owner-split", async () => {
-    await appendSplit("ORC-05", ["ORC-07", "ORC-08"], null, {
-      "ORC-07": "mission-planner.toml",
-      "ORC-08": "mission-evaluator.toml",
-    });
+    await appendSplit("ORC-05", splitChildIds, null, splitOwnerOverrides);
     await consumeAdmission();
   }, interveningDuplicateOwner);
   assert.throws(() => checkScenarioAuthority({
@@ -275,7 +279,7 @@ try {
   }), /owner path is unavailable or ambiguous|owner resolution drifted after review/);
 
   const missingChildOwner = await commitMutation("missing-child-owner-review", async () => {
-    await admitAtomicity("ORC-05", "split", ["ORC-07", "ORC-08"]);
+    await admitAtomicity("ORC-05", "split", splitChildIds);
     const admission = JSON.parse(await readFile(admissionPath, "utf8"));
     admission.decision.atoms[0].owner = "missing-child-owner.mjs";
     await writeFile(admissionPath, `${JSON.stringify(admission, null, 2)}\n`);
@@ -290,7 +294,7 @@ try {
     await writeFile(path.join(fixture, "duplicate-owner-b", "shared-owner.mjs"), "export default 'b';\n");
   }, migration);
   const ambiguousChildOwner = await commitMutation("ambiguous-child-owner-review", async () => {
-    await admitAtomicity("ORC-05", "split", ["ORC-07", "ORC-08"]);
+    await admitAtomicity("ORC-05", "split", splitChildIds);
     const admission = JSON.parse(await readFile(admissionPath, "utf8"));
     admission.decision.atoms[0].owner = "shared-owner.mjs";
     for (const surfacePath of ["duplicate-owner-a/shared-owner.mjs", "duplicate-owner-b/shared-owner.mjs"]) {
@@ -312,7 +316,7 @@ try {
     await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
   }, splitReview);
   const staleScenarioSplit = await commitMutation("stale-reviewed-scenario-split", async () => {
-    await appendSplit("ORC-05", ["ORC-07", "ORC-08"]);
+    await appendSplit("ORC-05", splitChildIds);
     await consumeAdmission();
   }, reformattedScenarioBase);
   assert.throws(() => checkScenarioAuthority({
@@ -320,13 +324,13 @@ try {
   }), /did not preserve the reviewed scenario bytes plus its exact new slots/);
 
   const oneChild = await commitMutation("one-child-split", async () => {
-    await appendSplit("ORC-05", ["ORC-07"]);
+    await appendSplit("ORC-05", [splitChildA]);
   }, migration);
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base: migration, candidate: oneChild }),
     /split requires at least two new children|lacks one previously admitted atomicity decision/);
 
   const missingChildSlot = await commitMutation("missing-child-slot", async () => {
-    await appendSplit("ORC-05", ["ORC-07", "ORC-08"], "ORC-08/recovery");
+    await appendSplit("ORC-05", splitChildIds, `${splitChildB}/recovery`);
     await consumeAdmission();
   }, splitReview);
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base: splitReview, candidate: missingChildSlot }),
@@ -349,25 +353,25 @@ try {
     /deleted canonical capabilities/);
 
   const inheritedCase = await commitMutation("inherited-case", async () => {
-    await appendSplit("ORC-05", ["ORC-07", "ORC-08"]);
+    await appendSplit("ORC-05", splitChildIds);
     const design = JSON.parse(await readFile(designPath, "utf8"));
     const parentCase = design.scenarios.find((row) => row.capability_id === "ORC-05").case_id;
-    design.scenarios.find((row) => row.capability_id === "ORC-07").case_id = parentCase;
+    design.scenarios.find((row) => row.capability_id === splitChildA).case_id = parentCase;
     await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
   }, migration);
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base: migration, candidate: inheritedCase }),
     /scenario design has duplicate identity/);
 
   const resplitParent = await commitMutation("resplit-parent", async () => {
-    await appendSplit("ORC-05", ["ORC-09", "ORC-10"]);
+    await appendSplit("ORC-05", [resplitChildA, resplitChildB]);
   }, split);
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base: split, candidate: resplitParent }),
     /must split one canonical terminal capability|lacks one previously admitted atomicity decision/);
 
   const selfParent = await commitMutation("self-parent", async () => {
-    await appendSplit("ORC-05", ["ORC-07", "ORC-08"]);
+    await appendSplit("ORC-05", splitChildIds);
     const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
-    catalog.capabilities.find((row) => row.id === "ORC-07").split_from = "ORC-07";
+    catalog.capabilities.find((row) => row.id === splitChildA).split_from = splitChildA;
     await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
   }, migration);
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base: migration, candidate: selfParent }),
@@ -500,9 +504,9 @@ try {
   }), /stale for a reviewed owner or consumer surface/);
 
   const splitDefinitionDrift = await commitMutation("split-definition-drift", async () => {
-    await appendSplit("ORC-05", ["ORC-07", "ORC-08"]);
+    await appendSplit("ORC-05", splitChildIds);
     const catalog = JSON.parse(await readFile(catalogPath, "utf8"));
-    catalog.capabilities.find((row) => row.id === "ORC-08").consumer = "candidate invented consumer";
+    catalog.capabilities.find((row) => row.id === splitChildB).consumer = "candidate invented consumer";
     await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
     await consumeAdmission();
   }, splitReview);
