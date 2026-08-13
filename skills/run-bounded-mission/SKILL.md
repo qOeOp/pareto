@@ -149,9 +149,10 @@ authority. Load conditional owners only when their predicates hold:
   question, one frozen mechanical leaf, or independent frozen-candidate risk questions.
 
 After a nontrivial Plan, emit the complete
-[replacement checkpoint](references/orchestration/orchestration-context-recovery.md). Replace it after
-any decision-changing Frame, Plan, origin, candidate, evidence, effect, authority, Stop, Resume, or
-terminal change.
+[replacement checkpoint](references/orchestration/orchestration-context-recovery.md); the Plan
+projection is not that checkpoint. After context compaction, load that recovery owner before mutation
+or an unissued effect. Replace the checkpoint after any decision-changing Frame, Plan, origin,
+candidate, evidence, effect, authority, Stop, Resume, or terminal change.
 
 ## Execute
 

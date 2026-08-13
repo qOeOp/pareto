@@ -26,9 +26,12 @@ action.
 ## Recovery gate
 
 A new turn, interruption, compaction, source drift, or user override freezes mutation and unissued
-effects. Reconcile the raw request and checkpoint with current Goal capability when relevant, exact
-task identities, Git, GitHub, external effects, and every activated owner before continuing. A
-material Frame change clears the Plan completely before a new one is admitted.
+effects. The Plan projection, a compaction summary, or recovery prose does not restore Execute
+admission. Before the first later mutation or unissued effect, reconcile the raw request and
+checkpoint with current Goal capability when relevant, exact task identities, Git, GitHub, external
+effects, and every activated owner, then emit the complete current Mission checkpoint with exact live
+identities. If an affected identity cannot be read, keep only that action frozen and name its earliest
+useful read. A material Frame change clears the Plan completely before a new one is admitted.
 
 For single mode, require the same Mission, Origin/candidate, next owner, and effect boundary. For Hub
 mode, additionally require:
