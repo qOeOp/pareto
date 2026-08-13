@@ -388,8 +388,17 @@ const origin = join(root, "qOeOp", "skills.git");
   const dispatchRootGate = installedAgentRoutingOwner.indexOf(
     "Before dispatch, put the exact immutable Skill root already bound for this Mission",
   );
+  const specializedRoleForkGate = installedAgentRoutingOwner.indexOf(
+    "When selecting an installed specialized role, set `fork_turns` to `none`",
+  );
   const hostDispatchEffect = installedAgentRoutingOwner.indexOf("One complete host dispatch is");
+  assert.ok(specializedRoleForkGate >= 0 && specializedRoleForkGate < dispatchRootGate);
   assert.ok(dispatchRootGate >= 0 && dispatchRootGate < hostDispatchEffect);
+  assert.match(installedAgentRoutingOwner,
+    /An omitted or `all` full-history fork inherits Main's agent type instead of the selected profile/);
+  assert.match(installedAgentRoutingOwner,
+    /freeze before any host effect rather than sending an invalid role override and correcting it with a\s+second request/);
+  assert.match(installedAgentRoutingOwner, /The complete packet below is the role's context/);
   assert.match(installedAgentRoutingOwner,
     /missing, unreadable, mismatched, mutable, or candidate-controlled root freezes dispatch\s+before any host effect/);
   assert.match(installedAgentRoutingOwner,
