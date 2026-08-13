@@ -1,6 +1,6 @@
 ---
 name: run-bounded-mission
-description: "Run a compact Request Admission gate and Frame, Plan, Execute, Verify, Finalize workflow. Use only when the user affirmatively invokes the exact token $run-bounded-mission, clearly asks to use or run the bounded mission workflow, pairs one exact live Codex task deep link (codex://threads/...) with a short request to watch, observe, or diagnose it, repository instructions require it for non-trivial implementation or delivery, or a later commit, push, pull-request, or merge turn continues a candidate produced under this workflow. Quoting, naming, linking, inspecting, auditing, explaining, generically diagnosing, or negating the token, skill name, or path is not invocation; a bare task link is also not invocation. Without one of those positive entries, do not use it for answer-only work, mechanical edits, routine status, task management, or internal subtasks. An affirmative explicit invocation wins over otherwise excluded request types, including when appended to the request."
+description: "Run Request Admission, Frame, Plan, Execute, Verify, and Finalize. Use when the user invokes $run-bounded-mission, explicitly requests this workflow, pairs one exact codex://threads/... link with a short watch, observe, or diagnose request, repository rules require it for non-trivial implementation or delivery, or continues commit, push, PR, or merge delivery of its candidate. Mere mention, quotation, inspection, audit, explanation, generic diagnosis, negation, a bare task link, answer-only work, mechanical edits, routine status, task management, or internal subtasks do not trigger it; an affirmative invocation overrides those exclusions."
 ---
 
 # Run Bounded Mission
@@ -111,7 +111,7 @@ observable native send receipt. Raw payload length or digest is producer identit
 receipt. Missing, duplicate, supplemental, or ambiguous delivery is host-defect/no-change; never repair
 it by retrying or creating a replacement task.
 
-Load [lifecycle QA](references/quality-assurance/quality-assurance-lifecycle-policy.md) only for a concrete lifecycle mismatch, an explicit complaint, or an explicit request to watch, observe, or diagnose one exact live Mission; peer diagnosis defaults to a read-only sentinel and QA only classifies and routes.
+Load [lifecycle QA](references/quality-assurance/quality-assurance-lifecycle-policy.md) only for a concrete lifecycle mismatch, an explicit complaint, or an explicit request to watch, observe, or diagnose one exact live Mission; QA owns bounded peer observation and classification, while orchestration owns Hub custody.
 
 Patch pressure, repeated authority, a capability without a real consumer, documentation/implementation
 drift, or recurring rework/communication inflation activates the Optimization owner for an integrated
