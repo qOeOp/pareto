@@ -163,6 +163,10 @@ shared-state effect without authority for that exact effect. Candidate-local def
 smallest root correction; owner, boundary, oracle, repeated-root, or non-shrinking-candidate pressure
 returns to Plan.
 
+For a running tool session, retain its exact session custody and use one bounded wait sized to the
+known process state or deadline. Do not repeatedly poll a silent long-running command at one-to-five
+second intervals; inspect it again only after output, completion, or the longer bound.
+
 ## Verify
 
 For the exact candidate:
