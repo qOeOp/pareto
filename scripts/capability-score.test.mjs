@@ -1862,8 +1862,20 @@ try {
   candidate.tree = await git(["rev-parse", "HEAD^{tree}"]);
 
   const splitCatalog = JSON.parse(await readFile(path.join(repository, "evals", "capabilities.json"), "utf8"));
+  const occupiedCapabilityIds = new Set(splitCatalog.capabilities.map((row) => row.id));
+  const unusedCapabilityIds = (prefix, count) => {
+    const ids = Array.from({ length: 100 }, (_, index) =>
+      `${prefix}-${String(99 - index).padStart(2, "0")}`)
+      .filter((id) => !occupiedCapabilityIds.has(id))
+      .slice(0, count);
+    assert.equal(ids.length, count, `score fixture requires ${count} unused ${prefix} capability IDs`);
+    ids.forEach((id) => occupiedCapabilityIds.add(id));
+    return ids;
+  };
+  const routingChildIds = unusedCapabilityIds("ORC", 2);
+  const installChildIds = unusedCapabilityIds("INS", 2);
   const splitParent = splitCatalog.capabilities.find((row) => row.id === "ORC-05");
-  for (const id of ["ORC-07", "ORC-08"]) {
+  for (const id of routingChildIds) {
     splitCatalog.capabilities.push({
       ...Object.fromEntries(Object.entries(splitParent).filter(([key]) => !["id", "name"].includes(key))),
       id,
@@ -1872,7 +1884,7 @@ try {
     });
   }
   const installParent = splitCatalog.capabilities.find((row) => row.id === "INS-01");
-  for (const id of ["INS-11", "INS-12"]) {
+  for (const id of installChildIds) {
     splitCatalog.capabilities.push({
       ...installParent,
       id,
@@ -1882,7 +1894,7 @@ try {
   }
   await writeFile(path.join(repository, "evals", "capabilities.json"), `${JSON.stringify(splitCatalog, null, 2)}\n`);
   const splitDesign = JSON.parse(await readFile(path.join(repository, "evals", "scenarios.json"), "utf8"));
-  for (const capabilityId of ["ORC-07", "ORC-08", "INS-11", "INS-12"]) {
+  for (const capabilityId of [...routingChildIds, ...installChildIds]) {
     for (const scenario of ["positive", "negative", "recovery"]) {
       splitDesign.scenarios.push({
         capability_id: capabilityId,
@@ -1920,12 +1932,12 @@ try {
     { score: 0, maturity: "derived_descendant_floor", reason: "descendant_floor" },
     "a nonterminal parent must derive the floor of its terminal descendants",
   );
-  assert.ok(splitScore.capabilities.filter((row) => ["ORC-07", "ORC-08"].includes(row.id)).every((row) =>
+  assert.ok(splitScore.capabilities.filter((row) => routingChildIds.includes(row.id)).every((row) =>
     row.score === 0 && row.reason === "atomicity_unresolved"),
   "split children must remain zero without independent atomicity authority");
   assert.ok(!splitScore.below_target.includes("ORC-05"),
     "a visible nonterminal parent must not duplicate its descendants in aggregate target failures");
-  assert.ok(["ORC-07", "ORC-08"].every((id) => splitScore.below_target.includes(id)),
+  assert.ok(routingChildIds.every((id) => splitScore.below_target.includes(id)),
     "every terminal split child must remain represented in aggregate target failures");
 
   const parentCampaignEvidence = structuredClone(attested.evidence);
@@ -1986,7 +1998,8 @@ try {
   );
 
   const singletonCatalog = structuredClone(splitCatalog);
-  singletonCatalog.capabilities = singletonCatalog.capabilities.filter((row) => row.id !== "ORC-08");
+  singletonCatalog.capabilities = singletonCatalog.capabilities.filter((row) =>
+    row.split_from !== "ORC-05" || row.id === routingChildIds[0]);
   const singletonCatalogPath = path.join(temporaryRoot, "singleton-split-capabilities.json");
   await writeFile(singletonCatalogPath, `${JSON.stringify(singletonCatalog, null, 2)}\n`);
   await assert.rejects(
