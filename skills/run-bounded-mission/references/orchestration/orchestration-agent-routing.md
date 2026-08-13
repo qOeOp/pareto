@@ -58,11 +58,17 @@ new identity; reopen only the lanes required by that new identity.
 | acceptance-ready ambiguous risk coverage                                | one `mission_planner` scope challenge                | main completes or splits the risk map                           |
 | acceptance-ready frozen-candidate semantic risk                         | reviewer-handoff's zero/one/two lens set             | unsupported; no retry for that identity                         |
 
-For each dispatch, bind immutable Origin, exact question/outcome and consumer, owner/write authority,
-inputs/dependencies, risk and effects, required output, quality floor/oracle, Stop, interaction
-language, and observed model/effort or `unavailable`. One complete host dispatch is the effect; missing,
-ambiguous, supplemental, stale, or inherited input after that attempt is terminal capability failure,
-not a retry trigger.
+Before dispatch, put the exact immutable Skill root already bound for this Mission in the launch
+packet. A missing, unreadable, mismatched, mutable, or candidate-controlled root freezes dispatch
+before any host effect; never derive one from repository cwd, an installation convention, inherited
+context, or the candidate. Apply the selected route's Stop/fallback: Main continues directly only
+where that route permits; otherwise freeze the dependent decision.
+
+For each dispatch, bind that Skill root, immutable Origin, exact question/outcome and consumer,
+owner/write authority, inputs/dependencies, risk and effects, required output, quality floor/oracle,
+Stop, interaction language, and observed model/effort or `unavailable`. One complete host dispatch is
+the effect; missing, ambiguous, supplemental, stale, or inherited input after that attempt is terminal
+capability failure, not a retry trigger.
 
 The selected role's configured model/effort is a route fact only when observed. Otherwise use the
 authorized current main or host-default route, retain all risk controls, and mark comparison evidence
