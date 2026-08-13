@@ -148,11 +148,15 @@ authority. Load conditional owners only when their predicates hold:
 
 After a nontrivial Plan, emit the complete
 [replacement checkpoint](references/orchestration/orchestration-context-recovery.md); the Plan
-projection is not that checkpoint. After context compaction, load that recovery owner before mutation
-or an unissued effect. Replace the checkpoint after any decision-changing Frame, Plan, origin,
-candidate, evidence, effect, authority, Stop, Resume, or terminal change.
+projection is not that checkpoint.
 
 ## Execute
+
+Before any mutation or effect issuance, require the current checkpoint to postdate every
+decision-changing Frame, Plan, origin, candidate, evidence, effect, authority, Stop, Resume, route, or
+terminal change; a missing or stale checkpoint freezes only that action. After a new turn,
+interruption, compaction, source drift, or user override, load the recovery owner and close its gate
+first.
 
 Implement only the admitted candidate. Keep one writer for overlapping files and preserve unrelated
 work. A count, deadline, review finding, available model, or local friction cannot widen the candidate
