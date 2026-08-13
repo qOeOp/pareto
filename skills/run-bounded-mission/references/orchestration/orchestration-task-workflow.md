@@ -76,13 +76,9 @@ or ambiguous effect is host-defect/no-change; do not retry, repacket, or create 
 
 After release, add the child to the Hub active set and monitor only through the custody contract below.
 
-## Observe events without polling
+## Observe child events without polling
 
-An explicitly requested diagnostic observer may reuse these bounded wait/read mechanics for one exact
-peer. It returns facts to lifecycle QA and never adopts the peer's Goal, active set, DAG, custody,
-effects, or endpoint; child interpretation remains Hub-only.
-
-An observation window is admitted by one explicit user request, one unseen terminal or
+An observation window is admitted by one explicit user status request, one unseen terminal or
 needs-attention receipt, or one checkpointed next observation action. Callback transport is an
 optional early wake: it may report a structural authority gap, changed dependency receipt, or terminal
 state, but it does not replace Hub custody or make arrival order authoritative.
@@ -100,10 +96,6 @@ For ordinary child custody, issue at most one cursor-bound bounded wait over the
 set in one scheduling slice. Choose a nonzero bound from current task state or a known external
 deadline. An explicit status request uses one timeoutMs: 0 snapshot. Use one bounded thread read only
 when an admitted receipt or user question requires history.
-
-For a diagnostic peer, use one cursor-bound wait; if unavailable, use one bounded read only for the
-explicit request or checkpointed next action. If neither is callable, return `evidence_unavailable`
-with a finite Stop. Never busy-read, resubscribe immediately, demand callbacks, or message the peer.
 
 For a Hub child, only unseen terminal or needs-attention content changes the DAG, authority, candidate
 validity, release predicate, or endpoint. An unchanged, duplicate, timed-out, or non-actionable

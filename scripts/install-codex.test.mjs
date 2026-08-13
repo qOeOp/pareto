@@ -3,8 +3,10 @@ import { chmod, cp, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, write
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { assertContextBudget } from "./context-budget.mjs";
 
+const projectRoot = fileURLToPath(new URL("../", import.meta.url));
 const root = await mkdtemp(join(tmpdir(), "qoeop-skills-install-"));
 const agentsRoot = join(root, "agents-home");
 const codexRoot = join(root, "codex-home");
@@ -40,6 +42,70 @@ async function makeReadOnly(path) {
 }
 
 try {
+  const contextBudgetSkill = join(root, "context-budget", "run-bounded-mission");
+  await cp(join(projectRoot, "skills", "run-bounded-mission"), contextBudgetSkill, { recursive: true });
+  const skillPath = join(contextBudgetSkill, "SKILL.md");
+  const skillSource = await readFile(skillPath, "utf8");
+  const baselineContextBudget = await assertContextBudget(contextBudgetSkill);
+  assert.ok(baselineContextBudget.descriptionWords <= 100);
+  assert.ok(baselineContextBudget.observerWords <= 2700);
+  assert.ok(baselineContextBudget.observerBytes <= 22000);
+
+  await writeFile(skillPath,
+    skillSource.replace(/^description:[^\r\n]*\r?$/m, "description: >-\n  Short folded context metadata."), "utf8");
+  assert.equal((await assertContextBudget(contextBudgetSkill)).descriptionWords, 4);
+  await writeFile(skillPath,
+    skillSource.replace(/^description:[^\r\n]*\r?$/m, "description: 'Short quoted context metadata.'"), "utf8");
+  assert.equal((await assertContextBudget(contextBudgetSkill)).descriptionWords, 4);
+  await writeFile(skillPath,
+    skillSource.replace(/^description:[^\r\n]*\r?$/m, "description: [invalid"), "utf8");
+  await assert.rejects(() => assertContextBudget(contextBudgetSkill), /Skill frontmatter is invalid/);
+  await writeFile(skillPath, skillSource, "utf8");
+
+  const inflatedDescription = Array.from({ length: 101 }, () => "budget").join(" ");
+  await writeFile(skillPath,
+    skillSource.replace(/^description:[^\r\n]*\r?$/m, `description: "${inflatedDescription}"`), "utf8");
+  await assert.rejects(() => assertContextBudget(contextBudgetSkill), /Skill description exceeds 100 words/);
+  await writeFile(skillPath, skillSource, "utf8");
+
+  const observerPolicyPath = join(contextBudgetSkill, "references", "quality-assurance",
+    "quality-assurance-lifecycle-policy.md");
+  const observerPolicySource = await readFile(observerPolicyPath, "utf8");
+  await writeFile(observerPolicyPath,
+    `${observerPolicySource}\n[oversized observer dependency](../orchestration/orchestration-task-workflow.md)\n`,
+    "utf8");
+  await assert.rejects(() => assertContextBudget(contextBudgetSkill),
+    /observer sentinel context exceeds 2700 words/);
+  await writeFile(observerPolicyPath, `${observerPolicySource}\n${"界".repeat(1000)}\n`, "utf8");
+  await assert.rejects(() => assertContextBudget(contextBudgetSkill),
+    /observer sentinel context exceeds 22000 bytes/);
+  await writeFile(observerPolicyPath, observerPolicySource, "utf8");
+
+  const outsideObserverPath = join(root, "outside-observer.md");
+  const linkedObserverPath = join(contextBudgetSkill, "references", "quality-assurance", "linked-observer.md");
+  await writeFile(outsideObserverPath, "mutable external observer context\n", "utf8");
+  await symlink(outsideObserverPath, linkedObserverPath);
+  await writeFile(observerPolicyPath, `${observerPolicySource}\n[linked observer](linked-observer.md)\n`, "utf8");
+  await assert.rejects(() => assertContextBudget(contextBudgetSkill),
+    /observer context reference must be a regular non-symlink file/);
+  await rm(linkedObserverPath);
+  await writeFile(observerPolicyPath, observerPolicySource, "utf8");
+
+  const outsideObserverDirectory = join(root, "outside-observer-directory");
+  const linkedObserverDirectory = join(contextBudgetSkill, "references", "quality-assurance",
+    "linked-observer-directory");
+  await mkdir(outsideObserverDirectory);
+  await writeFile(join(outsideObserverDirectory, "observer.md"), "mutable external observer context\n", "utf8");
+  await symlink(outsideObserverDirectory, linkedObserverDirectory,
+    process.platform === "win32" ? "junction" : "dir");
+  await writeFile(observerPolicyPath,
+    `${observerPolicySource}\n[linked observer directory](linked-observer-directory/observer.md)\n`, "utf8");
+  await assert.rejects(() => assertContextBudget(contextBudgetSkill),
+    /observer context reference resolves outside its lexical Skill path/);
+  await rm(linkedObserverDirectory);
+  await writeFile(observerPolicyPath, observerPolicySource, "utf8");
+  assert.deepEqual(await assertContextBudget(contextBudgetSkill), baselineContextBudget);
+
   await mkdir(codexRoot, { recursive: true });
   await writeFile(join(codexRoot, "hooks.json"), `${JSON.stringify({
     hooks: {
