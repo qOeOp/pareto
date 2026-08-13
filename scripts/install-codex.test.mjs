@@ -356,7 +356,16 @@ const origin = join(root, "qOeOp", "skills.git");
   const installedSkillBytes = await readFile(installedSkillFile);
   const installedSkillSource = installedSkillBytes.toString("utf8");
   assert.match(installedSkillSource, /the Plan\s+projection is not that checkpoint/);
-  assert.match(installedSkillSource, /After context compaction, load that recovery owner before mutation/);
+  const executeHeading = installedSkillSource.indexOf("## Execute");
+  const effectGate = installedSkillSource.indexOf(
+    "Before any mutation or effect issuance, require the current checkpoint to postdate",
+  );
+  const implementationBoundary = installedSkillSource.indexOf("Implement only the admitted candidate.");
+  assert.ok(executeHeading >= 0 && executeHeading < effectGate);
+  assert.ok(effectGate < implementationBoundary);
+  assert.doesNotMatch(installedSkillSource, /Before the first mutation/);
+  assert.match(installedSkillSource, /a missing or stale checkpoint freezes only that action/);
+  assert.match(installedSkillSource, /load the recovery owner and close its gate\s+first/);
   const installedRecoveryOwner = await readFile(join(
     agentsRoot,
     "skills",
