@@ -58,6 +58,11 @@ new identity; reopen only the lanes required by that new identity.
 | acceptance-ready ambiguous risk coverage                                | one `mission_planner` scope challenge                | main completes or splits the risk map                           |
 | acceptance-ready frozen-candidate semantic risk                         | reviewer-handoff's zero/one/two lens set             | unsupported; no retry for that identity                         |
 
+When selecting an installed specialized role, set `fork_turns` to `none` in the sole launch request.
+An omitted or `all` full-history fork inherits Main's agent type instead of the selected profile;
+freeze before any host effect rather than sending an invalid role override and correcting it with a
+second request. The complete packet below is the role's context.
+
 Before dispatch, put the exact immutable Skill root already bound for this Mission in the launch
 packet. A missing, unreadable, mismatched, mutable, or candidate-controlled root freezes dispatch
 before any host effect; never derive one from repository cwd, an installation convention, inherited
