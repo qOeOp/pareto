@@ -58,6 +58,9 @@
     { "id": "EVAL-01", "domain": "evaluation", "name": "native activation and trajectory evidence", "owner": "evals/CONTRACT.md", "consumer": "capability assessment", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": null },
     { "id": "EVAL-02", "domain": "evaluation", "name": "atomic scoring and anti-gaming", "owner": "capability-score.mjs", "consumer": "capability eligibility report", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": null },
     { "id": "KRN-03", "domain": "kernel", "name": "request admission and Frame entrance", "owner": "SKILL.md", "consumer": "Frame creation", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": "KRN-02" },
-    { "id": "KRN-04", "domain": "kernel", "name": "Frame authority and effect envelope", "owner": "SKILL.md", "consumer": "main lifecycle", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": "KRN-02" }
+    { "id": "KRN-04", "domain": "kernel", "name": "Frame authority and effect envelope", "owner": "SKILL.md", "consumer": "main lifecycle", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": "KRN-02" },
+    { "id": "ORC-07", "domain": "orchestration", "name": "bounded active-set observation and silent yield", "owner": "orchestration-task-workflow.md", "consumer": "Hub next observation action", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": "ORC-03" },
+    { "id": "ORC-08", "domain": "orchestration", "name": "actionable receipt reconciliation and DAG release", "owner": "orchestration-task-workflow.md", "consumer": "dependency-consuming successor owner", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": "ORC-03" },
+    { "id": "ORC-09", "domain": "orchestration", "name": "Hub fan-in and node endpoint closure", "owner": "orchestration-task-workflow.md", "consumer": "Hub node and overall Goal closure", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": "ORC-03" }
   ]
 }
