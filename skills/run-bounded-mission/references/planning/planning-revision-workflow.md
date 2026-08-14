@@ -4,6 +4,11 @@ Load this reference when evidence shows the same causal root again, a candidate 
 its boundary grows, or a finding invalidates its admitted owner, path, responsibility, boundary, or
 oracle. Revision count may locate evidence but never activates this route.
 
+Before another dependent mutation after a rejected prototype or structural finding, compare the
+proposed correction with the cumulative incumbent. A new filename, helper, lane, branch, or candidate
+identity does not reset that pressure. Infer the route from the changed owner chain and real consumer;
+do not wait for the user to label the pressure or supply a replacement architecture.
+
 Freeze the cumulative incumbent. Do not patch it again or create a successor Mission, branch, or task
 that makes the same route appear fresh. Keep one writable winner. Do not repeat an unchanged failing
 check or evidence request.
@@ -26,6 +31,9 @@ Keep the Frame and Origin unless the evidence changes a Frame field. Return to P
 cause and affected owner chain. Compare rollback, deletion, a narrower outcome, repository-native
 reuse, and at most one materially different replacement when the evidence supports it. A fresh
 read-only planner may challenge the architecture only when that comparison can change the decision.
+When materially different credible routes remain after cheaper Main probes, give one fresh planner
+the frozen Frame, current Plan, cumulative incumbent, failure chain, real consumer, alternatives, and
+falsifier before dependent mutation; a candidate reviewer is not a substitute.
 
 Admit and build one isolated replacement that preserves required behavior and removes the shared
 cause. Run the same consumer and regression exercises against incumbent and replacement; vary an

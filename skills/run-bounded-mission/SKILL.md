@@ -164,8 +164,9 @@ or authorize an effect.
 
 Do not commit, push, publish, comment, resolve, merge, deploy, schedule, trade, or perform another
 shared-state effect without authority for that exact effect. Candidate-local defects return to the
-smallest root correction; owner, boundary, oracle, repeated-root, or non-shrinking-candidate pressure
-returns to Plan.
+smallest root correction. After a rejected prototype or structural finding, compare the incumbent
+before mutation; structural pressure loads
+[revision-pressure replan](references/planning/planning-revision-workflow.md) and returns to Plan.
 
 For a running tool session, retain its exact session custody and use one bounded wait sized to the
 known process state or deadline. Do not repeatedly poll a silent long-running command at one-to-five
