@@ -62,6 +62,12 @@ const projectAgentProfiles = [
   "mission-planner.toml",
   "mission-researcher.toml",
 ];
+const specializedAgentTypes = new Set([
+  "fast_builder",
+  "mission_evaluator",
+  "mission_planner",
+  "mission_researcher",
+]);
 
 async function localMissionSources(root, cwd) {
   let directory = await realpath(resolve(cwd));
@@ -104,9 +110,30 @@ try {
     process.stdin.on("data", (chunk) => { value += chunk; });
     process.stdin.on("end", () => resolve(value));
   }));
-  if (input.hook_event_name !== "SessionStart") process.exit(0);
+  if (input.hook_event_name !== "SessionStart" && input.hook_event_name !== "PreToolUse") process.exit(0);
+  if (input.hook_event_name === "PreToolUse") {
+    const toolInput = input.tool_input;
+    if ((input.tool_name === "spawn_agent" || input.tool_name === "Agent")
+        && toolInput && !Array.isArray(toolInput) && typeof toolInput === "object"
+        && specializedAgentTypes.has(toolInput.agent_type)
+        && toolInput.fork_turns !== "none") {
+      output({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "allow",
+          updatedInput: { ...toolInput, fork_turns: "none" },
+        },
+      });
+    }
+    process.exit(0);
+  }
   root = git(input.cwd, "rev-parse", "--show-toplevel");
   if (normalizedRepository(git(root, "config", "--get", "remote.origin.url")) !== "https://github.com/qOeOp/trade") process.exit(0);
+} catch {
+  process.exit(0);
+}
+
+try {
   localSources = await localMissionSources(root, input.cwd);
 } catch {
   process.exit(0);
