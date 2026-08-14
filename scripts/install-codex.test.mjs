@@ -116,6 +116,10 @@ try {
           { type: "command", command: "node preserved-shared-hook.mjs" },
         ],
       }],
+      PreToolUse: [{
+        matcher: "Bash",
+        hooks: [{ type: "command", command: "node preserved-pretool-hook.mjs" }],
+      }],
       UserPromptSubmit: [{ hooks: [{ type: "command", command: "node preserved-hook.mjs" }] }],
     },
   })}\n`);
@@ -173,12 +177,20 @@ try {
   assert.equal(installedHooks.hooks.SessionStart.length, 2);
   assert.equal(installedHooks.hooks.SessionStart[0].hooks[1].command, "node preserved-shared-hook.mjs");
   assert.equal(installedHooks.hooks.SessionStart.at(-1).matcher, "^(startup|resume|clear|compact)$");
+  assert.equal(installedHooks.hooks.PreToolUse.length, 2);
+  assert.equal(installedHooks.hooks.PreToolUse[0].hooks[0].command, "node preserved-pretool-hook.mjs");
+  assert.equal(installedHooks.hooks.PreToolUse.at(-1).matcher, "^(spawn_agent|Agent)$");
   installedHooks.hooks.SessionStart.at(-1).hooks.push({ type: "command", command: "node preserved-owned-group-hook.mjs" });
+  installedHooks.hooks.PreToolUse.at(-1).hooks.push({
+    type: "command",
+    command: "node preserved-owned-pretool-group-hook.mjs",
+  });
   await writeFile(join(codexRoot, "hooks.json"), `${JSON.stringify(installedHooks)}\n`);
   result = spawnSync(process.execPath, hookedArgv, { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
   const reinstalledCommands = JSON.stringify(JSON.parse(await readFile(join(codexRoot, "hooks.json"), "utf8")));
   assert.match(reinstalledCommands, /preserved-owned-group-hook\.mjs/);
+  assert.match(reinstalledCommands, /preserved-owned-pretool-group-hook\.mjs/);
 
   const duplicateRoot = join(root, "duplicate-codex-home");
   const duplicateHooks = '{"hooks":{"UserPromptSubmit":[]},"hooks":{"SessionStart":[]}}\n';
@@ -337,6 +349,52 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.equal(compactOutput.hookSpecificOutput.hookEventName, "SessionStart");
   assert.match(compactOutput.hookSpecificOutput.additionalContext, /complete Mission checkpoint before mutation or effects/);
   assert.ok(Buffer.byteLength(compactOutput.hookSpecificOutput.additionalContext) <= 128);
+  const preToolUse = (toolInput, toolName = "spawn_agent", cwd = consumer) => spawnSync(
+    process.execPath,
+    [installedHook],
+    {
+      encoding: "utf8",
+      input: JSON.stringify({
+        cwd,
+        hook_event_name: "PreToolUse",
+        tool_input: toolInput,
+        tool_name: toolName,
+      }),
+    },
+  );
+  const completePacket = {
+    task_name: "scope_challenge",
+    message: "complete immutable packet",
+  };
+  for (const agentType of ["fast_builder", "mission_evaluator", "mission_planner", "mission_researcher"]) {
+    for (const forkTurns of [undefined, "all", "3"]) {
+      const toolInput = forkTurns === undefined
+        ? { ...completePacket, agent_type: agentType }
+        : { ...completePacket, agent_type: agentType, fork_turns: forkTurns };
+      const probe = preToolUse(toolInput);
+      assert.equal(probe.status, 0, probe.stderr);
+      const output = JSON.parse(probe.stdout);
+      assert.equal(output.hookSpecificOutput.hookEventName, "PreToolUse");
+      assert.equal(output.hookSpecificOutput.permissionDecision, "allow");
+      assert.deepEqual(output.hookSpecificOutput.updatedInput, { ...toolInput, fork_turns: "none" });
+    }
+  }
+  const agentAliasProbe = preToolUse(
+    { ...completePacket, agent_type: "mission_evaluator", fork_turns: "all" },
+    "Agent",
+    projectRoot,
+  );
+  assert.equal(agentAliasProbe.status, 0, agentAliasProbe.stderr);
+  assert.equal(JSON.parse(agentAliasProbe.stdout).hookSpecificOutput.updatedInput.fork_turns, "none");
+  for (const [toolInput, toolName, cwd] of [
+    [{ ...completePacket, agent_type: "mission_planner", fork_turns: "none" }, "spawn_agent", consumer],
+    [{ ...completePacket, agent_type: "default", fork_turns: "all" }, "spawn_agent", consumer],
+    [{ ...completePacket, agent_type: "mission_planner", fork_turns: "all" }, "update_plan", consumer],
+  ]) {
+    const probe = preToolUse(toolInput, toolName, cwd);
+    assert.equal(probe.status, 0, probe.stderr);
+    assert.equal(probe.stdout, "");
+  }
   const installedPinReceipt = join(codexRoot, "run-bounded-mission-install.json");
   const installedPinBytes = await readFile(installedPinReceipt);
   const stalePin = JSON.parse(installedPinBytes);

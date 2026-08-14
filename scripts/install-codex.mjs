@@ -366,27 +366,41 @@ async function mergedHooks(path, destinationHook) {
   if (!document.hooks || Array.isArray(document.hooks) || typeof document.hooks !== "object") {
     throw new Error("invalid Codex hooks config");
   }
-  const groups = document.hooks.SessionStart ?? [];
-  if (!Array.isArray(groups)) throw new Error("invalid Codex SessionStart hooks config");
   const command = hookCommand(destinationHook);
-  const ownedCount = groups.flatMap((group) => group?.hooks ?? []).filter((hook) => hook?.command === command).length;
-  if (ownedCount > 1) throw new Error("duplicate Codex Skill pin hooks");
-  const group = {
-    matcher: "^(startup|resume|clear|compact)$",
-    hooks: [{
-      type: "command",
-      command,
-      timeout: 15,
-      additionalContextLimit: 128,
-      statusMessage: "Checking qOeOp/trade Skill source",
-    }],
+  const ownedGroups = {
+    SessionStart: {
+      matcher: "^(startup|resume|clear|compact)$",
+      hooks: [{
+        type: "command",
+        command,
+        timeout: 15,
+        additionalContextLimit: 128,
+        statusMessage: "Checking qOeOp/trade Skill source",
+      }],
+    },
+    PreToolUse: {
+      matcher: "^(spawn_agent|Agent)$",
+      hooks: [{
+        type: "command",
+        command,
+        timeout: 5,
+        statusMessage: "Checking specialized agent context",
+      }],
+    },
   };
-  const preserved = groups.flatMap((entry) => {
-    if (!Array.isArray(entry?.hooks)) return [entry];
-    const hooks = entry.hooks.filter((hook) => hook?.command !== command);
-    return hooks.length === 0 ? [] : [{ ...entry, hooks }];
-  });
-  document.hooks.SessionStart = [...preserved, group];
+  for (const [event, group] of Object.entries(ownedGroups)) {
+    const groups = document.hooks[event] ?? [];
+    if (!Array.isArray(groups)) throw new Error(`invalid Codex ${event} hooks config`);
+    const ownedCount = groups.flatMap((entry) => entry?.hooks ?? [])
+      .filter((hook) => hook?.command === command).length;
+    if (ownedCount > 1) throw new Error(`duplicate Codex ${event} hooks`);
+    const preserved = groups.flatMap((entry) => {
+      if (!Array.isArray(entry?.hooks)) return [entry];
+      const hooks = entry.hooks.filter((hook) => hook?.command !== command);
+      return hooks.length === 0 ? [] : [{ ...entry, hooks }];
+    });
+    document.hooks[event] = [...preserved, group];
+  }
   return `${JSON.stringify(document, null, 2)}\n`;
 }
 
@@ -456,13 +470,17 @@ if (options.installTradeSessionHook) {
   if (JSON.stringify(installedReceipt) !== JSON.stringify(receipt)) throw new Error("Codex install receipt mismatch");
   const hooks = JSON.parse(await readFile(hooksConfig, "utf8"));
   const installedCommand = hookCommand(destinationHook);
-  const groups = (hooks.hooks?.SessionStart ?? []).filter(
-    (group) => Array.isArray(group?.hooks) && group.hooks.some((hook) => hook?.command === installedCommand),
-  );
-  const expected = JSON.parse(await mergedHooks(join(options.codexRoot, "missing-hooks.json"), destinationHook))
-    .hooks.SessionStart[0];
-  if (groups.length !== 1 || JSON.stringify(groups[0]) !== JSON.stringify(expected)) {
-    throw new Error("Codex Skill pin hook mismatch");
+  const expectedHooks = JSON.parse(await mergedHooks(
+    join(options.codexRoot, "missing-hooks.json"),
+    destinationHook,
+  )).hooks;
+  for (const event of ["SessionStart", "PreToolUse"]) {
+    const groups = (hooks.hooks?.[event] ?? []).filter(
+      (group) => Array.isArray(group?.hooks) && group.hooks.some((hook) => hook?.command === installedCommand),
+    );
+    if (groups.length !== 1 || JSON.stringify(groups[0]) !== JSON.stringify(expectedHooks[event][0])) {
+      throw new Error(`Codex ${event} hook mismatch`);
+    }
   }
 }
 process.stdout.write(
