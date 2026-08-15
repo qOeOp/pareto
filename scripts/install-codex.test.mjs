@@ -476,6 +476,16 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedReviewerHandoffOwner,
     /Every byte fingerprint also binds an immutable byte-producing recipe:/);
   assert.match(installedReviewerHandoffOwner,
+    /complete tracked path-and-mode topology,\s+including ignored-but-tracked entries/);
+  assert.match(installedReviewerHandoffOwner,
+    /Empty-index or filesystem enumeration through current ignore rules is unsupported/);
+  assert.match(installedReviewerHandoffOwner,
+    /recovery from Origin plus that delta\s+must recreate the exact candidate tree, archive member set and modes, and archive digest/);
+  assert.match(installedReviewerHandoffOwner,
+    /Use the committed-candidate route whenever\s+it is available; a local snapshot is admissible only when that route is unavailable/);
+  assert.match(installedReviewerHandoffOwner,
+    /Do not add a\s+snapshot helper, packet schema, or ledger/);
+  assert.match(installedReviewerHandoffOwner,
     /tool identity, arguments,\s+working\/path scope, ordering, separators, and encoding/);
   assert.match(installedReviewerHandoffOwner,
     /Recovery and fan-in replay that exact recipe/);

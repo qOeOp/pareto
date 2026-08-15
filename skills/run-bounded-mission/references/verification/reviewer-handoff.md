@@ -12,6 +12,15 @@ manifest, and verified digests. Supply the complete Frame and Plan, one risk len
 evidence locators or explicit `unavailable`, and a neutral review-control locator independent of the
 candidate.
 
+A local-snapshot recipe starts from the immutable Origin's complete tracked path-and-mode topology,
+including ignored-but-tracked entries, then applies only the declared added, changed, renamed, or
+deleted material. Empty-index or filesystem enumeration through current ignore rules is unsupported
+unless it first proves the same Origin topology. Before dispatch, recovery from Origin plus that delta
+must recreate the exact candidate tree, archive member set and modes, and archive digest; any omitted,
+extra, or undeclared member makes the packet unsupported. Use the committed-candidate route whenever
+it is available; a local snapshot is admissible only when that route is unavailable. Do not add a
+snapshot helper, packet schema, or ledger to compensate for an incomplete projection.
+
 The candidate is acceptance-ready only when no known pending write, effect, or required
 deterministic check can change the candidate, control, risk map, lens, or decisive evidence before
 fan-in. Finish those actions before dispatch; a review launched into known candidate churn is
