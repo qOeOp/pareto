@@ -47,5 +47,10 @@ at least one relevant surface without unjustified regression, leaves one product
 deletes its superseded path. Past corrections become regression invariants only when they demonstrate
 the frozen Frame or real-consumer requirement.
 
+File, line, token, test, or diff counts may locate or compare pressure but cannot independently prove
+causal subtraction or acceptance. Bind claimed simplification to a deleted owner, mechanism, state,
+dependency, effect surface, or proof burden. Representation- or format-only shrink, and validation
+removal without a named surviving owner, do not pass this gate.
+
 If no viable replacement remains under the same Frame, leave the incumbent unaccepted and return
 `blocked`; do not manufacture another route. Use `reframe` only when a Frame field changes.
