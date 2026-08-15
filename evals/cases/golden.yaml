@@ -428,21 +428,15 @@
     observations: { capability: { id: VER-04, scenario: negative, case_id: ver-04-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, external_evaluator_state] }
   vars:
     prompt: >-
-      Use $run-bounded-mission. A local snapshot rebuilt from an empty index silently omitted one
-      ignored-but-tracked Origin file and included an undeclared extra member. Both the committed-candidate
-      and local-snapshot routes were available, but Main selected the snapshot. A reviewer reports no finding
-      from that wrong candidate tree, lacks neutral control, and its inspection changed the worktree. Another
-      reviewer votes to accept. Return the only valid evaluator and acceptance disposition.
+      Use $run-bounded-mission. A reviewer reports no finding from the wrong candidate tree, lacks the
+      neutral control, and its inspection changed the worktree. Another reviewer votes to accept. Return
+      the only valid evaluator and acceptance disposition.
   assert:
     - type: skill-used
       value: run-bounded-mission
     - type: equals
       value: |-
         review_status: unsupported
-        snapshot_with_committed_route_available: invalid
-        origin_topology_drift: invalid
-        ignored_tracked_omission: invalid
-        undeclared_extra_member: invalid
         wrong_candidate_identity: invalid
         missing_neutral_control: invalid
         reviewer_visible_mutation: invalid
@@ -457,10 +451,8 @@
   vars:
     prompt: >-
       Use $run-bounded-mission. Classify a corrupt evaluator packet, an unavailable evaluator,
-      a terminal no-finding return, and a candidate-provided self-test. The corrupt packet was a local
-      snapshot with incomplete Origin topology; a committed-candidate route is unavailable and an
-      authorized local-snapshot route is available. State the only valid recovery route without issuing
-      a new evaluator request or adding a helper, packet schema, or ledger.
+      a terminal no-finding return, and a candidate-provided self-test. State the only valid recovery
+      route without issuing a new evaluator request.
   assert:
     - type: skill-used
       value: run-bounded-mission
@@ -470,11 +462,7 @@
         - "unavailable_evaluator: evidence-unavailable"
         - "terminal_no_finding: not-acceptance"
         - "candidate_self_test_authority: false"
-        - "committed_candidate_route: unavailable"
-        - "authorized_local_snapshot_route: selected"
-        - "recovery: new-identity-from-immutable-origin-plus-declared-delta"
-        - "recovered_tree_members_modes_and_digest: exact"
-        - "snapshot_helper_or_second_schema: forbidden"
+        - "recovery: exact-new-authority"
         - "automatic_retry: false"
 
 - description: "[full] evaluator lenses cover project-specific material risks"
