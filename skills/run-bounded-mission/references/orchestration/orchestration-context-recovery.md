@@ -47,6 +47,19 @@ omitted target. Goal continuation may execute only the checkpointed observation 
 invent targets or cadence. An unchanged bounded observation is a silent yield with no immediate
 resubscription. Callback unavailability does not erase active-task custody.
 
+Key a user pause to its exact user-event locator in `Authority / Stop / Resume`. A finite pause is
+acknowledged once. Consume the recorded finite pause as Resume only when current authority proves that
+the exact matching Goal resumed from that pause: an active/Resume observation locator strictly later
+than the bound pause proves its paused-to-active transition, or an authenticated host contract causally
+binds that transition to the exact pause. The checkpoint must bind that same finite user-event locator,
+with no newer or conflicting user control event. A `source=goal` continuation is only the carrier or
+wake unless that authenticated contract supplies the ordered exact-Goal Resume fact; its text or
+provenance alone never releases work. Continue with the checkpointed next legal action without
+repeating, extending, or re-arming the consumed pause. A still-paused Goal, an indefinite pause, a
+conflicting or newer user control event, stale or unordered active state, or unavailable current
+Goal/locator authority keeps affected effects frozen and permits at most the original acknowledgement;
+elapsed time alone never releases work. Only a new exact user pause event can arm another pause.
+
 When a release predicate changed, invoke its recorded next owner before unrelated work. When evidence
 is malformed, unknown, or unavailable, freeze only its consumers and name the earliest observation
 that can change the decision. Ordinary friction is not blocked, and elapsed time never releases work.
