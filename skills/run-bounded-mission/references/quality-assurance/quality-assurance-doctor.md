@@ -30,7 +30,8 @@ before a later pass.
 Express each residual risk as one atom:
 
 ```text
-affected contract + refuting counterexample + executable oracle + finite Stop
+affected contract + refuting counterexample + preservation control + producer-to-consumer stage
+oracle + finite Stop
 ```
 
 Subtract atoms already closed deterministically and combine atoms with the same failed relationship
@@ -39,6 +40,17 @@ estimated context/token cost. Generic categories such as security, architecture,
 lenses until they bind that atom. Compile every launch through the shared
 [agent-routing prompt envelope](../orchestration/orchestration-agent-routing.md); a broad
 `review the whole project` prompt is unsupported.
+
+For parsed, encoded, normalized, generated, or mirrored representations, derive cases from an exact
+immutable content-addressed locator and verified digest for the authoritative grammar, parser,
+generator, or bounded-equivalence-class source. Bind the raw producer representation, every
+transformation stage, the verifier, and the real consumer. A mutable name or named example does not
+close the domain; require the refuter and a nearby valid preservation control to reach the same oracle.
+Bind runtime-authority and verifier artifacts by exact immutable content-addressed locator and
+verified digest. For every live-runtime claim, independently bind the exact native observation or
+consumer readback to the observed artifact or runtime identity; artifact existence or static
+configuration is not live authority. Artifact-only evidence is supported only for an explicitly
+static outcome and oracle.
 
 Discovery starts with one highest-yield lens and normally dispatches sequentially. Main fans in and
 reproduces its result before releasing another. Use at most three lenses for one frozen identity; at
