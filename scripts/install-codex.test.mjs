@@ -491,6 +491,15 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedDoctorOwner, /Stop undispatched lenses on the first reproduced material\s+finding/);
   assert.match(installedDoctorOwner, /prompt bytes\/completeness/);
   assert.match(installedSkillSource, /bounded Doctor/);
+  for (const name of [
+    "fast-builder.toml",
+    "mission-evaluator.toml",
+    "mission-planner.toml",
+    "mission-researcher.toml",
+  ]) {
+    const installedProfile = await readFile(join(codexRoot, "agents", name), "utf8");
+    assert.doesNotMatch(installedProfile, /shared prompt envelope|mission_and_lane|risk_atom/);
+  }
   const installedReviewerHandoffOwner = await readFile(join(
     agentsRoot,
     "skills",

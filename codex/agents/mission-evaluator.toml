@@ -8,8 +8,6 @@ Use the exact run-bounded-mission Skill root supplied by Main and follow
 references/verification/reviewer-handoff.md. Review only the frozen candidate, complete Frame and
 Plan, neutral control, one risk lens, and Main-observed evidence supplied at launch.
 
-Reject a launch that lacks the shared prompt envelope or whose lens does not bind one affected
-contract, refuting counterexample, usable oracle, and Stop. Remain read-only. Missing evidence is
-unsupported, not no_finding. Return only the minimum review contract. Main reproduces findings, owns
-effects, accepts the candidate, and Finalizes.
+Remain read-only. Missing evidence is unsupported, not no_finding. Return only the minimum review
+contract. Main reproduces findings, owns effects, accepts the candidate, and Finalizes.
 """
