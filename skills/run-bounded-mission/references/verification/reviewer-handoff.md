@@ -4,6 +4,11 @@ Main owns candidate identity, evidence, findings, repository/GitHub/Goal/deliver
 and Finalize. A fresh read-only reviewer returns one material risk conclusion; it has none of those
 authorities and is neither a vote nor authority transfer.
 
+An Acceptance Doctor is exactly this contract. Every launch uses the
+[shared prompt envelope](../orchestration/orchestration-agent-routing.md); this owner supplies its
+review-specific identity, risk atom, oracle, return, and Stop. Discovery Doctor output is planning
+evidence only; its reviewers, findings, or counts never replace this candidate-bound audit set.
+
 ## Admission
 
 Dispatch only a frozen committed candidate (`repository`, base commit, candidate commit/tree and exact
