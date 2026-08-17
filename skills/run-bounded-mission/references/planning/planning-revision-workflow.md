@@ -1,17 +1,12 @@
 # Revision-pressure Replan
 
-Load this reference when evidence shows the same causal root again, a candidate stops shrinking or
-its boundary grows, or a finding invalidates its admitted owner, path, responsibility, boundary, or
-oracle. Revision count may locate evidence but never activates this route.
-
-Before another dependent mutation after a rejected prototype or structural finding, compare the
-proposed correction with the cumulative incumbent. A new filename, helper, lane, branch, or candidate
-identity does not reset that pressure. Infer the route from the changed owner chain and real consumer;
-do not wait for the user to label the pressure or supply a replacement architecture.
-
-Freeze the cumulative incumbent. Do not patch it again or create a successor Mission, branch, or task
-that makes the same route appear fresh. Keep one writable winner. Do not repeat an unchanged failing
-check or evidence request.
+Before the next dependent mutation, load this reference when a rejected prototype, structural finding,
+or cumulative evidence shows the same causal root again, a non-shrinking or growing candidate boundary,
+or an invalidated owner, path, responsibility, boundary, or oracle. Infer pressure from the cumulative
+owner chain and real consumer; a revision count or new filename, helper, lane, branch, task, Mission, or
+candidate identity neither triggers nor resets it, and the user need not name the pressure or replacement.
+Freeze the cumulative incumbent, keep one writable winner, and do not patch it again or repeat an
+unchanged failing check or evidence request.
 
 ## Reconstruct the pressure
 
@@ -29,11 +24,10 @@ faulty execution of an otherwise valid owner/boundary remains candidate-local.
 
 Keep the Frame and Origin unless the evidence changes a Frame field. Return to Plan with the shared
 cause and affected owner chain. Compare rollback, deletion, a narrower outcome, repository-native
-reuse, and at most one materially different replacement when the evidence supports it. A fresh
-read-only planner may challenge the architecture only when that comparison can change the decision.
-When materially different credible routes remain after cheaper Main probes, give one fresh planner
-the frozen Frame, current Plan, cumulative incumbent, failure chain, real consumer, alternatives, and
-falsifier before dependent mutation; a candidate reviewer is not a substitute.
+reuse, and at most one materially different replacement. If credible routes remain after cheaper Main
+probes and the comparison can change the decision, give one fresh read-only planner the frozen Frame,
+current Plan, cumulative incumbent, failure chain, real consumer, alternatives, and falsifier before
+dependent mutation; a candidate reviewer is not a substitute.
 
 Admit and build one isolated replacement that preserves required behavior and removes the shared
 cause. Run the same consumer and regression exercises against incumbent and replacement; vary an
@@ -47,10 +41,9 @@ at least one relevant surface without unjustified regression, leaves one product
 deletes its superseded path. Past corrections become regression invariants only when they demonstrate
 the frozen Frame or real-consumer requirement.
 
-File, line, token, test, or diff counts may locate or compare pressure but cannot independently prove
-causal subtraction or acceptance. Bind claimed simplification to a deleted owner, mechanism, state,
-dependency, effect surface, or proof burden. Representation- or format-only shrink, and validation
-removal without a named surviving owner, do not pass this gate.
+Counts may locate or compare pressure but never prove subtraction or acceptance. Simplification must
+delete a named owner, mechanism, state, dependency, effect surface, or proof burden; representation-only
+shrink or validation removal without a named surviving owner does not pass.
 
 If no viable replacement remains under the same Frame, leave the incumbent unaccepted and return
 `blocked`; do not manufacture another route. Use `reframe` only when a Frame field changes.
