@@ -113,9 +113,8 @@ it by retrying or creating a replacement task.
 
 Load [lifecycle QA](references/quality-assurance/quality-assurance-lifecycle-policy.md) only for a concrete lifecycle mismatch, an explicit complaint, or an explicit request to watch, observe, or diagnose one exact live Mission; QA owns bounded peer observation and classification, while orchestration owns Hub custody.
 
-Patch pressure, repeated authority, a capability without a real consumer, documentation/implementation
-drift, or recurring rework/communication inflation activates the Optimization owner for an integrated
-necessity test and overall subtraction; do not add another local patch or anti-corrosion runbook.
+Patch pressure, repeated authority, unconsumed capability, implementation drift, or recurring
+no-decision rework activates Optimization for an integrated necessity test and subtraction.
 
 ## Plan
 
@@ -145,6 +144,8 @@ authority. Load conditional owners only when their predicates hold:
   explicitly requested scored or system comparison;
 - [agent routing](references/orchestration/orchestration-agent-routing.md) for one unresolved evidence
   question, one frozen mechanical leaf, or independent frozen-candidate risk questions.
+- [bounded Doctor](references/quality-assurance/quality-assurance-doctor.md) only for an explicit or
+  admitted bounded cross-contract diagnostic; Discovery cannot authorize Acceptance.
 
 After a nontrivial Plan, emit the complete
 [replacement checkpoint](references/orchestration/orchestration-context-recovery.md); the Plan

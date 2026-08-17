@@ -446,25 +446,51 @@ const origin = join(root, "qOeOp", "skills.git");
   const dispatchRootGate = installedAgentRoutingOwner.indexOf(
     "Before dispatch, put the exact immutable Skill root already bound for this Mission",
   );
-  const specializedRoleForkGate = installedAgentRoutingOwner.indexOf(
-    "When selecting an installed specialized role, set `fork_turns` to `none`",
+  const laneForkGate = installedAgentRoutingOwner.indexOf(
+    "Use `fork_turns: none` for every admitted lane",
   );
   const hostDispatchEffect = installedAgentRoutingOwner.indexOf("One complete host dispatch is");
-  assert.ok(specializedRoleForkGate >= 0 && specializedRoleForkGate < dispatchRootGate);
+  assert.ok(laneForkGate >= 0 && laneForkGate < dispatchRootGate);
   assert.ok(dispatchRootGate >= 0 && dispatchRootGate < hostDispatchEffect);
   assert.match(installedAgentRoutingOwner,
-    /An omitted or `all` full-history fork inherits Main's agent type instead of the selected profile/);
+    /An omitted or `all` full-history fork may inherit Main's role, silently copy unrelated context/);
   assert.match(installedAgentRoutingOwner,
-    /freeze before any host effect rather than sending an invalid role override and correcting it with a\s+second request/);
-  assert.match(installedAgentRoutingOwner, /The complete packet below is the role's context/);
+    /freeze before any host effect rather than correcting it with a second\s+request/);
+  assert.match(installedAgentRoutingOwner, /make the sole launch prompt its complete context/);
   assert.match(installedAgentRoutingOwner,
     /missing, unreadable, mismatched, mutable, or candidate-controlled root freezes dispatch\s+before any host effect/);
   assert.match(installedAgentRoutingOwner,
     /never derive one from repository cwd, an installation convention, inherited\s+context, or the candidate/);
   assert.match(installedAgentRoutingOwner,
     /Apply the selected route's Stop\/fallback: Main continues directly only\s+where that route permits; otherwise freeze the dependent decision/);
+  assert.match(installedAgentRoutingOwner, /Use `fork_turns: none` for every admitted lane/);
+  assert.match(installedAgentRoutingOwner, /## Compile one complete lane prompt/);
+  for (const field of [
+    "mission_and_lane",
+    "identity",
+    "outcome_and_consumer",
+    "scope",
+    "risk_atom",
+    "evidence_and_oracle",
+    "authority_and_non_goals",
+    "return_and_budget",
+  ]) assert.match(installedAgentRoutingOwner, new RegExp("`" + field + "`"));
+  assert.match(installedAgentRoutingOwner, /prompt byte count and completeness/);
   assert.doesNotMatch(installedAgentRoutingOwner,
     /candidate\. Main continues directly or freezes only the dependent decision/);
+  const installedDoctorOwner = await readFile(join(
+    agentsRoot,
+    "skills",
+    "run-bounded-mission",
+    "references",
+    "quality-assurance",
+    "quality-assurance-doctor.md",
+  ), "utf8");
+  assert.match(installedDoctorOwner, /Discovery starts with one highest-yield lens/);
+  assert.match(installedDoctorOwner, /Use at most three lenses for one frozen identity/);
+  assert.match(installedDoctorOwner, /Stop undispatched lenses on the first reproduced material\s+finding/);
+  assert.match(installedDoctorOwner, /prompt bytes\/completeness/);
+  assert.match(installedSkillSource, /bounded Doctor/);
   const installedReviewerHandoffOwner = await readFile(join(
     agentsRoot,
     "skills",

@@ -6,7 +6,7 @@ sandbox_mode = "read-only"
 developer_instructions = """
 Use the exact run-bounded-mission Skill root supplied by Main. Load
 references/orchestration/orchestration-agent-routing.md and the planning references it selects.
-Reject a missing, mutable, private, or candidate-controlled root.
+Reject a missing, mutable, private, or candidate-controlled root or shared prompt envelope.
 
 Return one compact primary-source brief or reproduction packet. Do not edit, delegate, inspect live
 task state, choose a candidate, admit Plan, authorize effects, or Finalize. Main owns every decision.
