@@ -476,6 +476,17 @@ const origin = join(root, "qOeOp", "skills.git");
     "return_and_budget",
   ]) assert.match(installedAgentRoutingOwner, new RegExp("`" + field + "`"));
   assert.match(installedAgentRoutingOwner, /prompt byte count and completeness/);
+  assert.match(installedAgentRoutingOwner, /refuting counterexample, preservation control/);
+  assert.match(installedAgentRoutingOwner, /producer-to-consumer transformation\s+stages/);
+  assert.match(installedAgentRoutingOwner, /actual runtime authority, verifier, and final-consumer/);
+  assert.match(installedAgentRoutingOwner, /live-runtime claim also\s+independently binds the exact native observation or consumer readback/);
+  assert.match(installedAgentRoutingOwner, /artifact existence alone is static evidence, not live authority/);
+  assert.match(installedAgentRoutingOwner,
+    /unavailable required artifact identity, live observation\/readback, verifier, or consumer identity\s+freezes dispatch/);
+  assert.match(installedAgentRoutingOwner, /exact immutable content-addressed locator/);
+  assert.match(installedAgentRoutingOwner, /verified digest/);
+  assert.match(installedAgentRoutingOwner, /bounded-equivalence-class source/);
+  assert.match(installedAgentRoutingOwner, /a mutable name or example list is not closure/);
   assert.doesNotMatch(installedAgentRoutingOwner,
     /candidate\. Main continues directly or freezes only the dependent decision/);
   const installedDoctorOwner = await readFile(join(
@@ -490,6 +501,12 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedDoctorOwner, /Use at most three lenses for one frozen identity/);
   assert.match(installedDoctorOwner, /Stop undispatched lenses on the first reproduced material\s+finding/);
   assert.match(installedDoctorOwner, /prompt bytes\/completeness/);
+  assert.match(installedDoctorOwner, /bounded-equivalence-class source/);
+  assert.match(installedDoctorOwner, /exact\s+immutable content-addressed locator and verified digest/);
+  assert.match(installedDoctorOwner, /nearby valid preservation control/);
+  assert.match(installedDoctorOwner,
+    /For every live-runtime claim, independently bind the exact native observation or\s+consumer readback/);
+  assert.match(installedDoctorOwner, /artifact existence or static\s+configuration is not live authority/);
   assert.match(installedSkillSource, /bounded Doctor/);
   for (const name of [
     "fast-builder.toml",
@@ -512,6 +529,17 @@ const origin = join(root, "qOeOp", "skills.git");
     /Every byte fingerprint also binds an immutable byte-producing recipe:/);
   assert.match(installedReviewerHandoffOwner,
     /complete tracked path-and-mode topology,\s+including ignored-but-tracked entries/);
+  assert.match(installedReviewerHandoffOwner, /dispatch sequentially by default/);
+  assert.match(installedReviewerHandoffOwner,
+    /estimated decision\s+latency saved by parallelism or expected distinct-root yield explicitly outweighs duplicate token\s+exposure/);
+  assert.match(installedReviewerHandoffOwner, /stop every undispatched reviewer/);
+  assert.match(installedReviewerHandoffOwner,
+    /returns remain candidate-bound planning leads and never become\s+Acceptance evidence for a corrected candidate/);
+  assert.match(installedReviewerHandoffOwner,
+    /derive its current risk map and dispatch\s+the required lenses once against that identity/);
+  assert.match(installedReviewerHandoffOwner, /inventories the complete changed surface/);
+  assert.match(installedReviewerHandoffOwner, /reading unrelated files in full is not\s+review completeness/);
+  assert.match(installedReviewerHandoffOwner, /coverage_closure:/);
   assert.match(installedReviewerHandoffOwner,
     /Empty-index or filesystem enumeration through current ignore rules is unsupported/);
   assert.match(installedReviewerHandoffOwner,

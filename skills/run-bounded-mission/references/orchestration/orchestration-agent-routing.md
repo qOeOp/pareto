@@ -73,9 +73,15 @@ not a prompt. The sole launch message binds:
 - `mission_and_lane`: existing Mission identity, one role, and one bounded question, leaf, or lens;
 - `identity`: immutable Skill root, Origin, exact input or candidate, and neutral control when used;
 - `outcome_and_consumer`: the next Main decision changed by this return;
-- `scope`: required inputs and locators, owned paths if writable, dependencies, and excluded surface;
-- `risk_atom`: one affected contract or premise, refuting counterexample, and consequence;
-- `evidence_and_oracle`: direct evidence, quality floor, reproduction, and unavailable evidence;
+- `scope`: required inputs and locators, owned paths if writable, producer-to-consumer transformation
+  stages and dependencies, and excluded surface;
+- `risk_atom`: one affected contract or premise, refuting counterexample, preservation control, and
+  consequence;
+- `evidence_and_oracle`: direct evidence; actual runtime authority, verifier, and final-consumer
+  identities; quality floor, reproduction, and unavailable evidence. Bind an artifact identity with
+  its exact immutable content-addressed locator and verified digest. Any live-runtime claim also
+  independently binds the exact native observation or consumer readback to the observed artifact or
+  runtime identity; artifact existence alone is static evidence, not live authority;
 - `authority_and_non_goals`: owner, write/effect boundary, prohibited actions, and no delegation;
 - `return_and_budget`: exact output contract, interaction language, context/tool/token limits or
   `unavailable`, and finite Stop/fallback.
@@ -84,8 +90,15 @@ Reject the dispatch before a host effect when a required field is missing, contr
 filled by phrases such as `review everything`, `find any issue`, or `use your judgment`. Do not paste
 an entire history, repository, diff, or log when an immutable locator and a bounded relevant excerpt
 suffice. Do not repeat profile instructions in the prompt; add only task-specific facts. Main checks
-that the question is decision-changing, the counterexample is falsifiable, the oracle is usable by
-the selected role, and the requested return is shorter than the supplied evidence.
+that the question is decision-changing, the counterexample and preservation control traverse the
+same affected stages to the real consumer, the oracle is usable by the selected role, and the
+requested return is shorter than the supplied evidence. For a finite, parsed, encoded, normalized,
+or mirrored representation domain, the packet binds an exact immutable content-addressed locator and
+verified digest for the authoritative grammar, parser, generator, or bounded-equivalence-class source,
+plus every stage that can change the representation; a mutable name or example list is not closure.
+An unavailable required artifact identity, live observation/readback, verifier, or consumer identity
+freezes dispatch rather than falling back to a static placeholder or prose name. Artifact-only proof
+is supported only when the requested outcome and oracle are explicitly static.
 
 Before dispatch, put the exact immutable Skill root already bound for this Mission in the launch
 packet. A missing, unreadable, mismatched, mutable, or candidate-controlled root freezes dispatch

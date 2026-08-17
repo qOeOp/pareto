@@ -70,8 +70,19 @@ remain, split or narrow the candidate. Only an indivisible high-consequence cand
 lens, with a distinct contract, oracle, and Stop; generic role labels or broad review categories do
 not justify it.
 
-All reviewers consume the same candidate and control, one lens each, without sibling results. Delay,
-timeout, unsupported transport, invalid output, or a finding never creates a retry or repacket.
+All reviewers consume the same candidate and control, one lens each, without sibling results. When
+more than one lens is required, order them by expected decision-changing finding yield, consumer
+consequence, oracle quality, and context/token cost, and dispatch sequentially by default. Parallel
+dispatch is supported only when the lenses are independently required and the estimated decision
+latency saved by parallelism or expected distinct-root yield explicitly outweighs duplicate token
+exposure. Delay, timeout,
+unsupported transport, invalid output, or a finding never creates a retry or repacket.
+
+After Main reproduces a material finding, stop every undispatched reviewer because a correction will
+stale the review set. For reviewers already in flight, Main records one bounded choice: fan them in
+only when their expected distinct-root coverage can change the next correction or risk map;
+otherwise stop or ignore them. Their returns remain candidate-bound planning leads and never become
+Acceptance evidence for a corrected candidate.
 
 A candidate-local correction creates a new acceptance-ready candidate identity even when Frame and
 Plan do not change. Because independent review binds the complete candidate, any candidate change
@@ -82,8 +93,11 @@ affected. Never relabel or retry the prior packet.
 ## Reviewer boundary and return
 
 The selected reviewer does not edit, delegate, communicate laterally, or perform an external effect.
-It scans the complete changed surface and direct consumers before using
-auxiliary evidence. Missing required evidence is `unsupported`, not `no_finding` or a candidate defect.
+It inventories the complete changed surface, then deeply inspects the assigned lens's bounded
+producer-to-consumer dependency closure and expands only when evidence crosses that boundary. Every
+changed path remains mapped to Main verification or one lens; reading unrelated files in full is not
+review completeness. Missing required evidence is `unsupported`, not `no_finding` or a candidate
+defect.
 
 Return only:
 
@@ -96,6 +110,7 @@ control_origin:
 risk_lens:
 findings: no_finding | ordered severity, cause, location, evidence, next action
 inspected_scope:
+coverage_closure: refuting and preservation paths, transformation stages, verifier, consumer, residual
 unavailable_evidence:
 observed_tool_surface:
 mutation_observation: none | detected | unverified
