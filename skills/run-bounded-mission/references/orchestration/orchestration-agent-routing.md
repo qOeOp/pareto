@@ -111,6 +111,11 @@ calls a verifier or evidence source `independent`, it also binds separation acro
 prompt or control lineage, evidence view, and failure authority. A repeated call through shared
 authority is labeled a consistency check and cannot satisfy an independence premise.
 
+This readiness rule does not block a pre-mutation planner, researcher, or Discovery lane before an
+executable artifact or readiness claim exists. That lane binds one Frame/Plan prerequisite to making
+the path callable, keeps the path and maturity unavailable, and cannot supply later readiness or
+Acceptance evidence.
+
 Before dispatch, put the exact immutable Skill root already bound for this Mission in the launch
 packet. A missing, unreadable, mismatched, mutable, or candidate-controlled root freezes dispatch
 before any host effect; never derive one from repository cwd, an installation convention, inherited

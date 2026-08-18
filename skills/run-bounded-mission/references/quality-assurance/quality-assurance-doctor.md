@@ -25,13 +25,15 @@ A known failure, mutable identity, unavailable required evidence, or pending can
 lens dispatch. Convert each reproduced Doctor finding into the smallest deterministic regression
 before a later pass.
 
-For an executable consumer outcome, the first preflight is the cheapest currently callable positive
-golden path for the original admitted outcome at the maturity Main intends to claim. Bind the exact
-deployed artifact/runtime to the frozen candidate and observe the final consumer result. A failed,
-pending, differently deployed, or identity-unknown path stops every hardening or Acceptance lens that
-cannot change that result. If the path is unavailable, Discovery may dispatch only a lens whose return
-can resolve that exact blocker or a separately admitted lower-maturity decision; it cannot spend a
-broad lens set and then use static, negative, or artifact evidence to imply product readiness.
+Once Main claims or tests executable readiness and its positive path should be callable, the first
+preflight is the cheapest currently callable golden path for the original admitted outcome at that
+maturity. Bind the exact deployed artifact/runtime to the frozen candidate and observe the final
+consumer result. A failed, pending, differently deployed, or identity-unknown path stops every
+hardening or Acceptance lens that cannot change that result. Before an executable artifact or
+readiness claim exists, bounded pre-mutation Discovery may resolve one Frame/Plan prerequisite to
+making the path callable; it records the path as unavailable and cannot imply product readiness. An
+unavailable path otherwise permits only that bounded prerequisite or a separately admitted
+lower-maturity decision, not a broad static or negative lens set.
 
 ## Select the minimum lenses
 

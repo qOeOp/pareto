@@ -493,6 +493,10 @@ const origin = join(root, "qOeOp", "skills.git");
     /cannot narrow the original outcome to a static software slice/);
   assert.match(installedAgentRoutingOwner,
     /repeated call through shared\s+authority is labeled a consistency check/);
+  assert.match(installedAgentRoutingOwner,
+    /does not block a pre-mutation planner, researcher, or Discovery lane/);
+  assert.match(installedAgentRoutingOwner,
+    /keeps the path and maturity unavailable/);
   assert.doesNotMatch(installedAgentRoutingOwner,
     /candidate\. Main continues directly or freezes only the dependent decision/);
   const installedDoctorOwner = await readFile(join(
@@ -514,7 +518,9 @@ const origin = join(root, "qOeOp", "skills.git");
     /For every live-runtime claim, independently bind the exact native observation or\s+consumer readback/);
   assert.match(installedDoctorOwner, /artifact existence or static\s+configuration is not live authority/);
   assert.match(installedDoctorOwner,
-    /first preflight is the cheapest currently callable positive\s+golden path/);
+    /Once Main claims or tests executable readiness/);
+  assert.match(installedDoctorOwner,
+    /bounded pre-mutation Discovery may resolve one Frame\/Plan prerequisite/);
   assert.match(installedDoctorOwner,
     /second call through the same authority is a consistency\s+check, not an independent verifier/);
   assert.match(installedSkillSource, /bounded Doctor/);
