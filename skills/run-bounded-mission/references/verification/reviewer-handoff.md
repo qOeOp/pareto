@@ -47,6 +47,15 @@ Every byte fingerprint also binds an immutable byte-producing recipe: tool ident
 working/path scope, ordering, separators, and encoding. Recovery and fan-in replay that exact recipe;
 a missing, changed, or failed recipe makes the comparison unsupported, not evidence of drift.
 
+Disposable recovery and verification state is never candidate custody. Create it under one exact
+`mktemp -d` root and install cleanup for `EXIT`, `HUP`, `INT`, and `TERM` before materializing any
+candidate bytes. A Rust replay sets `CARGO_INCREMENTAL=0` and keeps `CARGO_TARGET_DIR` inside that
+root unless the repository's current check authority binds a stricter disposable target. Before a
+long compile, run the repository's disk-budget gate when one exists; unavailable or failed disk
+measurement freezes that compile rather than bypassing the gate. On interruption, terminate the
+owned child first, remove the disposable root, and verify its absence. A reviewer return with a live
+replay checkout, target directory, or unbounded external build cache is unsupported.
+
 The review input is the sole frozen evaluator packet. Its binding is candidate commit/tree (or local
 snapshot digest), base/Origin, neutral control, one lens, and exact evidence locators. From a
 Main-observed execution boundary, select exactly one initial consumer: native `mission_evaluator` when
