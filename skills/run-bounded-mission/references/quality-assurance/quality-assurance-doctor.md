@@ -25,6 +25,14 @@ A known failure, mutable identity, unavailable required evidence, or pending can
 lens dispatch. Convert each reproduced Doctor finding into the smallest deterministic regression
 before a later pass.
 
+For an executable consumer outcome, the first preflight is the cheapest currently callable positive
+golden path for the original admitted outcome at the maturity Main intends to claim. Bind the exact
+deployed artifact/runtime to the frozen candidate and observe the final consumer result. A failed,
+pending, differently deployed, or identity-unknown path stops every hardening or Acceptance lens that
+cannot change that result. If the path is unavailable, Discovery may dispatch only a lens whose return
+can resolve that exact blocker or a separately admitted lower-maturity decision; it cannot spend a
+broad lens set and then use static, negative, or artifact evidence to imply product readiness.
+
 ## Select the minimum lenses
 
 Express each residual risk as one atom:
@@ -51,6 +59,12 @@ verified digest. For every live-runtime claim, independently bind the exact nati
 consumer readback to the observed artifact or runtime identity; artifact existence or static
 configuration is not live authority. Artifact-only evidence is supported only for an explicitly
 static outcome and oracle.
+
+When a quality claim depends on an `independent` producer/verifier, bind the concrete separation axes:
+model and provider, prompt/control lineage, input/evidence view, and failure authority. Each shared
+axis is common-mode evidence on that axis; a second call through the same authority is a consistency
+check, not an independent verifier. Missing independence freezes only the dependent independence
+claim, not the underlying deterministic or consumer evidence.
 
 Discovery starts with one highest-yield lens and normally dispatches sequentially. Main fans in and
 reproduces its result before releasing another. Use at most three lenses for one frozen identity; at
