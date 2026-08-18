@@ -487,6 +487,16 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedAgentRoutingOwner, /verified digest/);
   assert.match(installedAgentRoutingOwner, /bounded-equivalence-class source/);
   assert.match(installedAgentRoutingOwner, /a mutable name or example list is not closure/);
+  assert.match(installedAgentRoutingOwner,
+    /cheapest currently callable positive golden-path\s+result and exact deployed candidate\/runtime identity/);
+  assert.match(installedAgentRoutingOwner,
+    /cannot narrow the original outcome to a static software slice/);
+  assert.match(installedAgentRoutingOwner,
+    /repeated call through shared\s+authority is labeled a consistency check/);
+  assert.match(installedAgentRoutingOwner,
+    /does not block a pre-mutation planner, researcher, or Discovery lane/);
+  assert.match(installedAgentRoutingOwner,
+    /keeps the path and maturity unavailable/);
   assert.doesNotMatch(installedAgentRoutingOwner,
     /candidate\. Main continues directly or freezes only the dependent decision/);
   const installedDoctorOwner = await readFile(join(
@@ -507,6 +517,12 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedDoctorOwner,
     /For every live-runtime claim, independently bind the exact native observation or\s+consumer readback/);
   assert.match(installedDoctorOwner, /artifact existence or static\s+configuration is not live authority/);
+  assert.match(installedDoctorOwner,
+    /Once Main claims or tests executable readiness/);
+  assert.match(installedDoctorOwner,
+    /bounded pre-mutation Discovery may resolve one Frame\/Plan prerequisite/);
+  assert.match(installedDoctorOwner,
+    /second call through the same authority is a consistency\s+check, not an independent verifier/);
   assert.match(installedSkillSource, /bounded Doctor/);
   for (const name of [
     "fast-builder.toml",
@@ -535,6 +551,10 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedReviewerHandoffOwner, /stop every undispatched reviewer/);
   assert.match(installedReviewerHandoffOwner,
     /returns remain candidate-bound planning leads and never become\s+Acceptance evidence for a corrected candidate/);
+  assert.match(installedReviewerHandoffOwner,
+    /required deterministic evidence starts with the\s+cheapest currently callable positive golden path/);
+  assert.match(installedReviewerHandoffOwner,
+    /second judgment through shared authority is\s+common-mode consistency evidence, not an independent verifier/);
   assert.match(installedReviewerHandoffOwner,
     /derive its current risk map and dispatch\s+the required lenses once against that identity/);
   assert.match(installedReviewerHandoffOwner, /inventories the complete changed surface/);

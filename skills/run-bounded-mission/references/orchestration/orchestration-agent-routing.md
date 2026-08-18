@@ -72,7 +72,10 @@ not a prompt. The sole launch message binds:
 
 - `mission_and_lane`: existing Mission identity, one role, and one bounded question, leaf, or lens;
 - `identity`: immutable Skill root, Origin, exact input or candidate, and neutral control when used;
-- `outcome_and_consumer`: the next Main decision changed by this return;
+- `outcome_and_consumer`: the next Main decision changed by this return, the original admitted outcome
+  and claimed maturity, and any independently admitted lower-maturity slice. For a lane supporting
+  executable readiness or Acceptance, include the cheapest currently callable positive golden-path
+  result and exact deployed candidate/runtime identity, or the precise unavailable blocker;
 - `scope`: required inputs and locators, owned paths if writable, producer-to-consumer transformation
   stages and dependencies, and excluded surface;
 - `risk_atom`: one affected contract or premise, refuting counterexample, preservation control, and
@@ -99,6 +102,19 @@ plus every stage that can change the representation; a mutable name or example l
 An unavailable required artifact identity, live observation/readback, verifier, or consumer identity
 freezes dispatch rather than falling back to a static placeholder or prose name. Artifact-only proof
 is supported only when the requested outcome and oracle are explicitly static.
+
+A lane cannot narrow the original outcome to a static software slice to bypass a failed, pending,
+differently deployed, or identity-unknown positive golden path. Dispatch supporting executable
+readiness or Acceptance freezes until that path passes, unless the lane can change the exact blocker
+or the user explicitly admitted the lower-maturity outcome as independently valuable. When the packet
+calls a verifier or evidence source `independent`, it also binds separation across model/provider,
+prompt or control lineage, evidence view, and failure authority. A repeated call through shared
+authority is labeled a consistency check and cannot satisfy an independence premise.
+
+This readiness rule does not block a pre-mutation planner, researcher, or Discovery lane before an
+executable artifact or readiness claim exists. That lane binds one Frame/Plan prerequisite to making
+the path callable, keeps the path and maturity unavailable, and cannot supply later readiness or
+Acceptance evidence.
 
 Before dispatch, put the exact immutable Skill root already bound for this Mission in the launch
 packet. A missing, unreadable, mismatched, mutable, or candidate-controlled root freezes dispatch

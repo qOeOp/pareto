@@ -25,6 +25,16 @@ A known failure, mutable identity, unavailable required evidence, or pending can
 lens dispatch. Convert each reproduced Doctor finding into the smallest deterministic regression
 before a later pass.
 
+Once Main claims or tests executable readiness and its positive path should be callable, the first
+preflight is the cheapest currently callable golden path for the original admitted outcome at that
+maturity. Bind the exact deployed artifact/runtime to the frozen candidate and observe the final
+consumer result. A failed, pending, differently deployed, or identity-unknown path stops every
+hardening or Acceptance lens that cannot change that result. Before an executable artifact or
+readiness claim exists, bounded pre-mutation Discovery may resolve one Frame/Plan prerequisite to
+making the path callable; it records the path as unavailable and cannot imply product readiness. An
+unavailable path otherwise permits only that bounded prerequisite or a separately admitted
+lower-maturity decision, not a broad static or negative lens set.
+
 ## Select the minimum lenses
 
 Express each residual risk as one atom:
@@ -51,6 +61,12 @@ verified digest. For every live-runtime claim, independently bind the exact nati
 consumer readback to the observed artifact or runtime identity; artifact existence or static
 configuration is not live authority. Artifact-only evidence is supported only for an explicitly
 static outcome and oracle.
+
+When a quality claim depends on an `independent` producer/verifier, bind the concrete separation axes:
+model and provider, prompt/control lineage, input/evidence view, and failure authority. Each shared
+axis is common-mode evidence on that axis; a second call through the same authority is a consistency
+check, not an independent verifier. Missing independence freezes only the dependent independence
+claim, not the underlying deterministic or consumer evidence.
 
 Discovery starts with one highest-yield lens and normally dispatches sequentially. Main fans in and
 reproduces its result before releasing another. Use at most three lenses for one frozen identity; at
