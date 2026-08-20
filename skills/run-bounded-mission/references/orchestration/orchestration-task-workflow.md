@@ -60,20 +60,27 @@ independent outcome, replaces a native Task, or supplies another node's endpoint
 
 Freeze before effect: Frame, Plan, Origin, owner/paths, consumer/acceptance, dependencies,
 authority/effect limits, endpoint, language, and next legal action.
-Reject before send any packet requesting evidence indexes, copied receipts/history/inventories,
-terminal shapes beyond Finalize, or revalidating unchanged-input/same-recipe evidence; use native Task
-locators. Bind canonical UTF-8 bytes/length/SHA-256 as producer/recovery identity, not model receipt.
+An initial release carries those fields once. A continuation is exactly:
+
+```text
+prior: <last admitted native message item locator>
+delta: <changed identity/contract/finding and action; or action-only with verify equivalence>
+verify: <changed-input gates; unchanged-input/same-recipe evidence locators>
+return: Finalize
+stop: <finite blocker and effect boundary>
+```
+
+Missing prior/equivalence or any copied stable field, evidence/history inventory, or terminal shape
+stops the send. Canonical UTF-8 bytes/length/SHA-256 identify producer recovery, not model receipt.
 
 Before create, close the mode-scoped authoritative set from checkpointed packets, attempts, receipts,
-and exact identities. Reconcile any known colliding identity once and make one bounded list observation
-only when needed for custody. An exact collision reuses the recorded task; ambiguous or possible
-success forbids another create.
+and identities. Reconcile a known collision once; observe the bounded list only for custody. Reuse an
+exact collision; ambiguous or possible success forbids create.
 
-The existing Hub creates once. A clientThreadId is a consumed pending attempt and cannot be read, renamed, messaged, or
-retried until causally mapped to threadId/hostId. For an exact identity, set and read back the exact
-title once, send the complete packet once, and treat the native send receipt as semantic release.
-Continuation uses the same identity/title/single-send gate and never a supplement. Failure, mismatch,
-or ambiguous effect is host-defect/no-change; do not retry, repacket, or create a replacement.
+The existing Hub creates once. A clientThreadId is a consumed pending attempt; do not read, rename,
+message, or retry it before causal mapping to threadId/hostId. Set/read an exact title once and send
+once; the native receipt is semantic release. Continuation shares that gate and has no supplement.
+Failure, mismatch, or ambiguity is host-defect/no-change; never retry, repacket, or replace.
 
 After release, add the child to the Hub active set and monitor only through the custody contract below.
 
