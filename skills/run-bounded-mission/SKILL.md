@@ -148,17 +148,11 @@ authority. Load conditional owners only when their predicates hold:
 - [bounded Doctor](references/quality-assurance/quality-assurance-doctor.md) only for an explicit or
   admitted bounded cross-contract diagnostic; Discovery cannot authorize Acceptance.
 
-Before an affected mutation/message/effect after a nontrivial Plan, emit the
-[replacement checkpoint](references/orchestration/orchestration-context-recovery.md). Read-only
-decisions emit no control prose; the Plan projection is not that checkpoint.
+Load [effect admission and recovery](references/orchestration/orchestration-context-recovery.md) only
+before the first affected mutation/message/effect after a nontrivial Plan or recovery boundary. It
+owns checkpoint emission and validity; read-only work and Finalize emit no checkpoint or control prose.
 
 ## Execute
-
-Before any mutation or effect issuance, require the current checkpoint to postdate every
-decision-changing Frame, Plan, origin, candidate, evidence, effect, authority, Stop, Resume, route, or
-terminal change; a missing or stale checkpoint freezes only that action. After a new turn,
-interruption, compaction, source drift, or user override, load the recovery owner before the first
-later mutation or unissued effect. An exact checkpointed read-only observation may continue directly.
 
 Implement only the admitted candidate. Keep one writer for each overlapping mutation target and
 preserve unrelated work. A count, deadline, review finding, available model, or local friction cannot
@@ -206,6 +200,8 @@ new observation for the same predicate.
 
 Accept only a verified exact candidate bound to a commit or preserved diff. Lead with the result and
 exact effect state; distinguish current external evidence, local inference, and unavailable evidence.
+Keep control-plane locators in their native checkpoint or receipt; surface only facts that change the
+outcome, user choice, effect state, or recovery, never artifact mechanics or check inventories as progress.
 
 A child terminal or needs-attention final is only:
 
