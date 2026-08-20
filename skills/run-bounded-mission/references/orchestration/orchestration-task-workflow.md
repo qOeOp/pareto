@@ -109,9 +109,9 @@ quiet-deadline action already in the checkpoint; elapsed time cannot invent or c
 
 For each continued target require cursor continuity, target/host identity, and non-regressing
 revision. An early wake may omit a target; retain its prior facts but do not call it unchanged.
-Malformed, unknown, discontinuous, or incomplete evidence freezes only affected slices and emits one
-compact needs-attention result with the exact predicate and earliest useful read. Task, reviewer,
-transport, or host unavailability never creates a retry loop or a new task.
+Malformed, unknown, discontinuous, or incomplete evidence freezes affected slices and emits one
+needs-attention result with its predicate and earliest useful read. Transport or host unavailability
+ends the session with custody intact and authorizes no same-turn read or retry.
 
 For a Hub child at a changed window, reconcile each stable component once against current Goal, task, Git, GitHub,
 dependency, and authority facts. Main reproduces decisive consumer conflicts and records each member
