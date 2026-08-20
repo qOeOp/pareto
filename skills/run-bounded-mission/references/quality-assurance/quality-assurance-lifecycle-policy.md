@@ -26,8 +26,9 @@ Stop, and quiet-deadline continuation. When the host supports programmatic orche
 cursor-bound waits inside that session without returning timeout or progress-only results to Main;
 an internal wait timeout never shortens the session, whose deadline follows user responsiveness and
 the expected in-flight operation. Stop on a candidate signal, user input, or the deadline. Otherwise
-issue one wait. Use one bounded read only if wait is unavailable. Require identity, cursor continuity, and non-regressing revision; an
-omitted target is unknown. If neither operation works, return `evidence_unavailable` with a finite Stop.
+issue one wait and require identity, cursor continuity, and non-regressing revision; omitted targets
+are unknown. If wait transport is unavailable, use one task-table snapshot only for identity/status,
+then end the session; it proves no cursor, receipt, or terminal. Snapshot failure is `evidence_unavailable`.
 Malformed or discontinuous evidence freezes only dependent diagnosis and names its earliest useful
 read. Never busy-read, start an unadmitted session, demand a callback, or message the peer.
 
