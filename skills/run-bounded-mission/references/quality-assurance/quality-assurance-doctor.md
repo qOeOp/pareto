@@ -16,24 +16,16 @@ Routine, mechanical, single-contract work with executable coverage does not trig
 
 ## Close deterministic preflight first
 
-Before any lens, freeze the repository, Origin/candidate, complete changed surface including
-untracked material, real consumers, affected contracts, authority/effects, and available cost bound.
-Run the cheapest authoritative deterministic checks that can decide the same questions: diff and
-schema closure, lint/type/build/test or focused consumer checks, archive/fingerprint replay, evidence
-locator reachability, input-domain capacity, stale-evidence checks, and declared executable refuters.
-A known failure, mutable identity, unavailable required evidence, or pending candidate write stops
-lens dispatch. Convert each reproduced Doctor finding into the smallest deterministic regression
-before a later pass.
+Freeze Origin/candidate, complete changed surface including untracked material, consumers, contracts,
+authority/effects, and cost bound. Run deterministic checks that can decide the same questions: diff,
+schema, lint/type/build/test, focused consumers, archive/fingerprint replay, locator reachability,
+domain capacity, stale evidence, and executable refuters. Known failure, mutable identity, unavailable
+required evidence, or pending writes stop lenses; preserve each reproduced finding as the smallest
+deterministic regression.
 
-Once Main claims or tests executable readiness and its positive path should be callable, the first
-preflight is the cheapest currently callable golden path for the original admitted outcome at that
-maturity. Bind the exact deployed artifact/runtime to the frozen candidate and observe the final
-consumer result. A failed, pending, differently deployed, or identity-unknown path stops every
-hardening or Acceptance lens that cannot change that result. Before an executable artifact or
-readiness claim exists, bounded pre-mutation Discovery may resolve one Frame/Plan prerequisite to
-making the path callable; it records the path as unavailable and cannot imply product readiness. An
-unavailable path otherwise permits only that bounded prerequisite or a separately admitted
-lower-maturity decision, not a broad static or negative lens set.
+Apply the shared agent-routing envelope's executable-readiness rule at the claimed maturity. A
+pre-mutation Discovery lens may close one prerequisite while keeping the path unavailable; it cannot
+imply readiness or authorize a broad static/negative lens set.
 
 ## Select the minimum lenses
 
@@ -51,22 +43,9 @@ lenses until they bind that atom. Compile every launch through the shared
 [agent-routing prompt envelope](../orchestration/orchestration-agent-routing.md); a broad
 `review the whole project` prompt is unsupported.
 
-For parsed, encoded, normalized, generated, or mirrored representations, derive cases from an exact
-immutable content-addressed locator and verified digest for the authoritative grammar, parser,
-generator, or bounded-equivalence-class source. Bind the raw producer representation, every
-transformation stage, the verifier, and the real consumer. A mutable name or named example does not
-close the domain; require the refuter and a nearby valid preservation control to reach the same oracle.
-Bind runtime-authority and verifier artifacts by exact immutable content-addressed locator and
-verified digest. For every live-runtime claim, independently bind the exact native observation or
-consumer readback to the observed artifact or runtime identity; artifact existence or static
-configuration is not live authority. Artifact-only evidence is supported only for an explicitly
-static outcome and oracle.
-
-When a quality claim depends on an `independent` producer/verifier, bind the concrete separation axes:
-model and provider, prompt/control lineage, input/evidence view, and failure authority. Each shared
-axis is common-mode evidence on that axis; a second call through the same authority is a consistency
-check, not an independent verifier. Missing independence freezes only the dependent independence
-claim, not the underlying deterministic or consumer evidence.
+The shared envelope also owns representation-domain closure, artifact/runtime identity and live
+readback, and independence axes. Doctor supplies only the residual risk atom and a nearby valid
+preservation control; missing envelope evidence freezes that lens.
 
 Discovery starts with one highest-yield lens and normally dispatches sequentially. Main fans in and
 reproduces its result before releasing another. Use at most three lenses for one frozen identity; at

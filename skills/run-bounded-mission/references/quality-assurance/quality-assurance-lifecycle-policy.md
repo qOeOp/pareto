@@ -1,51 +1,43 @@
 # Lifecycle Quality Assurance
 
-Load QA only when a lifecycle-boundary observation indicates a mismatch, the user explicitly
-complains that this Skill behaved incorrectly, or the user asks to watch, observe, or diagnose one
-exact live Mission. QA owns signal classification, evidence binding, single-owner routing, and closure
-verification. It does not repair, schedule tasks, retain custody, scan global history, aggregate
-recurrence, route models, or own CI/GitHub details.
+Load QA only for an observed lifecycle mismatch, an explicit Skill complaint, or a request to watch,
+observe, or diagnose one exact live Mission. QA binds and classifies one signal, routes its native
+owner, and verifies closure; it never repairs, schedules, retains custody, scans global history,
+aggregates recurrence, routes models, or owns CI/GitHub.
 
 ## Observe one peer Mission
 
-An explicit request to watch, observe, or diagnose one exact live Mission activates a normal RBM
-Mission with a read-only target boundary. Bind the peer's native identity, exact observed request or Goal locator,
-repository/working context, Origin/candidate, and loaded Skill identity or `unavailable`. A title,
-summary, current observer version, or undifferentiated same-thread history cannot supply a missing
-identity. The observer never adopts the peer into its Goal, active-task set, DAG, custody, candidate,
-effects, or terminal and does not message it to manufacture evidence.
+Such a request activates one normal RBM Mission with a read-only peer target set. Bind every requested
+native identity, the request or Goal locator, working context, Origin/candidate, and loaded peer Skill
+identity or `unavailable`; title, summary, observer version, or undifferentiated history cannot replace
+them. A peer Hub and its leaves remain targets: they do not make the observer multi-mode, activate task
+dispatch, or enter its Goal, DAG, custody, candidate, effects, or terminal. Never message them to
+manufacture evidence.
 
-Default to `sentinel`: inspect only changed checkpoint, anomaly, authority/effect, candidate, and
-terminal observations for target/version drift; duplicate authority, custody, or effects; invalid or
-non-converging lifecycle transitions; stale, self-authored, unavailable-as-pass, or false-terminal
-evidence; and repeated context or mechanism that changes no decision. Use the bounded wait/read rules
-below. Use `focused` only after one exact signal identifies its native owner. Use `forensic` only when the
-user explicitly requests complete or scored coverage; bind the target's exact Pareto source identity
-and load its sole `evals/capabilities.json` inventory plus the assessment owner, or mark that coverage
-unavailable. The catalog indexes scope but does not prove behavior; absent or structurally unreviewed
-coverage remains unavailable. These depth labels select scope only; they create no stage, role,
-registry, or scheduler.
+Default to `sentinel`: inspect changed checkpoints, anomalies, authority/effects, candidates, and
+terminals for identity drift, duplicate authority/custody/effects, invalid transitions, false evidence
+or terminal, and repeated no-decision context. Enter `focused` only for one signal and native owner.
+Use `forensic` only when complete or scored coverage is requested; bind the peer's Pareto identity and
+load `evals/capabilities.json` plus the assessment owner, or mark coverage unavailable. The catalog
+indexes scope, not behavior; depth creates no stage, role, state store, or scheduler.
 
-Admit one observation action from the explicit request or a checkpointed next action. Issue one
-cursor-bound wait for the exact peer; if unavailable, use one bounded read for that action. Require
-target/host identity, cursor continuity, and non-regressing revision. An early wake that omits the peer
-is unknown, not unchanged. If neither operation is callable, return `evidence_unavailable` with a
-finite Stop. Malformed, discontinuous, or incomplete evidence freezes only dependent diagnosis and
-names the earliest useful read. Never busy-read, immediately resubscribe, demand a callback, or
-message the peer.
+Admit one finite observation session from the request or checkpoint, bound to the exact target set,
+Stop, and quiet-deadline continuation. When the host supports programmatic orchestration, chain
+cursor-bound waits inside that session without returning timeout or progress-only results to Main;
+an internal wait timeout never shortens the session, whose deadline follows user responsiveness and
+the expected in-flight operation. Stop on a candidate signal, user input, or the deadline. Otherwise
+issue one wait. Use one bounded read only if wait is unavailable. Require identity, cursor continuity, and non-regressing revision; an
+omitted target is unknown. If neither operation works, return `evidence_unavailable` with a finite Stop.
+Malformed or discontinuous evidence freezes only dependent diagnosis and names its earliest useful
+read. Never busy-read, start an unadmitted session, demand a callback, or message the peer.
 
-An unchanged window silently yields. A changed window with no critical signal creates no finding or
-communication. One candidate signal binds target and Skill identities, the failed relationship,
-expected native owner, immutable observation locator, consumer consequence, competing root causes,
-and a falsifier, then enters the classification below. Identity drift freezes attribution until a new
-exact target binding; unavailable live observation freezes only dependent diagnosis with a finite
-Stop. The observer stops at target terminal, user cancellation, identity drift, evidence
-unavailability, or one signal handoff.
-At signal or terminal retain only decision-relevant observed cost, or `unavailable`: bounded
-wait/read actions, target/observer communications, always/conditionally loaded context volume,
-compaction/recovery count and identity restoration, elapsed/exposed tokens, and correction/recheck.
-Counts alone prove no waste; only repeated cost, failed recovery, or reloaded context that changes no
-decision routes to Optimization, without a running telemetry ledger.
+An unchanged or no-signal window silently yields. One candidate signal binds peer/Skill identities,
+failed relationship, native owner, immutable locator, consumer consequence, competing causes, and a
+falsifier. Identity drift or unavailable observation freezes only attribution with a finite Stop.
+Stop at target terminal, cancellation, drift, unavailability, or one signal handoff. Then retain only
+decision-relevant observed cost or `unavailable`: waits/reads, communications, loaded context,
+compaction recovery, elapsed/tokens, correction, and recheck. Counts alone prove nothing; repeated
+cost or no-decision reload routes to Optimization without a telemetry ledger.
 
 ## Classify one signal
 
@@ -59,12 +51,10 @@ owner. Choose one outcome:
 | advisory  | current obligations pass and evidence supports a bounded improvement                         | proposal with benefit, cost, risk, and falsifier   |
 | no-signal | evidence supports alignment, is non-required/insufficient, or is a controlled false positive | no QA artifact, task, or communication             |
 
-Unknown evidence blocks only when the current decision requires it. Counts, delay, traffic, wording,
-or preference alone are no-signal.
+Unknown evidence blocks only its consumer. Counts, delay, traffic, wording, or preference are no-signal.
 
-For a peer-observer Mission, return one `block`, `route`, or `advisory` signal only to the requesting
-Main/Hub. The observer never contacts the peer or native owner; Main/Hub retains custody and decides
-whether to authorize native routing or a later closure observation.
+Return one `block`, `route`, or `advisory` only to the requesting Main/Hub; it retains custody and
+authorizes any native routing or closure observation.
 
 ## Route and close
 
@@ -78,11 +68,9 @@ Route by root authority, not symptom location:
 - optimizer: patch pressure, duplicate authority, missing consumers, implementation/document drift,
   repeated rework, communication/context inflation, or integrated behavior regression.
 
-QA owns only the peer wait/read rules above; it never copies Hub custody or a routed owner's repair
-rules. Outside peer observation, the native owner repairs through the existing lifecycle; peer-observer output returns to
-the requesting Main/Hub under the boundary above.
-Closure means rerunning the scenario that produced the signal and binding its result to the same
-relationship. No-signal or unavailable evidence creates no recurrence claim or persistent record.
+QA owns only the wait/read rules above, never Hub custody or repair. The native owner repairs through
+its lifecycle. Closure reruns the producing scenario against the same relationship. No-signal or
+unavailable evidence creates no recurrence claim or record.
 
 ## Critical floor
 
