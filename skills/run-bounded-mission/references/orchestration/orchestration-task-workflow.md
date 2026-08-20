@@ -95,12 +95,12 @@ The Hub consumes Finalize's child decision index with the native identity carrie
 Missing, malformed, unknown, or unavailable locators freeze only the dependent Hub action; the
 acceptance gate below still resolves every required fact from its current owner.
 
-For ordinary child custody, one observation action is a finite session over the complete exact active
-set. Bind its Stop and its quiet-deadline continuation before starting. When the host supports
-programmatic orchestration, chain cursor-bound waits inside that session without returning timeout or
-progress-only results to Main. Stop on an actionable receipt, user input, or the session deadline. An
-internal wait timeout never shortens the session; choose its deadline from user responsiveness and the
-expected in-flight operation. An explicit status request uses one timeoutMs: 0 snapshot. Admit a
+Ordinary child custody uses one finite session over the complete exact active set. Bind Stop and
+quiet-deadline continuation first. On programmatic hosts, run each cursor-bound wait under a caller
+deadline that cancels non-returning transport. Chain returned timeouts internally; surface neither
+timeout nor progress to Main. Caller expiry is transport unavailable and ends the session. Stop on an
+actionable receipt, user input, or the session deadline, sized to user responsiveness and expected
+operation. An explicit status request uses one timeoutMs: 0 snapshot under the caller deadline. Admit a
 thread read only when an admitted receipt or user question requires history and the host enforces
 exact target, turn, item, and per-output bounds before model context; otherwise history evidence is
 unavailable and no read is issued.
