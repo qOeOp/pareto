@@ -21,14 +21,15 @@ Use `forensic` only when complete or scored coverage is requested; bind the peer
 load `evals/capabilities.json` plus the assessment owner, or mark coverage unavailable. The catalog
 indexes scope, not behavior; depth creates no stage, role, state store, or scheduler.
 
-Admit one finite observation session from the request or checkpoint, bound to the exact target set,
-Stop, and quiet-deadline continuation. When the host supports programmatic orchestration, chain
-cursor-bound waits inside that session without returning timeout or progress-only results to Main;
-an internal wait timeout never shortens the session, whose deadline follows user responsiveness and
-the expected in-flight operation. Stop on a candidate signal, user input, or the deadline. Otherwise
-issue one wait and require identity, cursor continuity, and non-regressing revision; omitted targets
-are unknown. If wait transport is unavailable, use one task-table snapshot only for identity/status,
-then end the session; it proves no cursor, receipt, or terminal. Snapshot failure is `evidence_unavailable`.
+Admit one finite session from request/checkpoint with exact targets, Stop, and quiet deadline. On
+programmatic hosts, chain cursor-bound waits and keep timeout/progress internal; otherwise issue one
+wait. Size the deadline to user responsiveness and expected operation; stop on signal, user input, or
+deadline. Every wait requires identity, cursor continuity, and non-regressing revision; omitted targets
+are unknown. If wait transport is unavailable, host-side orchestration reads the task table once and
+returns only exact target/host/status plus matching unavailable-host reason; discard
+title/summary/preview/other rows before model context. Without pre-context filtering, skip it. End the
+session; it proves neither cursor, receipt, terminal, unchanged, nor no-signal; dependent observation is
+`evidence_unavailable`.
 Malformed or discontinuous evidence freezes only dependent diagnosis and names its earliest useful
 read. Never busy-read, start an unadmitted session, demand a callback, or message the peer.
 
