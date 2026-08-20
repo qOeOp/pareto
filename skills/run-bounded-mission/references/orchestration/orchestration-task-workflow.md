@@ -58,10 +58,11 @@ independent outcome, replaces a native Task, or supplies another node's endpoint
 
 ## Admit one native Task message
 
-Freeze the complete packet before effect: current Frame and Plan, Origin, owner and paths, consumer
-and acceptance, dependencies, authority and prohibited effects, endpoint, interaction language, and
-one next legal action. Bind its canonical UTF-8 bytes, length, and SHA-256 for producer/recovery
-identity; this does not prove bytes received by the model.
+Freeze before effect: Frame, Plan, Origin, owner/paths, consumer/acceptance, dependencies,
+authority/effect limits, endpoint, language, and next legal action.
+Use existing native Task locators; packets never request an evidence index, copied receipts, history,
+inventories, or a terminal shape beyond Finalize. Bind canonical UTF-8 bytes, length, and
+SHA-256 as producer/recovery identity, not model receipt.
 
 Before create, close the mode-scoped authoritative set from checkpointed packets, attempts, receipts,
 and exact identities. Reconcile any known colliding identity once and make one bounded list observation
