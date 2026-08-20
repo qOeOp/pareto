@@ -83,19 +83,9 @@ needs-attention receipt, or one checkpointed next observation action. Callback t
 optional early wake: it may report a structural authority gap, changed dependency receipt, or terminal
 state, but it does not replace Hub custody or make arrival order authoritative.
 
-A child's terminal or needs-attention final is one decision index:
-
-```text
-state: <terminal|needs_attention; endpoint or current blocker/dependency>
-identity: <exact native-task locator; candidate/base/PR locators only when the next action depends on them>
-decision: <decisive finding or evidence locator; unavailable evidence>
-next: <one legal Hub action; issued effect receipts or unissued effects>
-```
-
-Use the native identity carried by transport; repeat it inline only when unavailable or ambiguous. Each
-line holds current decisions, not Frame, Plan, history, passed-check inventories, or stable nonclaims.
-Cite existing native-task, Git, GitHub, or artifact facts instead of copying them. A missing, malformed,
-unknown, or unavailable handoff locator is stated inline and freezes only its dependent Hub action.
+The Hub consumes Finalize's child decision index with the native identity carried by transport.
+Missing, malformed, unknown, or unavailable locators freeze only the dependent Hub action; the
+acceptance gate below still resolves every required fact from its current owner.
 
 For ordinary child custody, one observation action is a finite session over the complete exact active
 set. Bind its Stop and its quiet-deadline continuation before starting. When the host supports

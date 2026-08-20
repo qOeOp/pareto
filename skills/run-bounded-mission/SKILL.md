@@ -207,6 +207,18 @@ new observation for the same predicate.
 Accept only a verified exact candidate bound to a commit or preserved diff. Lead with the result and
 exact effect state; distinguish current external evidence, local inference, and unavailable evidence.
 
+A child terminal or needs-attention final is only:
+
+```text
+state: <terminal|needs_attention; endpoint or blocker>
+identity: <candidate/base/PR when action-relevant; Task only if transport identity is unavailable or ambiguous>
+decision: <decisive evidence locator or unavailable>
+next: <one Hub action; issued or unissued effects>
+```
+
+Use locators, not Frame, Plan, history, check inventories, or stable nonclaims. Missing or malformed
+handoff evidence is `unavailable` and freezes its dependent action.
+
 Load [GitHub delivery](references/delivery/delivery-pullrequest-workflow.md) before PR publication,
 merge-readiness, merge, or cleanup. It owns title validation, exact-head CI, conversations,
 mergeability, freshness, guarded merge, and conditional cleanup. A child ending at a merged endpoint
