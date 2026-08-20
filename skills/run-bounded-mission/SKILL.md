@@ -18,10 +18,11 @@ and finding judgment, effects, acceptance, and Finalize. A support lane may retu
 frozen leaf but cannot own those decisions. Keep repository authority current-state-only,
 dependencies acyclic, and the user's interaction language unchanged unless the user changes it.
 
-Do not create a coordinator, registry, scheduler, ledger, database, daemon, retry engine, wrapper, or
-compatibility path unless requested product behavior requires it. Prefer no change, deletion, or an
-existing owner. Compression must preserve consumer behavior, unique authority, fail-close boundaries,
-and observable acceptance.
+Build every candidate as one integrated appliance: one owner and state path per responsibility.
+Integrate requested behavior and corrections there; delete superseded branches, adapters, prose,
+tests, and proof burden. Add Skill guidance only when it changes a named-consumer decision the model
+or repository does not reliably make; otherwise reuse, simplify, or omit it. Preserve behavior,
+unique authority, fail-close boundaries, and observable acceptance while subtracting.
 
 ## Request Admission
 
@@ -156,12 +157,12 @@ projection is not that checkpoint.
 Before any mutation or effect issuance, require the current checkpoint to postdate every
 decision-changing Frame, Plan, origin, candidate, evidence, effect, authority, Stop, Resume, route, or
 terminal change; a missing or stale checkpoint freezes only that action. After a new turn,
-interruption, compaction, source drift, or user override, load the recovery owner and close its gate
-first.
+interruption, compaction, source drift, or user override, load the recovery owner before the first
+later mutation or unissued effect. An exact checkpointed read-only observation may continue directly.
 
-Implement only the admitted candidate. Keep one writer for overlapping files and preserve unrelated
-work. A count, deadline, review finding, available model, or local friction cannot widen the candidate
-or authorize an effect.
+Implement only the admitted candidate. Keep one writer for each overlapping mutation target and
+preserve unrelated work. A count, deadline, review finding, available model, or local friction cannot
+widen the candidate or authorize an effect.
 
 Do not commit, push, publish, comment, resolve, merge, deploy, schedule, trade, or perform another
 shared-state effect without authority for that exact effect. Candidate-local defects return to the

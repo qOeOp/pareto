@@ -31,13 +31,9 @@ deterministic check can change the candidate, control, risk map, lens, or decisi
 fan-in. Finish those actions before dispatch; a review launched into known candidate churn is
 unsupported even when its starting commit is immutable.
 
-For executable readiness or product Acceptance, required deterministic evidence starts with the
-cheapest currently callable positive golden path for the original admitted outcome at the claimed
-maturity. Its deployed artifact/runtime identity and final consumer result must bind to the exact
-candidate. A failed, pending, differently deployed, identity-unknown, or merely static path makes the
-candidate not acceptance-ready; negative suites and reviewer consensus cannot replace it. Only a
-lower-maturity outcome the user explicitly admitted as independently valuable may be reviewed as that
-bounded static outcome, without implying the higher-maturity result.
+Executable or product review inherits the shared envelope's positive-path readiness rule for the
+original outcome. Negative suites or reviewer consensus cannot replace it; only an explicitly admitted
+lower-maturity outcome may be reviewed without implying the higher-maturity result.
 
 Main opens every locator before launch and records exact candidate/control identities, repository
 status, and affected-file and tree fingerprints for comparison after return. Mutable worktree paths,
@@ -67,9 +63,8 @@ persistent record sits between this owner and that consumer.
 Before choosing reviewers, Main derives a bounded risk inventory from the Frame, Plan, changed surface,
 real consumers, affected project contracts, external effects, and unavailable evidence. Map every
 material risk to Main verification or one falsifiable lens; uncovered risk freezes acceptance.
-Any independence premise in that map names its separation axes across model/provider, prompt or
-control lineage, evidence view, and failure authority. A second judgment through shared authority is
-common-mode consistency evidence, not an independent verifier.
+Any independence premise uses the shared envelope's axes; shared authority is consistency evidence,
+not an independent verifier.
 When that coverage is materially ambiguous or high-consequence, use one read-only `mission_planner`
 before reviewer launch to challenge missing, duplicate, or non-falsifiable risks. It receives the
 Frame, Plan, changed paths, contract/consumer map, and proposed coverage only; it neither reviews the

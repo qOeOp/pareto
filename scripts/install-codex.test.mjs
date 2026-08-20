@@ -423,7 +423,6 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.ok(effectGate < implementationBoundary);
   assert.doesNotMatch(installedSkillSource, /Before the first mutation/);
   assert.match(installedSkillSource, /a missing or stale checkpoint freezes only that action/);
-  assert.match(installedSkillSource, /load the recovery owner and close its gate\s+first/);
   const installedRecoveryOwner = await readFile(join(
     agentsRoot,
     "skills",
@@ -511,18 +510,11 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedDoctorOwner, /Use at most three lenses for one frozen identity/);
   assert.match(installedDoctorOwner, /Stop undispatched lenses on the first reproduced material\s+finding/);
   assert.match(installedDoctorOwner, /prompt bytes\/completeness/);
-  assert.match(installedDoctorOwner, /bounded-equivalence-class source/);
-  assert.match(installedDoctorOwner, /exact\s+immutable content-addressed locator and verified digest/);
-  assert.match(installedDoctorOwner, /nearby valid preservation control/);
+  assert.match(installedDoctorOwner, /nearby valid\s+preservation control/);
   assert.match(installedDoctorOwner,
-    /For every live-runtime claim, independently bind the exact native observation or\s+consumer readback/);
-  assert.match(installedDoctorOwner, /artifact existence or static\s+configuration is not live authority/);
-  assert.match(installedDoctorOwner,
-    /Once Main claims or tests executable readiness/);
-  assert.match(installedDoctorOwner,
-    /bounded pre-mutation Discovery may resolve one Frame\/Plan prerequisite/);
-  assert.match(installedDoctorOwner,
-    /second call through the same authority is a consistency\s+check, not an independent verifier/);
+    /pre-mutation Discovery lens may close one prerequisite while keeping the path unavailable/);
+  assert.doesNotMatch(installedDoctorOwner, /For parsed, encoded, normalized, generated/);
+  assert.doesNotMatch(installedDoctorOwner, /When a quality claim depends on an `independent`/);
   assert.match(installedSkillSource, /bounded Doctor/);
   for (const name of [
     "fast-builder.toml",
@@ -551,10 +543,6 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedReviewerHandoffOwner, /stop every undispatched reviewer/);
   assert.match(installedReviewerHandoffOwner,
     /returns remain candidate-bound planning leads and never become\s+Acceptance evidence for a corrected candidate/);
-  assert.match(installedReviewerHandoffOwner,
-    /required deterministic evidence starts with the\s+cheapest currently callable positive golden path/);
-  assert.match(installedReviewerHandoffOwner,
-    /second judgment through shared authority is\s+common-mode consistency evidence, not an independent verifier/);
   assert.match(installedReviewerHandoffOwner,
     /derive its current risk map and dispatch\s+the required lenses once against that identity/);
   assert.match(installedReviewerHandoffOwner, /inventories the complete changed surface/);

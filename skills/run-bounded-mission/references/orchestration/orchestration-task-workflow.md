@@ -92,15 +92,20 @@ lists. If any handoff-relevant evidence lacks a usable locator or is malformed, 
 unavailable, say so inline and fail closed for the affected action. Locators may compress only
 available, well-formed evidence.
 
-For ordinary child custody, issue at most one cursor-bound bounded wait over the complete exact active
-set in one scheduling slice. Choose a nonzero bound from current task state or a known external
-deadline. An explicit status request uses one timeoutMs: 0 snapshot. Use one bounded thread read only
-when an admitted receipt or user question requires history.
+For ordinary child custody, one observation action is a finite session over the complete exact active
+set. Bind its Stop and its quiet-deadline continuation before starting. When the host supports
+programmatic orchestration, chain cursor-bound waits inside that session without returning timeout or
+progress-only results to Main. Stop on an actionable receipt, user input, or the session deadline. An
+internal wait timeout never shortens the session; choose its deadline from user responsiveness and the
+expected in-flight operation. An explicit status request uses one timeoutMs: 0 snapshot. Use one
+bounded thread read only when an admitted receipt or user question requires history.
 
-For a Hub child, only unseen terminal or needs-attention content changes the DAG, authority, candidate
-validity, release predicate, or endpoint. An unchanged, duplicate, timed-out, or non-actionable
-observation produces no commentary, message, history read, repository/GitHub/Goal effect, or immediate
-resubscription: record the next observation action and silently yield.
+Only a receipt changing the next Hub operation, authority, identity, candidate verdict, DAG release,
+Stop/Resume, or endpoint is actionable. Progress-only file, command, build, or partial-check updates
+stay with the child until needed by an actionable receipt. Other, duplicate, or timed-out results stay
+inside the admitted session. At its deadline yield silently: no Hub communication, replacement
+checkpoint, read, effect, or same-turn resubscription. Goal continuation may execute only the exact
+quiet-deadline action already in the checkpoint; elapsed time cannot invent or change a session.
 
 For each continued target require cursor continuity, target/host identity, and non-regressing
 revision. An early wake may omit a target; retain its prior facts but do not call it unchanged.
@@ -115,10 +120,11 @@ successor's recorded next owner in the same turn. One receipt never triggers rep
 
 ## Critical-path and endpoints
 
-Independent nodes may work in parallel; shared owner, write surface, contract, or unknown independence
-serializes them. A predecessor that changes the canonical source freezes only the successor's
-dependency-consuming and final identity-bound slices. After exact merged evidence, recover the same
-child, integrate once, and revalidate changed inputs; never replace it.
+Independent nodes may work in parallel; overlap in an owner, repository path, contract, or external
+effect target serializes only that critical slice; unknown independence does the same. Bind shared
+non-repository mutation targets before dispatch. A predecessor that changes the canonical source
+freezes only the successor's dependency-consuming and final identity-bound slices. After exact merged
+evidence, recover the same child, integrate once, and revalidate changed inputs; never replace it.
 
 One child owns at most one candidate branch and one PR. GitHub Delivery owns publication,
 merge-readiness, and guarded-merge procedure. PR endpoints are:
@@ -141,7 +147,11 @@ authorized cancellation. A child never updates the Goal.
 ## Capability fallback
 
 Unavailable Goal capability freezes Goal/DAG effects but permits an explicitly Goal-unbound single
-Mission. Unavailable native Task capability preserves the approved packet and reports the missing
-effect; it authorizes no support-lane substitute, hidden sub-agent, branch, retry, or replacement.
+Mission. Native Task custody runs from consumed create/send attempt to exact endpoint or explicit
+cancellation/reframe; availability never vacates its identity, owner, candidate, or endpoint. Before
+identity, ambiguous success is host-defect/no-change. After identity, preserve the Task, candidate,
+branch, and worktree; mark its node `needs_attention` until that same Task resumes. Retry, replacement,
+support/hidden writer, Hub foreground execution, or substitute endpoint is forbidden. Independent
+nodes may continue.
 Never serialize Hub state into repository files or add an automation, reminder, daemon, heartbeat,
 queue, or scheduler.
