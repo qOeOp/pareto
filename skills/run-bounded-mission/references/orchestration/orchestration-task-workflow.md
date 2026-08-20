@@ -83,14 +83,19 @@ needs-attention receipt, or one checkpointed next observation action. Callback t
 optional early wake: it may report a structural authority gap, changed dependency receipt, or terminal
 state, but it does not replace Hub custody or make arrival order authoritative.
 
-A child's terminal or needs-attention final is itself a short decision-first handoff. Use the exact
-native-task identity carried by transport; repeat it inline only when unavailable or ambiguous. Lead
-with outcome or state, any current blocker or dependency, next legal Hub action, and effects. Inline
-candidate, head, PR, or verification only when it changes that action; otherwise use its existing
-native-task, Git, GitHub, or artifact locator. Do not repeat Frame, Plan, history, or full CI/check
-lists. If any handoff-relevant evidence lacks a usable locator or is malformed, unknown, or
-unavailable, say so inline and fail closed for the affected action. Locators may compress only
-available, well-formed evidence.
+A child's terminal or needs-attention final is one decision index:
+
+```text
+state: <terminal|needs_attention; endpoint or current blocker/dependency>
+identity: <exact native-task locator; candidate/base/PR locators only when the next action depends on them>
+decision: <decisive finding or evidence locator; unavailable evidence>
+next: <one legal Hub action; issued effect receipts or unissued effects>
+```
+
+Use the native identity carried by transport; repeat it inline only when unavailable or ambiguous. Each
+line holds current decisions, not Frame, Plan, history, passed-check inventories, or stable nonclaims.
+Cite existing native-task, Git, GitHub, or artifact facts instead of copying them. A missing, malformed,
+unknown, or unavailable handoff locator is stated inline and freezes only its dependent Hub action.
 
 For ordinary child custody, one observation action is a finite session over the complete exact active
 set. Bind its Stop and its quiet-deadline continuation before starting. When the host supports
