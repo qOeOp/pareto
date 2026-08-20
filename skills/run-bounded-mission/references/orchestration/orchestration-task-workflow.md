@@ -100,8 +100,10 @@ set. Bind its Stop and its quiet-deadline continuation before starting. When the
 programmatic orchestration, chain cursor-bound waits inside that session without returning timeout or
 progress-only results to Main. Stop on an actionable receipt, user input, or the session deadline. An
 internal wait timeout never shortens the session; choose its deadline from user responsiveness and the
-expected in-flight operation. An explicit status request uses one timeoutMs: 0 snapshot. Use one
-bounded thread read only when an admitted receipt or user question requires history.
+expected in-flight operation. An explicit status request uses one timeoutMs: 0 snapshot. Admit a
+thread read only when an admitted receipt or user question requires history and the host enforces
+exact target, turn, item, and per-output bounds before model context; otherwise history evidence is
+unavailable and no read is issued.
 
 Only a receipt changing the next Hub operation, authority, identity, candidate verdict, DAG release,
 Stop/Resume, or endpoint is actionable. Progress-only file, command, build, or partial-check updates
