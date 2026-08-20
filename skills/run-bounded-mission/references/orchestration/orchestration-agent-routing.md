@@ -136,10 +136,18 @@ ledger.
 
 ## Role-specific outputs
 
-`mission_planner` receives one evidenced mechanism/structural question and returns one of
-`not_triggered`, `evidence_unavailable`, `needs_user_alignment`, `frame_mismatch`,
-`mechanism_rejected`, or `ready_for_plan_admission`, with owner, smallest candidate, alternatives,
-kill conditions, verification, and effect gates when ready.
+`mission_planner` receives one evidenced mechanism/structural question and returns exactly:
+
+```text
+status: <not_triggered|evidence_unavailable|needs_user_alignment|frame_mismatch|mechanism_rejected|ready_for_plan_admission>
+decision: <one conclusion; decisive locators>
+candidate: <owner; smallest vertical slice/write surface; one decision-changing alternative or none>
+dependencies: <exact prerequisites/revalidate locators or none>
+verification: <real consumer; refuting and preservation oracle or unavailable>
+stop: <kill and effect gates>
+```
+
+Use locators, not evidence prose, path/check inventories, state summaries, or the full DAG.
 
 At an acceptance-ready coherence boundary, reviewer handoff may instead give one planner the frozen
 risk map for a scope challenge. It returns only missing, duplicate, or non-falsifiable risk proposals;
