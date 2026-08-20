@@ -413,16 +413,14 @@ const origin = join(root, "qOeOp", "skills.git");
   const installedSkillFile = join(agentsRoot, "skills", "run-bounded-mission", "SKILL.md");
   const installedSkillBytes = await readFile(installedSkillFile);
   const installedSkillSource = installedSkillBytes.toString("utf8");
-  assert.match(installedSkillSource, /the Plan\s+projection is not that checkpoint/);
+  assert.match(installedSkillSource, /It\s+owns checkpoint emission and validity/);
+  const effectAdmission = installedSkillSource.indexOf("Load [effect admission and recovery]");
   const executeHeading = installedSkillSource.indexOf("## Execute");
-  const effectGate = installedSkillSource.indexOf(
-    "Before any mutation or effect issuance, require the current checkpoint to postdate",
-  );
   const implementationBoundary = installedSkillSource.indexOf("Implement only the admitted candidate.");
-  assert.ok(executeHeading >= 0 && executeHeading < effectGate);
-  assert.ok(effectGate < implementationBoundary);
-  assert.doesNotMatch(installedSkillSource, /Before the first mutation/);
-  assert.match(installedSkillSource, /a missing or stale checkpoint freezes only that action/);
+  assert.ok(effectAdmission >= 0 && effectAdmission < executeHeading);
+  assert.ok(executeHeading < implementationBoundary);
+  assert.doesNotMatch(installedSkillSource, /Before any mutation or effect issuance/);
+  assert.match(installedSkillSource, /never artifact mechanics or check inventories as progress/);
   const installedRecoveryOwner = await readFile(join(
     agentsRoot,
     "skills",
