@@ -60,9 +60,9 @@ independent outcome, replaces a native Task, or supplies another node's endpoint
 
 Freeze before effect: Frame, Plan, Origin, owner/paths, consumer/acceptance, dependencies,
 authority/effect limits, endpoint, language, and next legal action.
-Use existing native Task locators; packets never request an evidence index, copied receipts, history,
-inventories, or a terminal shape beyond Finalize. Bind canonical UTF-8 bytes, length, and
-SHA-256 as producer/recovery identity, not model receipt.
+Reject before send any packet requesting evidence indexes, copied receipts/history/inventories,
+terminal shapes beyond Finalize, or revalidating unchanged-input/same-recipe evidence; use native Task
+locators. Bind canonical UTF-8 bytes/length/SHA-256 as producer/recovery identity, not model receipt.
 
 Before create, close the mode-scoped authoritative set from checkpointed packets, attempts, receipts,
 and exact identities. Reconcile any known colliding identity once and make one bounded list observation
