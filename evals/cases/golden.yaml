@@ -186,30 +186,27 @@
     - type: not-contains
       value: "superseding_identity: required"
 
-- description: "[full] native Task custody is continuous across capability boundaries"
+- description: "[full] task creation failure preserves no-change"
   metadata:
-    observations: { capability: { id: ORC-02, scenario: negative, case_id: native-task-custody-continuity }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state, external_provider_state] }
+    observations: { capability: { id: ORC-02, scenario: negative, case_id: task-create-host-failure }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
   vars:
     prompt: >-
-      Use $run-bounded-mission. Reconcile two native Task capability boundaries under one custody
-      contract. First, an authorized create returns only a generic host error, no identity or pending
-      receipt, and one bounded listing finds no match. Second, an already identified child owns one
-      branch, worktree, and unfinished candidate when its provider reports a usage limit. The Hub
-      proposes retrying the create, or replacing the existing child with a support subagent or Hub
-      foreground execution. Other DAG nodes remain independently runnable. Return the dispositions.
+      Use $run-bounded-mission. An authorized native task-create call returned only a generic host
+      error, with no task identity or pending receipt. A bounded task listing confirms no matching
+      identity. Other DAG nodes remain runnable. Return the correct recovery disposition.
   assert:
     - type: skill-used
       value: run-bounded-mission
     - type: contains-all
       value:
-        - "pre_identity_create: host-defect/no-change"
-        - "create_retry_or_replacement: forbidden"
-        - "identified_task_availability: needs_attention"
-        - "identity_candidate_and_custody: preserved"
-        - "existing_endpoint: unsatisfied"
-        - "alternate_writer_or_output: forbidden"
-        - "resume: same_exact_task_after_predicate_change"
-        - "independent_nodes: continue"
+        - "record_attempt: true"
+        - "effect_disposition: host-defect/no-change"
+        - "automatic_retry: forbidden"
+        - "replacement_task: forbidden"
+        - "adopt_similar_task: forbidden"
+        - "continue_runnable_nodes: true"
+    - type: not-contains
+      value: "retry_requires_fresh_authority: true"
 
 - description: "[full] Hub commander duty inversion"
   metadata:
@@ -1533,25 +1530,21 @@
         fixed_consumer_observation: unavailable
         capability_evidence: unavailable
 
-- description: "[full] overlapping mutation targets serialize only their critical slice"
+- description: "[full] overlapping writers and opportunistic refactor are rejected"
   metadata:
     observations: { capability: { id: EXE-01, scenario: negative, case_id: exe-01-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
   vars:
     prompt: >-
-      Use $run-bounded-mission. Two agents are proposed to edit the same owner concurrently. Two other agents own
-      independent repository paths, but each final check mutates the same user-level Skill and hook install target.
-      One agent also wants to refactor an adjacent module merely because it is available. Return exactly the
-      execution decision below.
+      Use $run-bounded-mission. Two agents are proposed to edit the same owner concurrently, and one wants to
+      refactor an adjacent module merely because it is available. Neither extra change is required by the
+      admitted consumer. Return exactly the execution decision below.
   assert:
     - type: skill-used
       value: run-bounded-mission
     - type: equals
       value: |-
-        overlapping_repository_writers: rejected
-        writer_per_mutation_target: one
-        shared_external_effect_target: one
-        shared_effect_critical_section: serialized
-        independent_repository_execution: parallel
+        overlapping_writers: rejected
+        semantic_writer_count: one
         adjacent_refactor_consumer: none
         opportunistic_refactor: rejected
         available_capacity_as_scope_authority: false
@@ -1717,22 +1710,17 @@
     observations: { capability: { id: ORC-03, scenario: positive, case_id: orc-03-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
   vars:
     prompt: >-
-      Use $run-bounded-mission. A checkpointed Hub admits one finite observation session over the complete exact
-      active set. Across internal cursor-bound waits, one child first reports recovery completion, unchanged Owner
-      readback, resolved disposable-cache identities, and an endpoint lookup; none changes the next Hub action. It
-      then returns one unseen needs-attention receipt that changes a dependency release. All other targets preserve
-      cursor continuity. Return exactly the compressed event-handling receipt below.
+      Use $run-bounded-mission. A checkpointed Hub observes the complete exact active set once. One child returns
+      an unseen needs-attention receipt that changes a dependency release; all other targets preserve cursor
+      continuity. Return exactly the event-handling receipt below.
   assert:
     - type: skill-used
       value: run-bounded-mission
     - type: equals
       value: |-
         observation_windows: one
-        internal_waits: cursor-bound-without-main-turns
         active_set: complete_exact
-        progress_updates_forwarded: zero
         changed_receipts: one
-        decision_summaries: one
         reconcile_stable_component: once
         dependency_release: same_turn
         replacement_checkpoint: emitted
@@ -1744,23 +1732,17 @@
     observations: { capability: { id: ORC-03, scenario: negative, case_id: orc-03-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
   vars:
     prompt: >-
-      Use $run-bounded-mission. A checkpointed observation session spans an expected in-flight build. An internal
-      wait timeout arrives first, followed later by the session quiet deadline; neither returns unseen terminal or
-      needs-attention content. The child reports file edits, the still-running build, and partial passing checks,
-      none of which changes the next Hub action. Return exactly the required no-action disposition below. A later
-      Goal continuation may execute only the same checkpointed read-only observation, without replaying recovery.
+      Use $run-bounded-mission. A cursor-bound bounded wait times out with no unseen terminal or needs-attention
+      content. Return exactly the required no-action disposition below; do not poll, comment, read history, or
+      immediately resubscribe.
   assert:
     - type: skill-used
       value: run-bounded-mission
     - type: equals
       value: |-
         actionable_change: none
-        session_deadline: operation-horizon-bound
-        tool_timeout_is_session_deadline: false
-        internal_waits: cursor-bound-without-main-turns
-        progress_or_final_update: none
-        replacement_checkpoint: none
-        recovery_reload_for_checkpointed_read: none
+        commentary: none
+        history_read: none
         repository_or_github_effect: none
         immediate_resubscription: forbidden
         next_observation_action: checkpointed
@@ -2048,8 +2030,7 @@
     prompt: >-
       Use $run-bounded-mission. Plan the smallest slice that changes one existing owner, reaches the named
       CLI consumer, and exposes the highest-risk serialization assumption. Setup, contract text, regression,
-      and cleanup have no independent consumer. Proposed generic Skill prose only restates behavior already
-      reliable in the model and repository checks. Return exactly the admission receipt below.
+      and cleanup have no independent consumer. Return exactly the admission receipt below.
   assert:
     - type: skill-used
       value: run-bounded-mission
@@ -2060,7 +2041,6 @@
         real_consumer: named_cli
         highest_risk_assumption: exposed
         setup_and_verification: folded_into_slice
-        redundant_skill_guidance: omitted
         execute_admission: admitted
         capability_evidence: unavailable
 
