@@ -196,7 +196,7 @@ if (input.source === "compact") {
   output({
     hookSpecificOutput: {
       hookEventName: "SessionStart",
-      additionalContext: "Context compacted. Load orchestration-context-recovery.md; emit a complete Mission checkpoint before mutation or effects.",
+      additionalContext: "Context compacted. Load orchestration-context-recovery.md; emit its compact current checkpoint before mutation or effects.",
     },
   });
 }

@@ -148,7 +148,7 @@ authority. Load conditional owners only when their predicates hold:
 - [bounded Doctor](references/quality-assurance/quality-assurance-doctor.md) only for an explicit or
   admitted bounded cross-contract diagnostic; Discovery cannot authorize Acceptance.
 
-After a nontrivial Plan, emit the complete
+After a nontrivial Plan, emit the current
 [replacement checkpoint](references/orchestration/orchestration-context-recovery.md); the Plan
 projection is not that checkpoint.
 
