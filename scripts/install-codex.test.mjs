@@ -347,7 +347,7 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.equal(result.status, 0, result.stderr);
   const compactOutput = JSON.parse(result.stdout);
   assert.equal(compactOutput.hookSpecificOutput.hookEventName, "SessionStart");
-  assert.match(compactOutput.hookSpecificOutput.additionalContext, /complete Mission checkpoint before mutation or effects/);
+  assert.match(compactOutput.hookSpecificOutput.additionalContext, /compact current checkpoint before mutation or effects/);
   assert.ok(Buffer.byteLength(compactOutput.hookSpecificOutput.additionalContext) <= 128);
   const preToolUse = (toolInput, toolName = "spawn_agent", cwd = consumer) => spawnSync(
     process.execPath,
@@ -433,7 +433,17 @@ const origin = join(root, "qOeOp", "skills.git");
   ), "utf8");
   assert.match(installedRecoveryOwner, /Plan projection, a compaction summary, or recovery prose does not restore Execute/);
   assert.match(installedRecoveryOwner, /Before the first later mutation or unissued effect/);
-  assert.match(installedRecoveryOwner, /emit the complete current Mission checkpoint with exact live/);
+  assert.match(installedRecoveryOwner, /emit a current checkpoint satisfying the compact contract/);
+  assert.doesNotMatch(installedRecoveryOwner, /complete current Frame|complete admitted Plan/);
+  assert.match(installedRecoveryOwner, /inventories, stable nonclaims, completed steps/);
+  assert.match(installedRecoveryOwner, /role=hub\|child\|single/);
+  assert.match(installedRecoveryOwner, /only for role=hub, exact active tasks, DAG, and cursors/);
+  assert.match(installedRecoveryOwner, /exact Mission\/native-task locator/);
+  assert.match(installedRecoveryOwner, /exact consumer\/acceptance locator/);
+  assert.match(installedRecoveryOwner, /immutable candidate\/change-set locators or unavailable/);
+  assert.match(installedRecoveryOwner, /exact receipts when issued/);
+  assert.match(installedRecoveryOwner, /Goal,\s+title, prose, or mutable names cannot replace/);
+  assert.match(installedRecoveryOwner, /candidate-controlled identity, acceptance, or authority freezes/);
   const installedAgentRoutingOwner = await readFile(join(
     agentsRoot,
     "skills",

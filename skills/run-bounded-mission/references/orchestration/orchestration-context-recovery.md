@@ -1,27 +1,24 @@
 # Mission Replacement Checkpoint
 
-Use one conversation checkpoint after a nontrivial Plan and replace it after any decision-changing
+After a nontrivial Plan, keep one conversation checkpoint and replace it on any decision-changing
 Frame, Plan, Origin, candidate, evidence, effect, authority, Stop, Resume, route, or terminal change.
-It indexes native task, Git, GitHub, and user facts; it is not a registry, ledger, scheduler, or
+It is a compact index into native task, Git, GitHub, and user facts, not another record or
 authority.
 
 ```text
 Mission checkpoint
-Frame: <complete current Frame, including interaction language>
-Plan: <complete admitted Plan, or none - invalidated/pending admission>
-Origin / candidate / effects: <exact identities, diff or none, issued and unissued effects>
-Evidence / findings: <decisive passes, failures, unavailable evidence, dispositions>
-Position / next legal operation: <one stage or route and one action>
-Mode / owners: <single or hub; active slice -> mechanism -> owner -> predicate -> action>
-Task custody: <exact identities, title/send receipts, active set, DAG relations, cursors,
-  consumed actionable locators, current window and next observation action>
-Authority / Stop / Resume / terminal: <current values and release predicates>
+Scope: <language; role=hub|child|single; exact Mission/native-task locator; Goal locator when applicable; exact consumer/acceptance locator; exact Origin and immutable candidate/change-set locators or unavailable>
+Control: <decision-relevant issued or unissued effects with exact receipts when issued; exact authority, Stop, and Resume locators or unavailable>
+State: <unresolved findings and decisive evidence locators; only for role=hub, exact active tasks, DAG, and cursors>
+Next: <stage; owner; predicate; one operation; terminal condition>
 ```
 
-Retain only fields that can change the next decision. A native packet is indexed by its immutable
-producer identity and exact send receipt; do not copy its bytes into another store. Missing,
-conflicting, stale, duplicate, or candidate-controlled identity or authority freezes the affected
-action.
+Each line holds decisions, not history. Group passed checks by one usable locator; omit test
+inventories, stable nonclaims, completed steps, and facts recoverable from cited artifacts. Goal,
+title, prose, or mutable names cannot replace exact Mission/task, consumer/acceptance,
+Origin/candidate, authority, or effect locators. Missing, conflicting, stale, duplicate, unavailable,
+or candidate-controlled identity, acceptance, or authority freezes its action. Native packets use
+immutable producer identity and exact send receipt; never copy their bytes into another store.
 
 ## Recovery gate
 
@@ -29,12 +26,12 @@ A new turn, interruption, compaction, source drift, or user override freezes mut
 effects. The Plan projection, a compaction summary, or recovery prose does not restore Execute
 admission. Before the first later mutation or unissued effect, reconcile the raw request and
 checkpoint with current Goal capability when relevant, exact task identities, Git, GitHub, external
-effects, and every activated owner, then emit the complete current Mission checkpoint with exact live
-identities. If an affected identity cannot be read, keep only that action frozen and name its earliest
-useful read. A material Frame change clears the Plan completely before a new one is admitted.
+effects, and every activated owner, then emit a current checkpoint satisfying the compact contract.
+If an affected identity cannot be read, keep only that action frozen and name its earliest useful
+read. A material Frame change clears the Plan completely before a new one is admitted.
 
-For single mode, require the same Mission, Origin/candidate, next owner, and effect boundary. For Hub
-mode, additionally require:
+For child or single role, require the same Mission, Origin/candidate, next owner, and effect boundary.
+For role=hub, additionally require:
 
 - every approved or attempted node and its exact disposition;
 - an acyclic current DAG with immutable relation locators;
