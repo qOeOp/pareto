@@ -1,9 +1,8 @@
 # Mission Replacement Checkpoint
 
-After a nontrivial Plan, keep one conversation checkpoint and replace it on any decision-changing
-Frame, Plan, Origin, candidate, evidence, effect, authority, Stop, Resume, route, or terminal change.
-It is a compact index into native task, Git, GitHub, and user facts, not another record or
-authority.
+After a nontrivial Plan, keep one effect-admission checkpoint. Emit or replace it only to admit an
+affected mutation/message/effect, including after recovery; read-only decisions and Finalize-only output emit none. It
+indexes native task, Git, GitHub, and user facts, not authority.
 
 ```text
 Mission checkpoint
@@ -13,22 +12,23 @@ State: <unresolved findings and decisive evidence locators; only for role=hub, e
 Next: <stage; owner; predicate; one operation; terminal condition>
 ```
 
-Each line holds decisions, not history. Group passed checks by one usable locator; omit test
-inventories, stable nonclaims, completed steps, and facts recoverable from cited artifacts. Goal,
-title, prose, or mutable names cannot replace exact Mission/task, consumer/acceptance,
-Origin/candidate, authority, or effect locators. Missing, conflicting, stale, duplicate, unavailable,
-or candidate-controlled identity, acceptance, or authority freezes its action. Native packets use
-immutable producer identity and exact send receipt; never copy their bytes into another store.
+Lines hold decisions, not history. Omit inventories, stable nonclaims, completed steps, and
+artifact-recoverable facts. Group checks by one locator. Goal, title, prose, or mutable names cannot replace
+exact Mission/task, consumer/acceptance, Origin/candidate, or authority/effect locators. Missing, conflicting,
+stale, duplicate, unavailable, or candidate-controlled identity, acceptance, or authority freezes its
+action. Native packets bind immutable producer identity/send receipt; never copy bytes. Emit only the
+four lines.
 
 ## Recovery gate
 
 A new turn, interruption, compaction, source drift, or user override freezes mutation and unissued
 effects. The Plan projection, a compaction summary, or recovery prose does not restore Execute
-admission. Before the first later mutation or unissued effect, reconcile the raw request and
-checkpoint with current Goal capability when relevant, exact task identities, Git, GitHub, external
-effects, and every activated owner, then emit a current checkpoint satisfying the compact contract.
-If an affected identity cannot be read, keep only that action frozen and name its earliest useful
-read. A material Frame change clears the Plan completely before a new one is admitted.
+admission. Before the first later mutation or unissued effect, reconcile request/checkpoint with current
+Goal, task, Git/GitHub, effects, and activated owners; emit a current checkpoint satisfying the compact contract.
+If the prior checkpoint cannot prove decision coverage through the
+interruption, invalidate Plan and replay affected owner reads; a newer checkpoint cannot heal
+omission. An unreadable affected identity freezes only its action and names the earliest useful read.
+A material Frame change clears Plan.
 
 For child or single role, require the same Mission, Origin/candidate, next owner, and effect boundary.
 For role=hub, additionally require:
