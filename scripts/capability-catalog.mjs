@@ -21,6 +21,7 @@ export const atomicityRequiredStaticPaths = Object.freeze([
   "evals/scenarios.json",
   "package-lock.json",
   "package.json",
+  "scripts/agent-message-trajectory.mjs",
   "scripts/capability-catalog.mjs",
   "scripts/capability-score.mjs",
   "scripts/check-scenario-authority.mjs",

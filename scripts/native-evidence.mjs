@@ -89,6 +89,7 @@ function observedNativeTurn(items) {
   const itemObservations = items.map(nativeItemObservation);
   const rawItemTypes = [...new Set(itemObservations.map((entry) => entry.rawType).filter(Boolean))];
   return {
+    agentMessages: items.filter((item) => item.type === "agentMessage").map((item) => item.text),
     itemObservations,
     rawItemTypes,
     skillActivation: itemObservations.some((entry) => entry.skillRead) ? "used" : "not_used",
@@ -265,6 +266,7 @@ export async function collectNativeEvidence({
     repositoryRoot,
     prompt: userContent[0].text,
     output: finalMessages[0].text,
+    observedAgentMessages: observation.agentMessages,
     observedRawItemTypes: observation.rawItemTypes,
     observedSkillActivation: observation.skillActivation,
   });
@@ -282,7 +284,7 @@ export async function collectNativeEvidence({
   }
 
   const payload = canonical({
-    schema: "rbm-native-evidence/v4",
+    schema: "rbm-native-evidence/v5",
     authority: "local_interface_observation",
     executable: { sha256: executable.sha256, server_version: expectedServerVersion },
     host: {
@@ -304,6 +306,7 @@ export async function collectNativeEvidence({
       status: turn.status,
       items: turn.items.map((item, index) => ({
         id_sha256: digest(item.id),
+        message_sha256: item.type === "agentMessage" ? digest(item.text) : null,
         raw_type: observation.itemObservations[index].rawType,
         skill_read: observation.itemObservations[index].skillRead,
         terminal_state: observation.itemObservations[index].terminalState,
@@ -343,7 +346,7 @@ export async function collectNativeEvidence({
   return canonical({
     content_sha256: digest(JSON.stringify(payload)),
     payload,
-    schema: "rbm-native-evidence-envelope/v4",
+    schema: "rbm-native-evidence-envelope/v5",
   });
 }
 

@@ -5,7 +5,7 @@ import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:f
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { collectNativeEvidence } from "./native-evidence.mjs";
 
 const execFileAsync = promisify(execFile);
@@ -28,6 +28,15 @@ await mkdir(path.join(repository, "evals", "cases"), { recursive: true });
 await copyFile(path.resolve("evals/capabilities.json"), path.join(repository, "evals", "capabilities.json"));
 await copyFile(path.resolve("evals/cases/golden.yaml"), path.join(repository, "evals", "cases", "golden.yaml"));
 await copyFile(path.resolve("evals/cases/holdout.yaml"), path.join(repository, "evals", "cases", "holdout.yaml"));
+const fixtureCasesPath = path.join(repository, "evals", "cases", "golden.yaml");
+const fixtureCases = parseYaml(await readFile(fixtureCasesPath, "utf8"));
+const fixtureCase = fixtureCases.find((testCase) =>
+  testCase.metadata.observations.capability.case_id === "native-trajectory-local-boundary");
+fixtureCase.metadata.observations.agent_messages = {
+  max_interim: 1,
+  allowed_interim_exact: ["current_operation: collect native evidence"],
+};
+await writeFile(fixtureCasesPath, stringifyYaml(fixtureCases));
 await git(["init", "--quiet"]);
 await git(["config", "user.name", "Native Evidence Test"]);
 await git(["config", "user.email", "native-evidence@example.invalid"]);
@@ -36,7 +45,7 @@ await git(["add", "evals"]);
 await git(["commit", "--quiet", "-m", "candidate"]);
 
 const candidate = { commit: await git(["rev-parse", "HEAD"]), tree: await git(["rev-parse", "HEAD^{tree}"]) };
-const sourceCase = parseYaml(await readFile(path.resolve("evals/cases/golden.yaml"), "utf8"))
+const sourceCase = parseYaml(await readFile(fixtureCasesPath, "utf8"))
   .find((testCase) => testCase.metadata.observations.capability.case_id === "native-trajectory-local-boundary");
 const caseBinding = sourceCase.metadata.observations.capability;
 const casePrompt = sourceCase.vars.prompt;
@@ -60,12 +69,28 @@ const capabilityResult = {
 };
 const binding = { expectedServerVersion: "0.147.0", appServerCwd: temporaryRoot, repositoryRoot: repository, turnId };
 
-function turnFixture({ prompt = casePrompt, finalText = caseOutput, status = "completed", phase = "final_answer", itemsView = "full", skillUsed = true, userMessage = true } = {}) {
+function turnFixture({
+  prompt = casePrompt,
+  finalText = caseOutput,
+  interimTexts = ["current_operation: collect native evidence"],
+  status = "completed",
+  phase = "final_answer",
+  itemsView = "full",
+  skillUsed = true,
+  userMessage = true,
+} = {}) {
   return {
     id: turnId,
     items: [
       ...(userMessage ? [{ type: "userMessage", id: "user-1", clientId: null, content: [{ type: "text", text: prompt, text_elements: [] }] }] : []),
       ...(skillUsed ? [{ type: "commandExecution", id: "command-1", command: "sed -n 1,220p /fixture/home/.agents/skills/run-bounded-mission/SKILL.md", cwd: "/fixture", processId: "1", source: "agent", status: "completed", commandActions: [{ type: "read", command: "sed -n 1,220p /fixture/home/.agents/skills/run-bounded-mission/SKILL.md", name: "sed", path: "/fixture/home/.agents/skills/run-bounded-mission/SKILL.md" }], aggregatedOutput: "", exitCode: 0, durationMs: 1 }] : []),
+      ...interimTexts.map((text, index) => ({
+        type: "agentMessage",
+        id: `interim-${index + 1}`,
+        text,
+        phase: "commentary",
+        memoryCitation: null,
+      })),
       { type: "agentMessage", id: "agent-1", text: finalText, phase, memoryCitation: null },
     ],
     itemsView,
@@ -111,13 +136,15 @@ rl.on("line", (line) => {
 
 try {
   const receipt = await collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer() });
-  assert.equal(receipt.schema, "rbm-native-evidence-envelope/v4");
+  assert.equal(receipt.schema, "rbm-native-evidence-envelope/v5");
   assert.equal(receipt.payload.result, "matched");
   assert.equal(receipt.payload.binding.capability_id, caseBinding.id);
   assert.equal(receipt.payload.binding.control_sha256, controlSha256);
   assert.equal(receipt.payload.turn.id, turnId);
   assert.equal(receipt.payload.turn.prompt_sha256, digest(casePrompt));
   assert.equal(receipt.payload.turn.output_sha256, digest(caseOutput));
+  assert.equal(receipt.payload.turn.items.filter((item) => item.type === "agentMessage").length, 2);
+  assert.equal(receipt.payload.turn.items.at(-1).message_sha256, digest(caseOutput));
   assert.equal(receipt.payload.turn.oracle_result_sha256, digest(JSON.stringify(canonical(capabilityResult))));
   assert.equal(receipt.payload.oracle.expected_skill_activation, "used");
   assert.equal(receipt.payload.oracle.observed_skill_activation, "used");
@@ -128,6 +155,11 @@ try {
   assert.equal(JSON.stringify(receipt).includes(objective), false);
   assert.equal(JSON.stringify(receipt).includes(casePrompt), false);
   assert.equal(JSON.stringify(receipt).includes("/private"), false);
+
+  const zeroInterim = await collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [turnFixture({ interimTexts: [] })] }) });
+  assert.equal(zeroInterim.payload.turn.items.filter((item) => item.type === "agentMessage").length, 1);
+  await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [turnFixture({ interimTexts: ["current_operation: collect native evidence", "current_operation: collect native evidence"] })] }) }), /unadmitted interim message/);
+  await assert.rejects(async () => collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "active", expectedObjectiveSha256: objectiveSha256, codexExecutable: await fakeServer({ turns: [turnFixture({ interimTexts: ["Request admission projection; tests passed; waiting to rerun"] })] }) }), /unadmitted interim message/);
 
   const absent = await collectNativeEvidence({ ...binding, threadId, expectedGoalStatus: "absent", codexExecutable: await fakeServer({ goal: null }) });
   assert.equal(absent.payload.goal, null);

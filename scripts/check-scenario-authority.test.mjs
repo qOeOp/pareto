@@ -26,6 +26,7 @@ try {
     ".github/workflows/consume-install-capability.yml",
     ".github/workflows/observe-score-capability.yml", ".github/workflows/consume-score-capability.yml",
     "scripts/capability-catalog.mjs",
+    "scripts/agent-message-trajectory.mjs",
     "scripts/check-scenario-authority.mjs",
     "scripts/self-test.mjs", "scripts/validate.mjs", "scripts/capability-score.mjs", "scripts/install-codex.mjs",
     "scripts/observe-install-capability.mjs", "scripts/consume-install-capability.mjs",
@@ -599,6 +600,13 @@ try {
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: selfTestDrift }),
     /changed protected scenario authority control scripts\/self-test\.mjs/);
 
+  const agentMessageTrajectoryDrift = await commitMutation("agent-message-trajectory-drift", async () => {
+    const helperPath = path.join(fixture, "scripts", "agent-message-trajectory.mjs");
+    await writeFile(helperPath, `${await readFile(helperPath, "utf8")}\n// candidate trajectory drift\n`);
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: agentMessageTrajectoryDrift }),
+    /changed protected scenario authority control scripts\/agent-message-trajectory\.mjs/);
+
   const scoreConsumerDrift = await commitMutation("score-consumer-drift", async () => {
     const consumerPath = path.join(fixture, "scripts", "consume-score-capability.mjs");
     await writeFile(consumerPath, `${await readFile(consumerPath, "utf8")}\n// candidate consumer drift\n`);
@@ -627,6 +635,17 @@ try {
   });
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: malformedAddition }),
     /requires prompt and assertions/);
+
+  const malformedTrajectory = await commitMutation("malformed-trajectory", async () => {
+    const golden = (await import("yaml")).parse(await readFile(goldenPath, "utf8"));
+    golden[0].metadata.observations.agent_messages = {
+      max_interim: 2,
+      allowed_interim_exact: ["too many"],
+    };
+    await writeFile(goldenPath, stringifyYaml(golden));
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: malformedTrajectory }),
+    /invalid interim bound or allowlist/);
 
   const thirdSmoke = await commitMutation("third-smoke", async () => {
     const design = JSON.parse(await readFile(designPath, "utf8"));

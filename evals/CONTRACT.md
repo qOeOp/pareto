@@ -76,6 +76,8 @@ exercise supporting behavior for a stronger observer class, but it cannot substi
 or turn an unavailable authority into evidence. One case never upgrades unrelated leaves. Model-graded rubrics may be added only when semantic
 quality cannot be reduced to a stable check and every provider-capable grading route is preflighted
 against the exact admitted provider/model/effort authority.
+An optional `agent_messages` contract bounds interim user-visible messages to zero or one and an exact
+single-line allowlist. Terminal text assertions do not authorize the preceding trajectory.
 
 The disposable repository contains one synthetic repository instruction: use the installed Skill for
 non-trivial implementation or delivery, not for answer-only work. This makes repository-rule
@@ -97,6 +99,8 @@ observed raw item types satisfy its requirements, and the command-path Skill-use
 activation oracle. The only admitted action item is one successful, structurally parsed, unchained read
 of the installed Skill file; MCP, dynamic, mutating, nested-agent, error, context-compaction, unknown,
 partial, in-progress, and failed items are rejected. Its terminal state remains in the receipt for scorer replay.
+When a case declares `agent_messages`, the probe verifies the ordered messages and v5 records only their
+digests; the scorer replays the same bound and allowlist without retaining commentary text.
 The probe derives the clean capability result from the committed case and exact clean
 checkout; it never accepts an Agent-authored pass result. The scorer recomputes the receipt's prompt,
 assertion inventory, activation expectation, and canonical-result summaries from the committed case;
@@ -141,7 +145,8 @@ status and exit evidence where defined, and end in the agent message that equals
 partial, in-progress, or reordered terminal items fail closed. Raw items do not expose Hub fan-in,
 dependency release, Goal state, or native Task state, so cases about those mechanisms remain
 behavioral text plus `unavailable` runtime axes and require an external real-session trace for stronger
-claims. The first raw user message must equal the selected case's exact `vars.prompt`; a successful row
+claims. A declared `agent_messages` contract additionally rejects any unallowlisted interim trajectory.
+The first raw user message must equal the selected case's exact `vars.prompt`; a successful row
 must contain no raw `error` item; and repeated trials must carry distinct raw-turn receipts with
 provider-produced item IDs that are disjoint across rows. Row success and aggregate counts alone never
 authorize an evaluation result.

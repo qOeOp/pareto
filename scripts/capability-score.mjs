@@ -6,6 +6,11 @@ import path from "node:path";
 import nodeProcess from "node:process";
 import { promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import {
+  parseAgentMessagePolicy,
+  verifyAgentMessageDigestTrajectory,
+  verifyAgentMessageTrajectory,
+} from "./agent-message-trajectory.mjs";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -33,6 +38,7 @@ const scorerRuntimePaths = Object.freeze([
   "package-lock.json",
   "scripts/campaign-verifiers/install.mjs",
   "scripts/campaign-verifiers/score.mjs",
+  "scripts/agent-message-trajectory.mjs",
   "scripts/capability-score.mjs",
   "scripts/eval.mjs",
   "scripts/json.mjs",
@@ -472,6 +478,7 @@ function capabilityCaseBinding(testCase, label) {
       typeof observations.behavioral_oracle !== "string" || observations.behavioral_oracle.length === 0) {
     fail(`${label} capability binding is invalid`);
   }
+  parseAgentMessagePolicy(observations.agent_messages, `${label} agent messages`);
   return binding;
 }
 
@@ -493,6 +500,7 @@ async function committedCapabilityCases(repositoryRoot, candidate, capabilities)
         control_sha256: digest(Buffer.from(JSON.stringify(canonical(testCase)))),
         oracle: testCase.metadata.observations.behavioral_oracle,
         prompt: testCase?.vars?.prompt,
+        agent_messages: testCase.metadata.observations.agent_messages,
         required_raw_item_types: testCase.metadata.observations.required_raw_item_types,
         skill_activation: testCase.metadata.observations.skill_activation,
       });
@@ -620,7 +628,14 @@ function verifyDeterministicText(output, assertions, label) {
   }
 }
 
-export async function verifyCommittedNativeTurn({ repositoryRoot, prompt, output, observedRawItemTypes, observedSkillActivation }) {
+export async function verifyCommittedNativeTurn({
+  repositoryRoot,
+  prompt,
+  output,
+  observedAgentMessages,
+  observedRawItemTypes,
+  observedSkillActivation,
+}) {
   const origin = normalizedRepository(await git(repositoryRoot, ["remote", "get-url", "origin"]));
   const commit = await git(repositoryRoot, ["rev-parse", "HEAD"]);
   const tree = await git(repositoryRoot, ["rev-parse", "HEAD^{tree}"]);
@@ -633,6 +648,12 @@ export async function verifyCommittedNativeTurn({ repositoryRoot, prompt, output
   if (matching.length !== 1) fail("native turn prompt does not match exactly one committed capability case");
   const committedCase = matching[0];
   verifyDeterministicText(output, committedCase.assertions, "native terminal output");
+  verifyAgentMessageTrajectory({
+    messages: observedAgentMessages,
+    finalText: output,
+    policy: committedCase.agent_messages,
+    label: "native agent-message trajectory",
+  });
   if (!Array.isArray(observedRawItemTypes) || observedRawItemTypes.some((type) => typeof type !== "string") ||
       new Set(observedRawItemTypes).size !== observedRawItemTypes.length) fail("native raw item observations are malformed");
   if (committedCase.required_raw_item_types.some((type) => !observedRawItemTypes.includes(type))) {
@@ -834,10 +855,10 @@ async function parseDeterministicEvalTrace(bytes, artifactPath, observation, can
 function parseNativeTrace(bytes, observation, candidate, committedCase) {
   const { value: envelope } = parseUniqueJson(bytes, "native evidence");
   exactKeys(envelope, ["schema", "content_sha256", "payload"], "native evidence envelope");
-  if (envelope.schema !== "rbm-native-evidence-envelope/v4" || !shaPattern.test(envelope.content_sha256)) fail("native evidence envelope is invalid");
+  if (envelope.schema !== "rbm-native-evidence-envelope/v5" || !shaPattern.test(envelope.content_sha256)) fail("native evidence envelope is invalid");
   const payload = envelope.payload;
   exactKeys(payload, ["schema", "authority", "executable", "host", "thread", "turn", "goal", "expectation", "binding", "oracle", "result"], "native evidence payload");
-  if (payload.schema !== "rbm-native-evidence/v4" || payload.authority !== "local_interface_observation" || payload.result !== "matched") fail("native evidence authority or result is invalid");
+  if (payload.schema !== "rbm-native-evidence/v5" || payload.authority !== "local_interface_observation" || payload.result !== "matched") fail("native evidence authority or result is invalid");
   if (envelope.content_sha256 !== digest(Buffer.from(JSON.stringify(canonical(payload))))) fail("native evidence content digest is invalid");
   exactKeys(payload.executable, ["sha256", "server_version"], "native executable");
   if (!shaPattern.test(payload.executable.sha256) || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(payload.executable.server_version)) fail("native executable identity is invalid");
@@ -852,18 +873,25 @@ function parseNativeTrace(bytes, observation, candidate, committedCase) {
       !shaPattern.test(payload.turn.prompt_sha256) || !shaPattern.test(payload.turn.output_sha256) ||
       !shaPattern.test(payload.turn.oracle_result_sha256)) fail("native turn identity is invalid");
   for (const item of payload.turn.items) {
-    exactKeys(item, ["id_sha256", "raw_type", "skill_read", "terminal_state", "type"], "native turn item");
+    exactKeys(item, ["id_sha256", "message_sha256", "raw_type", "skill_read", "terminal_state", "type"], "native turn item");
     if (!shaPattern.test(item.id_sha256)) fail("native turn item identity is invalid");
     atom(item.type, "native turn item type");
     const actionable = item.type === "commandExecution";
     if ((!passiveNativeItemTypes.has(item.type) && !actionable) ||
         item.raw_type !== (rawItemTypeByNativeType.get(item.type) ?? null) || typeof item.skill_read !== "boolean" ||
         (item.skill_read && item.type !== "commandExecution") ||
-        (actionable ? item.terminal_state !== "completed" : item.terminal_state !== null)) {
+        (actionable ? item.terminal_state !== "completed" : item.terminal_state !== null) ||
+        (item.type === "agentMessage" ? !shaPattern.test(item.message_sha256) : item.message_sha256 !== null)) {
       fail("native turn item observation is invalid");
     }
   }
   if (payload.turn.items.filter((item) => item.type === "userMessage").length !== 1 || payload.turn.items.at(-1).type !== "agentMessage") fail("native turn item sequence is invalid");
+  verifyAgentMessageDigestTrajectory({
+    messageDigests: payload.turn.items.filter((item) => item.type === "agentMessage").map((item) => item.message_sha256),
+    finalDigest: payload.turn.output_sha256,
+    policy: committedCase.agent_messages,
+    label: "native agent-message digest trajectory",
+  });
   exactKeys(payload.expectation, ["goal_status", "objective_sha256"], "native expectation");
   if (![...goalStatuses, "absent"].includes(payload.expectation.goal_status) || (payload.expectation.objective_sha256 !== null && !shaPattern.test(payload.expectation.objective_sha256))) fail("native expectation is invalid");
   if (payload.goal !== null) {

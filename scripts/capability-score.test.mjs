@@ -91,6 +91,8 @@ for (const row of fixtureScenarioDesign.scenarios.filter((entry) =>
 }
 await writeFile(fixtureScenarioPath, `${JSON.stringify(fixtureScenarioDesign, null, 2)}\n`);
 await copyFile(path.resolve("scripts/capability-score.mjs"), path.join(repository, "scripts", "capability-score.mjs"));
+await copyFile(path.resolve("scripts/agent-message-trajectory.mjs"),
+  path.join(repository, "scripts", "agent-message-trajectory.mjs"));
 await copyFile(path.resolve("scripts/capability-catalog.mjs"), path.join(repository, "scripts", "capability-catalog.mjs"));
 await copyFile(path.resolve("scripts/check-scenario-authority.mjs"),
   path.join(repository, "scripts", "check-scenario-authority.mjs"));
@@ -157,6 +159,21 @@ async function scoreEvidence(options) {
   }
 }
 
+async function rewriteNativeReceipt(fixture, caseId, mutate) {
+  const evidence = JSON.parse(await readFile(fixture.evidencePath, "utf8"));
+  const observation = evidence.observations.find((entry) =>
+    entry.source_kind === "native_trace" && entry.result === "pass" && entry.case_id === caseId);
+  assert.ok(observation, `missing native fixture for ${caseId}`);
+  const artifactPath = path.join(fixture.directory, observation.artifact_path);
+  const receipt = JSON.parse(await readFile(artifactPath, "utf8"));
+  mutate(receipt);
+  receipt.content_sha256 = sha(Buffer.from(JSON.stringify(canonical(receipt.payload))));
+  const bytes = Buffer.from(`${JSON.stringify(receipt)}\n`);
+  await writeFile(artifactPath, bytes);
+  observation.content_sha256 = sha(bytes);
+  await writeFile(fixture.evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+}
+
 function rollout({ sourceCase, trial, sourceKind, result = "pass", unverified = false }) {
   const caseBinding = sourceCase.metadata.observations.capability;
   const capabilityId = caseBinding.id;
@@ -205,9 +222,9 @@ function rollout({ sourceCase, trial, sourceKind, result = "pass", unverified = 
     const output = deterministicOutput(sourceCase);
     const expectsSkill = sourceCase.metadata.observations.skill_activation.expected === "used";
     const nativeItems = [
-      { id_sha256: sha(Buffer.from(`user-${caseId}-${trial}`)), raw_type: null, skill_read: false, terminal_state: null, type: "userMessage" },
-      ...(expectsSkill ? [{ id_sha256: sha(Buffer.from(`command-${caseId}-${trial}`)), raw_type: "command_execution", skill_read: true, terminal_state: "completed", type: "commandExecution" }] : []),
-      { id_sha256: sha(Buffer.from(`agent-${caseId}-${trial}`)), raw_type: "agent_message", skill_read: false, terminal_state: null, type: "agentMessage" },
+      { id_sha256: sha(Buffer.from(`user-${caseId}-${trial}`)), message_sha256: null, raw_type: null, skill_read: false, terminal_state: null, type: "userMessage" },
+      ...(expectsSkill ? [{ id_sha256: sha(Buffer.from(`command-${caseId}-${trial}`)), message_sha256: null, raw_type: "command_execution", skill_read: true, terminal_state: "completed", type: "commandExecution" }] : []),
+      { id_sha256: sha(Buffer.from(`agent-${caseId}-${trial}`)), message_sha256: sha(Buffer.from(output)), raw_type: "agent_message", skill_read: false, terminal_state: null, type: "agentMessage" },
     ];
     const observedRawItemTypes = [...new Set([
       ...(expectsSkill ? ["command_execution"] : []),
@@ -216,7 +233,7 @@ function rollout({ sourceCase, trial, sourceKind, result = "pass", unverified = 
     const deterministicAssertions = sourceCase.assert.filter((assertion) =>
       assertion.type !== "skill-used" && assertion.type !== "not-skill-used");
     const payload = canonical({
-      schema: "rbm-native-evidence/v4",
+      schema: "rbm-native-evidence/v5",
       authority: "local_interface_observation",
       executable: { sha256: executableSha256, server_version: "0.147.0" },
       host: { platform_family: "unix", platform_os: "fixture", user_agent: userAgent },
@@ -241,7 +258,7 @@ function rollout({ sourceCase, trial, sourceKind, result = "pass", unverified = 
       },
       result: "matched",
     });
-    artifact = Buffer.from(`${JSON.stringify(canonical({ schema: "rbm-native-evidence-envelope/v4", content_sha256: sha(Buffer.from(JSON.stringify(payload))), payload }))}\n`);
+    artifact = Buffer.from(`${JSON.stringify(canonical({ schema: "rbm-native-evidence-envelope/v5", content_sha256: sha(Buffer.from(JSON.stringify(payload))), payload }))}\n`);
   }
   return {
     sessionId,
@@ -275,6 +292,7 @@ await verifyCommittedNativeTurn({
   repositoryRoot: repository,
   prompt: contradictoryVerificationCase.vars.prompt,
   output: exactVerificationOutput,
+  observedAgentMessages: [exactVerificationOutput],
   observedRawItemTypes: ["command_execution"],
   observedSkillActivation: "used",
 });
@@ -282,6 +300,7 @@ await assert.rejects(() => verifyCommittedNativeTurn({
   repositoryRoot: repository,
   prompt: contradictoryVerificationCase.vars.prompt,
   output: `${exactVerificationOutput}\ncandidate_acceptance: admitted`,
+  observedAgentMessages: [`${exactVerificationOutput}\ncandidate_acceptance: admitted`],
   observedRawItemTypes: ["command_execution"],
   observedSkillActivation: "used",
 }), /fails a committed equals assertion/,
@@ -1464,6 +1483,39 @@ try {
   nativeItemObservation.content_sha256 = sha(nativeItemBytes);
   await writeFile(nativeItemMismatch.evidencePath, `${JSON.stringify(nativeItemEvidence, null, 2)}\n`);
   await assert.rejects(() => scoreEvidence(nativeItemMismatch), /native turn item observation is invalid/);
+
+  const allowedTrajectory = await fixture("native-allowed-trajectory");
+  await rewriteNativeReceipt(allowedTrajectory, "coordination-churn-routing", (receipt) => {
+    receipt.payload.turn.items.splice(-1, 0, {
+      id_sha256: sha(Buffer.from("allowed-interim")),
+      message_sha256: sha(Buffer.from("current_operation: classify coordination churn")),
+      raw_type: "agent_message",
+      skill_read: false,
+      terminal_state: null,
+      type: "agentMessage",
+    });
+  });
+  await scoreEvidence(allowedTrajectory);
+
+  const rejectedTrajectory = await fixture("native-rejected-trajectory");
+  await rewriteNativeReceipt(rejectedTrajectory, "coordination-churn-routing", (receipt) => {
+    receipt.payload.turn.items.splice(-1, 0, {
+      id_sha256: sha(Buffer.from("stable-interim")),
+      message_sha256: sha(Buffer.from("Request admission projection; tests passed; waiting to rerun")),
+      raw_type: "agent_message",
+      skill_read: false,
+      terminal_state: null,
+      type: "agentMessage",
+    });
+  });
+  await assert.rejects(() => scoreEvidence(rejectedTrajectory), /unadmitted interim message digest/);
+
+  const legacyNative = await fixture("legacy-native-receipt");
+  await rewriteNativeReceipt(legacyNative, "coordination-churn-routing", (receipt) => {
+    receipt.schema = "rbm-native-evidence-envelope/v4";
+    receipt.payload.schema = "rbm-native-evidence/v4";
+  });
+  await assert.rejects(() => scoreEvidence(legacyNative), /native evidence envelope is invalid/);
 
   const wrongCandidate = await fixture("wrong-candidate");
   const wrongEvidence = JSON.parse(await readFile(wrongCandidate.evidencePath, "utf8"));
