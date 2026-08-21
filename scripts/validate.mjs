@@ -8,6 +8,7 @@ import {
   validateAtomicityAdmission,
   validateCapabilityCatalog,
 } from "./capability-catalog.mjs";
+import { parseAgentMessagePolicy } from "./agent-message-trajectory.mjs";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -137,9 +138,11 @@ function validatePromptfooCases(cases, { file, suites }) {
     }
     validateExactKeys(testCase.metadata, new Set(["observations"]), `${testCase.description} metadata`);
     const observations = testCase.metadata.observations;
-    validateExactKeys(observations,
+    validateExactOptionalKeys(observations,
       new Set(["capability", "behavioral_oracle", "skill_activation", "required_raw_item_types", "unavailable"]),
+      new Set(["agent_messages"]),
       `${testCase.description} observations`);
+    parseAgentMessagePolicy(observations.agent_messages, `${testCase.description} agent messages`);
     validateExactKeys(observations.capability, new Set(["id", "scenario", "case_id"]),
       `${testCase.description} capability binding`);
     if (!/^[A-Z]{3,4}-\d{2}$/.test(observations.capability.id) ||

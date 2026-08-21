@@ -166,6 +166,10 @@ try {
           behavioral_oracle: "deterministic_text",
           skill_activation: { status: "dynamic_heuristic", expected: "used" },
           required_raw_item_types: ["command_execution"],
+          agent_messages: {
+            max_interim: 1,
+            allowed_interim_exact: ["current_operation: synthetic validation"],
+          },
           unavailable: ["host_native_skill_route"],
         },
       },
@@ -176,6 +180,7 @@ try {
       ],
       output: "receipt: bounded",
       items: [
+        { id: "interim-positive", type: "agent_message", text: "current_operation: synthetic validation" },
         {
           id: "command-positive",
           type: "command_execution",
@@ -285,6 +290,12 @@ try {
   });
   await writeFile(resultPath, JSON.stringify(validResultArtifact), "utf8");
   await validateSyntheticResult();
+  const zeroInterimArtifact = structuredClone(validResultArtifact);
+  const zeroInterimTurn = JSON.parse(zeroInterimArtifact.results.results[0].response.raw);
+  zeroInterimTurn.items = zeroInterimTurn.items.filter((item) => item.id !== "interim-positive");
+  zeroInterimArtifact.results.results[0].response.raw = JSON.stringify(zeroInterimTurn);
+  await writeFile(resultPath, JSON.stringify(zeroInterimArtifact), "utf8");
+  await validateSyntheticResult();
   await writeFile(resultPath, JSON.stringify(validResultArtifact).replace(
     '"success":true',
     '"success":false,"success":true',
@@ -353,7 +364,7 @@ try {
     ["contradictory positive activation", (() => {
       const fixture = structuredClone(validResultArtifact);
       const turn = JSON.parse(fixture.results.results[0].response.raw);
-      turn.items[0].command = "pwd";
+      turn.items.find((item) => item.id === "command-positive").command = "pwd";
       fixture.results.results[0].response.raw = JSON.stringify(turn);
       return fixture;
     })(), /contradictory raw Skill activation evidence/],
@@ -380,14 +391,14 @@ try {
     ["command missing status", (() => {
       const fixture = structuredClone(validResultArtifact);
       const turn = JSON.parse(fixture.results.results[0].response.raw);
-      delete turn.items[0].status;
+      delete turn.items.find((item) => item.id === "command-positive").status;
       fixture.results.results[0].response.raw = JSON.stringify(turn);
       return fixture;
     })(), /partial command_execution/],
     ["command missing exit", (() => {
       const fixture = structuredClone(validResultArtifact);
       const turn = JSON.parse(fixture.results.results[0].response.raw);
-      delete turn.items[0].exit_code;
+      delete turn.items.find((item) => item.id === "command-positive").exit_code;
       fixture.results.results[0].response.raw = JSON.stringify(turn);
       return fixture;
     })(), /partial command_execution/],
@@ -412,6 +423,25 @@ try {
       fixture.results.results[0].response.raw = JSON.stringify(turn);
       return fixture;
     })(), /contains raw error evidence/],
+    ["non-allowlisted interim agent message", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      const turn = JSON.parse(fixture.results.results[0].response.raw);
+      turn.items.find((item) => item.id === "interim-positive").text =
+        "Request admission projection; tests passed; waiting to rerun";
+      fixture.results.results[0].response.raw = JSON.stringify(turn);
+      return fixture;
+    })(), /unadmitted interim message/],
+    ["additional stable interim agent message", (() => {
+      const fixture = structuredClone(validResultArtifact);
+      const turn = JSON.parse(fixture.results.results[0].response.raw);
+      turn.items.splice(-1, 0, {
+        id: "interim-stable",
+        type: "agent_message",
+        text: "Request admission projection; tests passed; waiting to rerun",
+      });
+      fixture.results.results[0].response.raw = JSON.stringify(turn);
+      return fixture;
+    })(), /unadmitted interim message/],
     ["reordered terminal items", (() => {
       const fixture = structuredClone(validResultArtifact);
       const turn = JSON.parse(fixture.results.results[0].response.raw);
@@ -430,7 +460,7 @@ try {
       const fixture = structuredClone(validResultArtifact);
       const positiveTurn = JSON.parse(fixture.results.results[0].response.raw);
       const negativeTurn = JSON.parse(fixture.results.results[1].response.raw);
-      negativeTurn.items[0] = positiveTurn.items[0];
+      negativeTurn.items[0] = positiveTurn.items.find((item) => item.id === "command-positive");
       fixture.results.results[1].response.raw = JSON.stringify(negativeTurn);
       return fixture;
     })(), /contradictory raw Skill activation evidence/],

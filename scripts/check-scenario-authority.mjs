@@ -7,6 +7,7 @@ import {
   capabilityScenarios,
   compareCapabilityCatalogs,
 } from "./capability-catalog.mjs";
+import { parseAgentMessagePolicy } from "./agent-message-trajectory.mjs";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const defaultRepo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -90,11 +91,11 @@ function canonical(value) {
   return value;
 }
 
-function exactKeys(value, expected, label) {
+function exactKeys(value, expected, label, optional = new Set()) {
   if (!value || typeof value !== "object" || Array.isArray(value)) fail(`${label} must be an object`);
   const actual = Object.keys(value).sort();
-  const wanted = [...expected].sort();
-  if (actual.length !== wanted.length || actual.some((key, index) => key !== wanted[index])) {
+  const allowed = new Set([...expected, ...optional]);
+  if ([...expected].some((key) => !Object.hasOwn(value, key)) || actual.some((key) => !allowed.has(key))) {
     fail(`${label} has invalid fields`);
   }
 }
@@ -120,7 +121,8 @@ function validateCase(row, suite, label) {
   const observations = row.metadata.observations;
   exactKeys(observations,
     new Set(["capability", "behavioral_oracle", "skill_activation", "required_raw_item_types", "unavailable"]),
-    `${label} observations`);
+    `${label} observations`, new Set(["agent_messages"]));
+  parseAgentMessagePolicy(observations.agent_messages, `${label} observations.agent_messages`);
   exactKeys(observations.capability, new Set(["id", "scenario", "case_id"]), `${label} capability`);
   exactKeys(observations.skill_activation, new Set(["status", "expected"]), `${label} activation`);
   const expected = activation[0].type === "skill-used" ? "used" : "not_used";
@@ -343,6 +345,7 @@ const coreControlPlaneFiles = [
   "scripts/self-test.mjs",
   "scripts/validate.mjs",
   "scripts/capability-score.mjs",
+  "scripts/agent-message-trajectory.mjs",
   "scripts/json.mjs",
   "package.json",
   "package-lock.json",

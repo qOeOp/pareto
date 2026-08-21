@@ -6,6 +6,7 @@ import path from "node:path";
 import { isDeepStrictEqual, promisify } from "node:util";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parse as parseYaml } from "yaml";
+import { parseAgentMessagePolicy, verifyAgentMessageTrajectory } from "./agent-message-trajectory.mjs";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -163,6 +164,8 @@ export function validateCapabilityCaseBindings(cases) {
         !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(binding.case_id)) {
       throw new Error(`Promptfoo case ${index} has an invalid capability binding`);
     }
+    parseAgentMessagePolicy(testCase?.metadata?.observations?.agent_messages,
+      `Promptfoo case ${index} agent messages`);
     if (caseIds.has(binding.case_id)) throw new Error(`Promptfoo capability case id is duplicated: ${binding.case_id}`);
     caseIds.add(binding.case_id);
   }
@@ -531,6 +534,12 @@ export async function validateResultArtifact({
       throw new Error(`Promptfoo result row ${index} is missing the exact response output`);
     }
     const rawItems = parseCodexRawItems(row.response.raw, row.response.output, expectedVars.prompt, index);
+    verifyAgentMessageTrajectory({
+      messages: rawItems.filter((item) => item.type === "agent_message").map((item) => item.text),
+      finalText: row.response.output,
+      policy: expectedMetadata?.observations?.agent_messages,
+      label: `Promptfoo result row ${index} agent-message trajectory`,
+    });
     if (rawItems.some((item) => item.type === "error")) {
       throw new Error(`Promptfoo result row ${index} contains raw error evidence despite successful admission`);
     }
