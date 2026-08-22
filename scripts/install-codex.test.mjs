@@ -557,9 +557,7 @@ const origin = join(root, "qOeOp", "skills.git");
     "reviewer-handoff.md",
   ), "utf8");
   assert.match(installedReviewerHandoffOwner,
-    /Every byte fingerprint also binds an immutable byte-producing recipe:/);
-  assert.match(installedReviewerHandoffOwner,
-    /complete tracked path-and-mode topology,\s+including ignored-but-tracked entries/);
+    /One review identity is `\(repository, base\/Origin, candidate commit\/tree or snapshot digest, neutral\s+control, lens\)`/);
   assert.match(installedReviewerHandoffOwner, /dispatch sequentially by default/);
   assert.match(installedReviewerHandoffOwner,
     /estimated decision\s+latency saved by parallelism or expected distinct-root yield explicitly outweighs duplicate token\s+exposure/);
@@ -567,28 +565,14 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedReviewerHandoffOwner,
     /returns remain candidate-bound planning leads and never become\s+Acceptance evidence for a corrected candidate/);
   assert.match(installedReviewerHandoffOwner,
-    /derive its current risk map and dispatch\s+the required lenses once against that identity/);
+    /derive the current risk map,\s+and dispatch only its required identities/);
   assert.match(installedReviewerHandoffOwner, /inventories the complete changed surface/);
   assert.match(installedReviewerHandoffOwner, /reading unrelated files in full is not\s+review completeness/);
   assert.match(installedReviewerHandoffOwner, /coverage_closure:/);
   assert.match(installedReviewerHandoffOwner,
-    /Empty-index or filesystem enumeration through current ignore rules is unsupported/);
+    /reviewer derives the complete changed surface from base to candidate/);
   assert.match(installedReviewerHandoffOwner,
-    /recovery from Origin plus that delta\s+must recreate the exact candidate tree, archive member set and modes, and archive digest/);
-  assert.match(installedReviewerHandoffOwner,
-    /Use the committed-candidate route whenever\s+it is available; a local snapshot is admissible only when that route is unavailable/);
-  assert.match(installedReviewerHandoffOwner,
-    /Do not add a\s+snapshot helper, packet schema, or ledger/);
-  assert.match(installedReviewerHandoffOwner,
-    /tool identity, arguments,\s+working\/path scope, ordering, separators, and encoding/);
-  assert.match(installedReviewerHandoffOwner,
-    /Recovery and fan-in replay that exact recipe/);
-  assert.match(installedReviewerHandoffOwner,
-    /a missing, changed, or failed recipe makes the comparison unsupported, not evidence of drift\./);
-  assert.match(installedReviewerHandoffOwner,
-    /same recorded byte-producing recipe resolved\s+successfully on both sides/);
-  assert.match(installedReviewerHandoffOwner,
-    /never compare a recovered or reconstructed representation with the\s+recorded digest/);
+    /filling a missing\s+binding is packet correction, not a new identity/);
   await writeFile(installedSkillFile, "drift\n");
   result = spawnSync(process.execPath, [installedHook], {
     encoding: "utf8",
