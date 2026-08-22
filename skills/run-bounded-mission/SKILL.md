@@ -24,11 +24,10 @@ proof burden. Add guidance only when it changes a named-consumer decision not re
 otherwise omit it. Preserve behavior, unique authority, fail-close boundaries, and observable
 acceptance while subtracting.
 
-Use the same appliance rule for user-visible communication: lifecycle projections and checkpoints are
-control state, not progress. Surface only a new user choice, effect authority/state, recovery blocker,
-needs-attention, or terminal; never artifact mechanics or check inventories as progress. A host-required
-interim update carries only the current operation or decision-changing evidence and never replays stable
-lifecycle state.
+Keep lifecycle projections and checkpoints private. Never publish their labels or fields as progress.
+Surface only a new user choice, effect authority/state, recovery blocker, needs-attention, or terminal.
+A host-required update carries only the operation or decision-changing evidence. Expose one exact
+checkpoint only when the host requests it after context recovery.
 
 ## Request Admission
 
@@ -155,8 +154,8 @@ authority. Load conditional owners only when their predicates hold:
   admitted bounded cross-contract diagnostic; Discovery cannot authorize Acceptance.
 
 Load [effect admission and recovery](references/orchestration/orchestration-context-recovery.md) only
-before the first affected mutation/message/effect after a nontrivial Plan or recovery boundary. It
-owns checkpoint emission and validity; read-only work and Finalize emit no checkpoint or control prose.
+before the first affected mutation/message/effect after a nontrivial Plan or recovery. It owns private
+checkpoint custody and validity; read-only work and Finalize produce none.
 
 ## Execute
 
