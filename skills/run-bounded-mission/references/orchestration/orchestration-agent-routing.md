@@ -1,16 +1,13 @@
 # Route Agent Lanes
 
-Load this owner only for one unresolved evidence question, one frozen mechanical leaf, or an admitted
-independent candidate lens inside one exact existing Mission. Main retains Frame, Plan, the writable
-winner, fan-in, effects, acceptance, and Finalize. A lane returns evidence, a proposal, or a bounded
-leaf.
+[Task dispatch](orchestration-task-workflow.md) chooses the primitive first. Load this owner only for an
+admitted evidence question, frozen mechanical leaf, or candidate lens inside one Mission. Main retains
+Frame, Plan, the writable winner, fan-in, effects, acceptance, and Finalize; its lane returns evidence,
+a proposal, or a bounded leaf.
 
-Every lane belongs to exactly one Mission and its dispatching Main. A Hub-local lane may answer only
-that Hub's orchestration question; a child-local lane may answer only that child's question or leaf.
-A lane cannot cross into live parent or sibling state, enter the Hub active-task set, carry an
-independently closable outcome, or replace a native Task. Route an independently valuable outcome
-through [task dispatch](orchestration-task-workflow.md); unavailable native Task capability stops that
-effect instead of rerouting it through a lane.
+A lane answers only its dispatching Mission and cannot cross live parent or sibling state. No route here
+creates a Goal/DAG node, active-task member, independent outcome, native Task replacement, branch, PR,
+or lane-owned or lane-authorized downstream effect.
 
 Role load map:
 
@@ -54,6 +51,7 @@ by reviewer handoff.
 | ----------------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------- |
 | Frame, Plan admission, cross-owner/safety judgment, synthesis, Finalize | authorized main                                      | never delegate                                                  |
 | pre-mutation evidenced structural challenge                             | one `mission_planner` proposal                       | main decides                                                    |
+| pre-mutation bounded read-only repository fact                          | one `explorer` evidence return                       | main continues directly or freezes the dependent decision       |
 | pre-mutation decision-changing current/external fact                    | one `mission_researcher` brief                       | main or freeze dependent decision                               |
 | ordinary implementation                                                 | authorized main                                      | never delegate                                                  |
 | exact low-risk mechanical leaf                                          | `fast_builder` only when all fields below are frozen | authorized main only if unavailable before dispatch             |
@@ -63,14 +61,14 @@ by reviewer handoff.
 Use `fork_turns: none` for every admitted lane and make the sole launch prompt its complete context.
 An omitted or `all` full-history fork may inherit Main's role, silently copy unrelated context, and
 hide an incomplete prompt; freeze before any host effect rather than correcting it with a second
-request. A positive bounded fork is exceptional: Main must show that the exact inherited turns are
-smaller than an equivalent locator-bound packet and contain no unrelated authority or private data.
+request.
 
 ## Compile one complete lane prompt
 
-Main compiles every planner, researcher, builder, evaluator, explorer, worker, or generic lane from
-the same envelope. The role label, a broad topic, the repository name, or inherited conversation is
-not a prompt. The sole launch message binds:
+Main compiles every admitted planner, researcher, explorer, builder, or evaluator lane from the same
+envelope. Worker and generic/default implementation routes are unavailable; only reviewer handoff may
+select its fresh generic reviewer fallback. The role label, a broad topic, the repository name, or
+inherited conversation is not a prompt. The sole launch message binds:
 
 - `mission_and_lane`: existing Mission identity, one role, and one bounded question, leaf, or lens;
 - `identity`: content-addressed Skill root, Origin, exact input or candidate, and neutral control when used;

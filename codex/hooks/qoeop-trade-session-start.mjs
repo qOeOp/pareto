@@ -62,13 +62,6 @@ const projectAgentProfiles = [
   "mission-planner.toml",
   "mission-researcher.toml",
 ];
-const specializedAgentTypes = new Set([
-  "fast_builder",
-  "mission_evaluator",
-  "mission_planner",
-  "mission_researcher",
-]);
-
 async function localMissionSources(root, cwd) {
   let directory = await realpath(resolve(cwd));
   const fromRoot = relative(root, directory);
@@ -115,7 +108,6 @@ try {
     const toolInput = input.tool_input;
     if ((input.tool_name === "spawn_agent" || input.tool_name === "Agent")
         && toolInput && !Array.isArray(toolInput) && typeof toolInput === "object"
-        && specializedAgentTypes.has(toolInput.agent_type)
         && toolInput.fork_turns !== "none") {
       output({
         hookSpecificOutput: {

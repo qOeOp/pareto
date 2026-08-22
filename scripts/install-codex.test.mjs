@@ -366,11 +366,10 @@ const origin = join(root, "qOeOp", "skills.git");
     task_name: "scope_challenge",
     message: "complete immutable packet",
   };
-  for (const agentType of ["fast_builder", "mission_evaluator", "mission_planner", "mission_researcher"]) {
+  for (const agentType of [undefined, "default", "worker", "explorer", "fast_builder", "mission_evaluator", "mission_planner", "mission_researcher"]) {
     for (const forkTurns of [undefined, "all", "3"]) {
-      const toolInput = forkTurns === undefined
-        ? { ...completePacket, agent_type: agentType }
-        : { ...completePacket, agent_type: agentType, fork_turns: forkTurns };
+      const typedPacket = agentType === undefined ? completePacket : { ...completePacket, agent_type: agentType };
+      const toolInput = forkTurns === undefined ? typedPacket : { ...typedPacket, fork_turns: forkTurns };
       const probe = preToolUse(toolInput);
       assert.equal(probe.status, 0, probe.stderr);
       const output = JSON.parse(probe.stdout);
@@ -388,7 +387,6 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.equal(JSON.parse(agentAliasProbe.stdout).hookSpecificOutput.updatedInput.fork_turns, "none");
   for (const [toolInput, toolName, cwd] of [
     [{ ...completePacket, agent_type: "mission_planner", fork_turns: "none" }, "spawn_agent", consumer],
-    [{ ...completePacket, agent_type: "default", fork_turns: "all" }, "spawn_agent", consumer],
     [{ ...completePacket, agent_type: "mission_planner", fork_turns: "all" }, "update_plan", consumer],
   ]) {
     const probe = preToolUse(toolInput, toolName, cwd);
@@ -444,6 +442,9 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedTaskWorkflow, /Replace one private checkpoint for the wave/);
   assert.match(installedTaskWorkflow, /publish only\s+if recovery permits/);
   assert.match(installedTaskWorkflow, /release every newly ready nonconflicting direct successor/);
+  assert.match(installedTaskWorkflow, /Only it has `threadId`\/`hostId`, enters the Goal DAG and\s+active-task set/);
+  assert.match(installedTaskWorkflow, /never substitute an agent lane/);
+  assert.match(installedTaskWorkflow, /A new outcome or wider effect requires alignment/);
   assert.doesNotMatch(installedRecoveryOwner, /complete current Frame|complete admitted Plan/);
   assert.match(installedRecoveryOwner, /inventories, stable nonclaims, completed steps/);
   assert.match(installedRecoveryOwner, /role=hub\|child\|single/);
@@ -486,6 +487,9 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedAgentRoutingOwner,
     /Apply the selected route's Stop\/fallback: Main continues directly only\s+where that route permits; otherwise freeze the dependent decision/);
   assert.match(installedAgentRoutingOwner, /Use `fork_turns: none` for every admitted lane/);
+  assert.match(installedAgentRoutingOwner, /Worker and generic\/default implementation routes are unavailable/);
+  assert.match(installedAgentRoutingOwner, /only reviewer handoff may\s+select its fresh generic reviewer fallback/);
+  assert.match(installedAgentRoutingOwner, /lane-owned or lane-authorized downstream effect/);
   assert.match(installedAgentRoutingOwner, /## Compile one complete lane prompt/);
   for (const field of [
     "mission_and_lane",

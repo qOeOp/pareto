@@ -1,31 +1,29 @@
 # Codex Task Dispatch
 
-Load this owner for an independent outcome, an existing child, or Hub orchestration. It owns native
-Task identity, admission, DAG relations, active-task custody, bounded observation, fan-in, and
-endpoints. It does not own a second lifecycle, leaf work, review, CI, or the merge procedure.
+Load this owner for independent outcomes, existing children, or Hub orchestration. It owns native Task
+admission, identity, DAG/custody, fan-in, and endpoints - not leaf work, review, CI, or merge.
 
-## Admit outcomes and authority
+## Choose the execution primitive
 
-Create a Mission only when it has an independently valuable consumer outcome, bounded scope,
-falsifiable acceptance, one write owner, and an independently closable endpoint. Diagnosis, testing,
-documentation sync, review correction, and support work for one outcome stay inside its Mission.
-Creation requires explicit user approval of the exact ready packet.
+- A **native Task** uses native thread tools for a bounded, accepted, independently closable consumer
+  outcome that survives parent cancellation. Only it has `threadId`/`hostId`, enters the Goal DAG and
+  active-task set, and owns a child lifecycle, candidate, or PR.
+- An **agent lane** follows [agent routing](orchestration-agent-routing.md) and uses `spawn_agent` for
+  one bounded question, frozen mechanical leaf, or review inside one Mission; it has no independent
+  identity, outcome, custody, branch, PR, or effect.
+- **Main** owns ordinary implementation and lifecycle authority; support work stays in its outcome's Mission.
 
-Before creation, apply the parent-cancellation counterfactual. If cancelling the parent outcome leaves
-no independently valuable real consumer and no meaningful closable endpoint, the work remains inside
-the parent lifecycle instead of becoming a Mission.
+Custody names `native Task` or `agent lane`; never infer either from bare task, child, or leaf. Explicit
+Hub-mode approval of bounded independent outcomes authorizes exact native-Task packets within the
+admitted Frame/effects. A new outcome or wider effect requires alignment. Missing or ambiguous native-
+Task capability freezes its node; never substitute an agent lane.
 
-Before a Goal-driven effect, observe Goal capability and reconcile the matching Goal. The Goal stores
-only the overall outcome and completion boundary. No Goal, missing capability, or a nonmatching Goal
-freezes Goal/DAG effects; a Goal continuation is never a work clock.
+Before a Goal effect, reconcile the matching Goal. It stores overall outcome and completion, not a work
+clock; absent capability or a nonmatching Goal freezes Goal/DAG effects.
 
-Classify task metadata through [canonical task types](orchestration-task-types.md) only when proposing a
-new independent Mission. A packet owns one stable label and exact title. Native identity is always the
-exact threadId/hostId, never a title, list resemblance, or serial.
-
-Only an existing Hub creates or reuses a native Task. A child or single-Mission Main that discovers a
-further independent outcome returns one exact ready proposal to its Hub or user; it does not create a
-nested active-task set or native Task.
+For new independent Missions only, [canonical task types](orchestration-task-types.md) owns one stable
+label/title; native identity remains exact `threadId`/`hostId`. Only a Hub creates or reuses it. A child
+or single Main returns a further independent outcome as one ready proposal.
 
 ## Keep one compact DAG
 
@@ -51,10 +49,6 @@ The Hub owns the registered active-task set, exact cursors, consumed actionable 
 window, and next observation action. A child owns its Frame through Finalize, implementation,
 verification, CI, review, waiting, and terminal evidence. Hub work is limited to admission, custody,
 DAG/authority reconciliation, fan-in, and guarded merge.
-
-Any support lane remains local to its one dispatching Mission under
-[agent routing](orchestration-agent-routing.md). It never enters the Hub active-task set, carries an
-independent outcome, replaces a native Task, or supplies another node's endpoint.
 
 ## Admit one native Task message
 
