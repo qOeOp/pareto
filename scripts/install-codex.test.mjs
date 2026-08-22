@@ -420,6 +420,8 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.ok(effectAdmission >= 0 && effectAdmission < executeHeading);
   assert.ok(executeHeading < implementationBoundary);
   assert.doesNotMatch(installedSkillSource, /Before any mutation or effect issuance/);
+  assert.match(installedSkillSource, /A test, fixture, migration, or cleanup carries its real effects/);
+  assert.match(installedSkillSource, /unverified target is unavailable, not a test target/);
   assert.match(installedSkillSource, /never artifact mechanics or check inventories as progress/);
   const installedRecoveryOwner = await readFile(join(
     agentsRoot,
@@ -466,6 +468,8 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedAgentRoutingOwner, /make the sole launch prompt its complete context/);
   assert.match(installedAgentRoutingOwner,
     /missing, unreadable, mismatched, mutable, or candidate-controlled root freezes dispatch\s+before any host effect/);
+  assert.match(installedAgentRoutingOwner,
+    /Immutable means content-addressed and drift-checked, not filesystem read-only; owner writability alone\s+neither invalidates the root nor requires a copy/);
   assert.match(installedAgentRoutingOwner,
     /never derive one from repository cwd, an installation convention, inherited\s+context, or the candidate/);
   assert.match(installedAgentRoutingOwner,

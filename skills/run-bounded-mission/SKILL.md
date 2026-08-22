@@ -19,10 +19,16 @@ frozen leaf but cannot own those decisions. Keep repository authority current-st
 dependencies acyclic, and the user's interaction language unchanged unless the user changes it.
 
 Build every candidate as one integrated appliance: one owner and state path per responsibility.
-Integrate requested behavior and corrections there; delete superseded branches, adapters, prose,
-tests, and proof burden. Add Skill guidance only when it changes a named-consumer decision the model
-or repository does not reliably make; otherwise reuse, simplify, or omit it. Preserve behavior,
-unique authority, fail-close boundaries, and observable acceptance while subtracting.
+Integrate behavior and corrections there; delete superseded branches, adapters, prose, tests, and
+proof burden. Add guidance only when it changes a named-consumer decision not reliably made;
+otherwise omit it. Preserve behavior, unique authority, fail-close boundaries, and observable
+acceptance while subtracting.
+
+Use the same appliance rule for user-visible communication: lifecycle projections and checkpoints are
+control state, not progress. Surface only a new user choice, effect authority/state, recovery blocker,
+needs-attention, or terminal; never artifact mechanics or check inventories as progress. A host-required
+interim update carries only the current operation or decision-changing evidence and never replays stable
+lifecycle state.
 
 ## Request Admission
 
@@ -33,7 +39,7 @@ causal premises and the requested mechanism. Treat premises as claims and the me
 route unless the user explicitly owns it as a hard constraint. Current repository/runtime and real
 consumer behavior own local technical facts; an agent-preferred request is only a proposal.
 
-Freeze a read-only projection, then append its result after any admitted probe:
+Record one current read-only projection and replace it after any admitted probe:
 
 ```text
 Request admission projection
@@ -45,7 +51,7 @@ Result: <status; admitted or proposed request; reason and decisive evidence>
 ```
 
 Use `Direct` only when consumer, authority, acceptance, reversibility, premises, and project impact are
-clear without external, structural, safety, or unknown consequence; emit only the compact projection
+clear without external, structural, safety, or unknown consequence; retain only the compact projection
 and load no history or conditional owner. Otherwise use the cheapest current repository/runtime or
 consumer observation that can decide admission. For decision-changing bounded history, consequential
 ambiguity, or external evidence, load [decision evidence](references/planning/planning-decision-evidence.md).
@@ -74,7 +80,7 @@ read-only and cannot choose the Outcome, generate Frame, or decide admission for
 
 ## Frame
 
-Before a decision-changing probe or mutation, state:
+Before a decision-changing probe or mutation, bind:
 
 ```text
 Frame projection
@@ -164,6 +170,9 @@ smallest root correction. After a rejected prototype or structural finding, comp
 before mutation; structural pressure loads
 [revision-pressure replan](references/planning/planning-revision-workflow.md) and returns to Plan.
 
+A test, fixture, migration, or cleanup carries its real effects. A default, runtime, shared, fallback,
+or otherwise unverified target is unavailable, not a test target.
+
 For a running tool session, retain its exact session custody and use one bounded wait sized to the
 known process state or deadline. Do not repeatedly poll a silent long-running command at one-to-five
 second intervals; inspect it again only after output, completion, or the longer bound.
@@ -200,8 +209,6 @@ new observation for the same predicate.
 
 Accept only a verified exact candidate bound to a commit or preserved diff. Lead with the result and
 exact effect state; distinguish current external evidence, local inference, and unavailable evidence.
-Keep control-plane locators in their native checkpoint or receipt; surface only facts that change the
-outcome, user choice, effect state, or recovery, never artifact mechanics or check inventories as progress.
 
 A child terminal or needs-attention final is only:
 

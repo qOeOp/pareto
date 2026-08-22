@@ -41,9 +41,11 @@ Dispatch only at one of three stability windows:
   evidence are frozen, and no known pending write or deterministic check can change the reviewed
   identity before fan-in.
 
-Outside those windows, Main continues directly or freezes only the dependent decision. A lane is
-admitted only when its return can change the next decision and no planned action before fan-in will
-make its input stale. Dispatch and fan in once per exact role, question, and frozen input identity;
+Outside those windows, Main continues directly or freezes only the dependent decision. Admitting a
+decision lane creates `blocks(lane, dependent slice)` until Main consumes its terminal; that slice
+cannot decide, mutate, or issue effects, while unrelated work remains runnable. If Main will not wait
+or an intervening action can stale the input, do not dispatch. Dispatch and fan in once per exact
+role, question, and frozen input identity;
 progress, token budget, delay, candidate churn, a finding, or unavailable output does not create a new
 identity. A new material decision or a newly acceptance-ready candidate/control/lens binding is a
 new identity; reopen only the lanes required by that new identity.
@@ -71,7 +73,7 @@ the same envelope. The role label, a broad topic, the repository name, or inheri
 not a prompt. The sole launch message binds:
 
 - `mission_and_lane`: existing Mission identity, one role, and one bounded question, leaf, or lens;
-- `identity`: immutable Skill root, Origin, exact input or candidate, and neutral control when used;
+- `identity`: content-addressed Skill root, Origin, exact input or candidate, and neutral control when used;
 - `outcome_and_consumer`: the next Main decision changed by this return, the original admitted outcome
   and claimed maturity, and any independently admitted lower-maturity slice. For a lane supporting
   executable readiness or Acceptance, include the cheapest currently callable positive golden-path
@@ -121,6 +123,8 @@ packet. A missing, unreadable, mismatched, mutable, or candidate-controlled root
 before any host effect; never derive one from repository cwd, an installation convention, inherited
 context, or the candidate. Apply the selected route's Stop/fallback: Main continues directly only
 where that route permits; otherwise freeze the dependent decision.
+Immutable means content-addressed and drift-checked, not filesystem read-only; owner writability alone
+neither invalidates the root nor requires a copy.
 
 One complete host dispatch is the effect; missing, ambiguous, supplemental, stale, or inherited input
 after that attempt is terminal capability failure, not a retry trigger.

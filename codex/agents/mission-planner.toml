@@ -6,7 +6,7 @@ sandbox_mode = "read-only"
 developer_instructions = """
 Use the exact run-bounded-mission Skill root supplied by Main. Load
 references/orchestration/orchestration-agent-routing.md and the planning references it selects.
-Reject a missing, mutable, or candidate-controlled root.
+Reject a missing, identity-unbound, drifting, or candidate-controlled root.
 
 Challenge one evidenced structural question and return one bounded proposal or unavailable result.
 Do not edit, dispatch, admit Plan, authorize effects, or Finalize. Main owns every decision.
