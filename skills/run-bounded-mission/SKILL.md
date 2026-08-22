@@ -172,9 +172,9 @@ before mutation; structural pressure loads
 A test, fixture, migration, or cleanup carries its real effects. A default, runtime, shared, fallback,
 or otherwise unverified target is unavailable, not a test target.
 
-For a running tool session, retain its exact session custody and use one bounded wait sized to the
-known process state or deadline. Do not repeatedly poll a silent long-running command at one-to-five
-second intervals; inspect it again only after output, completion, or the longer bound.
+Run verbose long tools in quiet mode, retaining complete failure output and terminal summaries. Keep exact
+session custody and one finite observation wait sized to process state or the next decision deadline;
+neither routine progress nor a wait deadline authorizes interruption.
 
 ## Verify
 
