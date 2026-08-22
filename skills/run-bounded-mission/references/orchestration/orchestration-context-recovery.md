@@ -40,9 +40,7 @@ For role=hub, additionally require:
 - one current window and one next observation action.
 
 Recovery does not adopt a same-title task, retry an ambiguous create/send, or infer no change from an
-omitted target. Goal continuation may execute only the checkpointed observation action; it cannot
-invent targets or cadence. An unchanged bounded observation is a silent yield with no immediate
-resubscription. Callback unavailability does not erase active-task custody.
+omitted target. Callback unavailability does not erase native Task custody.
 
 Bind each user control event once by its exact locator in `Authority / Stop / Resume`. A finite pause
 remains armed until a strictly later authenticated native control receipt or user confirmation resumes
