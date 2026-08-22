@@ -132,8 +132,8 @@ authorized current main or host-default route, retain all risk controls, and mar
 
 At terminal, record only prompt byte count and completeness, actual route/model/effort or
 `unavailable`, consumer result, elapsed/token telemetry or `unavailable`, coordination/correction,
-fallback, and Stop. Fan in once; ordinary progress does not become task communication or a durable
-ledger.
+fallback, and Stop. One caller-deadline wait owns fan-in; timeout yields without immediate re-wait, progress
+message, or ledger.
 
 ## Role-specific outputs
 
