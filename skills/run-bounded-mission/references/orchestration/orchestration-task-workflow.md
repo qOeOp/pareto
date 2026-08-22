@@ -115,10 +115,11 @@ Malformed, unknown, discontinuous, or incomplete evidence freezes affected slice
 needs-attention result with its predicate and earliest useful read. Transport or host unavailability
 ends the session with custody intact and authorizes no same-turn read or retry.
 
-For a Hub child at a changed window, reconcile each stable component once against current Goal, task, Git, GitHub,
-dependency, and authority facts. Main reproduces decisive consumer conflicts and records each member
-accepted, rejected, or superseded_by. Then emit one replacement checkpoint and release a direct
-successor's recorded next owner in the same turn. One receipt never triggers repeated global passes.
+For a changed Hub window, reconcile all stable components once against current
+Goal/task/Git/GitHub/dependency/authority. Main reproduces decisive consumer conflicts and records each
+member accepted, rejected, or superseded_by. Replace one private checkpoint for the wave, publish only
+if recovery permits, and release every newly ready nonconflicting direct successor in the same turn.
+One receipt never repeats global passes.
 
 ## Critical-path and endpoints
 

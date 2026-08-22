@@ -413,7 +413,7 @@ const origin = join(root, "qOeOp", "skills.git");
   const installedSkillFile = join(agentsRoot, "skills", "run-bounded-mission", "SKILL.md");
   const installedSkillBytes = await readFile(installedSkillFile);
   const installedSkillSource = installedSkillBytes.toString("utf8");
-  assert.match(installedSkillSource, /It\s+owns checkpoint emission and validity/);
+  assert.match(installedSkillSource, /It\s+owns private\s+checkpoint custody and validity/);
   const effectAdmission = installedSkillSource.indexOf("Load [effect admission and recovery]");
   const executeHeading = installedSkillSource.indexOf("## Execute");
   const implementationBoundary = installedSkillSource.indexOf("Implement only the admitted candidate.");
@@ -422,7 +422,8 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.doesNotMatch(installedSkillSource, /Before any mutation or effect issuance/);
   assert.match(installedSkillSource, /A test, fixture, migration, or cleanup carries its real effects/);
   assert.match(installedSkillSource, /unverified target is unavailable, not a test target/);
-  assert.match(installedSkillSource, /never artifact mechanics or check inventories as progress/);
+  assert.match(installedSkillSource, /Never publish their labels or fields as progress/);
+  assert.match(installedSkillSource, /host requests it after context recovery/);
   const installedRecoveryOwner = await readFile(join(
     agentsRoot,
     "skills",
@@ -433,7 +434,16 @@ const origin = join(root, "qOeOp", "skills.git");
   ), "utf8");
   assert.match(installedRecoveryOwner, /Plan projection, a compaction summary, or recovery prose does not restore Execute/);
   assert.match(installedRecoveryOwner, /Before the first later mutation or unissued effect/);
-  assert.match(installedRecoveryOwner, /emit a current checkpoint satisfying the compact contract/);
+  assert.match(installedRecoveryOwner, /restore the compact checkpoint/);
+  assert.match(installedRecoveryOwner, /One checkpoint\s+admits a Hub wave/);
+  assert.match(installedRecoveryOwner, /otherwise keep it private/);
+  const installedTaskWorkflow = await readFile(join(
+    agentsRoot, "skills", "run-bounded-mission", "references", "orchestration",
+    "orchestration-task-workflow.md",
+  ), "utf8");
+  assert.match(installedTaskWorkflow, /Replace one private checkpoint for the wave/);
+  assert.match(installedTaskWorkflow, /publish only\s+if recovery permits/);
+  assert.match(installedTaskWorkflow, /release every newly ready nonconflicting direct successor/);
   assert.doesNotMatch(installedRecoveryOwner, /complete current Frame|complete admitted Plan/);
   assert.match(installedRecoveryOwner, /inventories, stable nonclaims, completed steps/);
   assert.match(installedRecoveryOwner, /role=hub\|child\|single/);

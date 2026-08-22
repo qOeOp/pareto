@@ -1,8 +1,8 @@
 # Mission Replacement Checkpoint
 
-After a nontrivial Plan, keep one effect-admission checkpoint. Emit or replace it only to admit an
-affected mutation/message/effect, including after recovery; read-only decisions and Finalize-only output emit none. It
-indexes native task, Git, GitHub, and user facts, not authority.
+After a nontrivial Plan, keep one private effect-admission checkpoint. Replace it only for an affected
+mutation/message/effect or recovery; read-only decisions and Finalize produce none. One checkpoint
+admits a Hub wave, never each child. It indexes native tasks, Git/GitHub, and user facts, not authority.
 
 ```text
 Mission checkpoint
@@ -16,15 +16,16 @@ Lines hold decisions, not history. Omit inventories, stable nonclaims, completed
 artifact-recoverable facts. Group checks by one locator. Goal, title, prose, or mutable names cannot replace
 exact Mission/task, consumer/acceptance, Origin/candidate, or authority/effect locators. Missing, conflicting,
 stale, duplicate, unavailable, or candidate-controlled identity, acceptance, or authority freezes its
-action. Native packets bind immutable producer identity/send receipt; never copy bytes. Emit only the
-four lines.
+action. Native packets bind immutable producer identity/send receipt; never copy bytes. Retain only
+the four lines.
 
 ## Recovery gate
 
 A new turn, interruption, compaction, source drift, or user override freezes mutation and unissued
 effects. The Plan projection, a compaction summary, or recovery prose does not restore Execute
-admission. Before the first later mutation or unissued effect, reconcile request/checkpoint with current
-Goal, task, Git/GitHub, effects, and activated owners; emit a current checkpoint satisfying the compact contract.
+admission. Before the first later mutation or unissued effect, reconcile request/checkpoint with current Goal,
+task, Git/GitHub, effects, and owners; restore the compact checkpoint. Publish it once only on an
+explicit post-recovery host request; otherwise keep it private.
 If the prior checkpoint cannot prove decision coverage through the
 interruption, invalidate Plan and replay affected owner reads; a newer checkpoint cannot heal
 omission. An unreadable affected identity freezes only its action and names the earliest useful read.
