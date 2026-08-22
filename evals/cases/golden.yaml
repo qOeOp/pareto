@@ -418,7 +418,7 @@
   vars:
     prompt: >-
       Use $run-bounded-mission. A fresh read-only evaluator receives one exact frozen candidate, neutral
-      control, compact decision projection, immutable evidence, and one falsifiable lens. It returns one
+      control, complete Frame and Plan, immutable evidence, and one falsifiable lens. It returns one
       material finding without mutation. Return Main's fan-in and acceptance boundary.
   assert:
     - type: skill-used
@@ -428,7 +428,7 @@
         reviewer_authority: evidence-only
         candidate_and_control_identity: re-resolve
         mutation_observation: none
-        post_return_identity_and_status_comparison: required
+        post_return_identity_and_fingerprint_comparison: required
         finding_status: lead
         main_consumer_reproduction: required
         reviewer_count_decides: false
@@ -1346,7 +1346,7 @@
     observations: { capability: { id: INS-06, scenario: positive, case_id: ins-06-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
   vars:
     prompt: >-
-      Use $run-bounded-mission. An exact frozen candidate, compact decision projection, neutral control,
+      Use $run-bounded-mission. An exact frozen candidate, complete Frame and Plan, neutral control,
       and one material falsifiable risk question are available. Classify the reviewer lane, but do
       not launch it or claim independent evidence. Return exactly the receipt.
   assert:
@@ -1389,9 +1389,9 @@
     observations: { capability: { id: INS-06, scenario: recovery, case_id: ins-06-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route] }
   vars:
     prompt: >-
-      Use $run-bounded-mission. A mission_evaluator launch omitted the neutral control and decision
-      projection, then returned unsupported. Main now has those fields, but candidate and lens are
-      unchanged. Return exactly the recovery disposition.
+      Use $run-bounded-mission. A single complete mission_evaluator dispatch on an exact frozen packet
+      ended without a valid terminal review contract. Return exactly the recovery disposition; the
+      same candidate and requirement have not changed.
   assert:
     - type: skill-used
       value: run-bounded-mission
