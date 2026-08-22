@@ -504,6 +504,8 @@ const origin = join(root, "qOeOp", "skills.git");
     "return_and_budget",
   ]) assert.match(installedAgentRoutingOwner, new RegExp("`" + field + "`"));
   assert.match(installedAgentRoutingOwner, /prompt byte count and completeness/);
+  assert.match(installedAgentRoutingOwner,
+    /One caller-deadline wait owns fan-in; timeout yields without immediate re-wait, progress\s+message, or ledger/);
   assert.match(installedAgentRoutingOwner, /refuting counterexample, preservation control/);
   assert.match(installedAgentRoutingOwner, /producer-to-consumer transformation\s+stages/);
   assert.match(installedAgentRoutingOwner, /actual runtime authority, verifier, and final-consumer/);
