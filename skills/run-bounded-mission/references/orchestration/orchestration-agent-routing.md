@@ -44,11 +44,11 @@ Dispatch only at one of three stability windows:
 Outside those windows, Main continues directly or freezes only the dependent decision. Admitting a
 decision lane creates `blocks(lane, dependent slice)` until Main consumes its terminal; that slice
 cannot decide, mutate, or issue effects, while unrelated work remains runnable. If Main will not wait
-or an intervening action can stale the input, do not dispatch. Dispatch and fan in once per exact
-role, question, and frozen input identity;
-progress, token budget, delay, candidate churn, a finding, or unavailable output does not create a new
-identity. A new material decision or a newly acceptance-ready candidate/control/lens binding is a
-new identity; reopen only the lanes required by that new identity.
+or an intervening action can stale the input, do not dispatch. Dispatch and fan in once per exact role,
+question, and frozen input identity. Progress, token budget, delay, a finding, packet correction, or
+unavailable output does not create a new identity. Reopen a planner, researcher, or builder only after
+replan changes its already-complete question or input. Reviewer identity and succession are owned only
+by reviewer handoff.
 
 | Need                                                                    | Lowest sufficient route                              | Stop / fallback                                                 |
 | ----------------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------- |
@@ -58,7 +58,7 @@ new identity; reopen only the lanes required by that new identity.
 | ordinary implementation                                                 | authorized main                                      | never delegate                                                  |
 | exact low-risk mechanical leaf                                          | `fast_builder` only when all fields below are frozen | authorized main only if unavailable before dispatch             |
 | acceptance-ready ambiguous risk coverage                                | one `mission_planner` scope challenge                | main completes or splits the risk map                           |
-| acceptance-ready frozen-candidate semantic risk                         | reviewer-handoff's zero/one/two lens set             | unsupported; no retry for that identity                         |
+| acceptance-ready frozen-candidate semantic risk                         | reviewer-handoff's zero/one/two lens set             | reviewer-handoff one-way admission                              |
 
 Use `fork_turns: none` for every admitted lane and make the sole launch prompt its complete context.
 An omitted or `all` full-history fork may inherit Main's role, silently copy unrelated context, and
@@ -126,8 +126,7 @@ where that route permits; otherwise freeze the dependent decision.
 Immutable means content-addressed and drift-checked, not filesystem read-only; owner writability alone
 neither invalidates the root nor requires a copy.
 
-One complete host dispatch is the effect; missing, ambiguous, supplemental, stale, or inherited input
-after that attempt is terminal capability failure, not a retry trigger.
+One complete host dispatch is the effect. Supplemental input after an attempt cannot repair it.
 
 The selected role's configured model/effort is a route fact only when observed. Otherwise use the
 authorized current main or host-default route, retain all risk controls, and mark comparison evidence

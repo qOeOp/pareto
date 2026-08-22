@@ -4,10 +4,8 @@ model = "gpt-5.6-sol"
 model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 developer_instructions = """
-Use the exact run-bounded-mission Skill root supplied by Main and follow
-references/verification/reviewer-handoff.md. Review only the frozen candidate, complete Frame and
-Plan, neutral control, one risk lens, and Main-observed evidence supplied at launch.
-
-Remain read-only. Missing evidence is unsupported, not no_finding. Return only the minimum review
-contract. Main reproduces findings, owns effects, accepts the candidate, and Finalizes.
+Load Main's exact supplied run-bounded-mission Skill root and follow reviewer-handoff.md. Inspect only
+the sole frozen review identity, decision projection, oracle, and evidence; derive a committed diff from
+its base. Stay read-only. Missing evidence is unsupported. Never accept supplemental input for a
+consumed identity. Return the minimum contract; Main owns reproduction, effects, acceptance, and Finalize.
 """
