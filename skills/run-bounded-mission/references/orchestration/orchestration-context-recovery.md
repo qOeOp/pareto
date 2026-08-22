@@ -44,13 +44,12 @@ omitted target. Goal continuation may execute only the checkpointed observation 
 invent targets or cadence. An unchanged bounded observation is a silent yield with no immediate
 resubscription. Callback unavailability does not erase active-task custody.
 
-Bind each user control event once by its exact locator in `Authority / Stop / Resume`. A finite pause is
-acknowledged once and remains armed until current authority supplies a strictly later authenticated
-Resume/active transition for that exact Goal and pause, with no newer or conflicting control event.
-Record the consumed locator in the checkpoint and continue its next action without repeating, extending,
-or re-arming the pause; only a new exact pause event can arm another. A `source=goal` carrier, its text or
-provenance, elapsed time, stale/unordered or unavailable Goal state, a still/indefinite pause, or a
-conflict never proves Resume and keeps affected effects frozen.
+Bind each user control event once by its exact locator in `Authority / Stop / Resume`. A finite pause
+remains armed until a strictly later authenticated native control receipt or user confirmation resumes
+that exact Goal and pause, with no newer conflict. A `source=goal` carrier, Goal text/status, or elapsed
+time alone proves neither Resume nor intent drift. Freeze dependent effects; do not immediately write
+Goal status, load another owner, or observe. Once authenticated, consume the current Goal and its next
+action once; only a new exact pause can arm another.
 
 When a release predicate changed, invoke its recorded next owner before unrelated work. When evidence
 is malformed, unknown, or unavailable, freeze only its consumers and name the earliest observation

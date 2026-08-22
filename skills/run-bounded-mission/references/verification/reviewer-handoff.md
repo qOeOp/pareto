@@ -26,10 +26,11 @@ extra, or undeclared member makes the packet unsupported. Use the committed-cand
 it is available; a local snapshot is admissible only when that route is unavailable. Do not add a
 snapshot helper, packet schema, or ledger to compensate for an incomplete projection.
 
-The candidate is acceptance-ready only when no known pending write, effect, or required
-deterministic check can change the candidate, control, risk map, lens, or decisive evidence before
-fan-in. Finish those actions before dispatch; a review launched into known candidate churn is
-unsupported even when its starting commit is immutable.
+Review material effect risk before issuing it, against the exact frozen candidate, control, risk map,
+and lens; mark outcome unavailable. Outcome arrival is Main-owned evidence: alone it neither stales this
+risk review nor proves acceptance. Otherwise finish pending writes and deterministic checks that can
+change those four bindings before dispatch; any such change requires fresh review. Never issue an
+effect to admit review.
 
 Executable or product review inherits the shared envelope's positive-path readiness rule for the
 original outcome. Negative suites or reviewer consensus cannot replace it; only an explicitly admitted

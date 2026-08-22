@@ -95,22 +95,19 @@ The Hub consumes Finalize's child decision index with the native identity carrie
 Missing, malformed, unknown, or unavailable locators freeze only the dependent Hub action; the
 acceptance gate below still resolves every required fact from its current owner.
 
-Ordinary child custody uses one finite session over the complete exact active set. Bind Stop and
-quiet-deadline continuation first. On programmatic hosts, run each cursor-bound wait under a caller
-deadline that cancels non-returning transport. Chain returned timeouts internally; surface neither
-timeout nor progress to Main. Caller expiry is transport unavailable and ends the session. Stop on an
-actionable receipt, user input, or the session deadline, sized to user responsiveness and expected
-operation. An explicit status request uses one timeoutMs: 0 snapshot under the caller deadline. Admit a
-thread read only when an admitted receipt or user question requires history and the host enforces
-exact target, turn, item, and per-output bounds before model context; otherwise history evidence is
-unavailable and no read is issued.
+Ordinary child custody uses one native cursor-bound wait over the complete exact active set. Bind Stop
+and its finite timeout first; stop on an actionable receipt, user input, or expiry. An explicit status
+request uses one timeoutMs: 0 snapshot. Host orchestration may cancel non-returning transport at a
+stricter caller deadline; Main never emulates either deadline with sleep, thread reads, commentary,
+retry, or resubscription. Expiry or transport failure ends the session with custody intact. Admit a
+thread read only after an actionable receipt or explicit user history question, and only when the host
+bounds exact target, turn, item, and output before model context; otherwise history is unavailable.
 
 Only a receipt changing the next Hub operation, authority, identity, candidate verdict, DAG release,
-Stop/Resume, or endpoint is actionable. Progress-only file, command, build, or partial-check updates
-stay with the child until needed by an actionable receipt. Other, duplicate, or timed-out results stay
-inside the admitted session. At its deadline yield silently: no Hub communication, replacement
-checkpoint, read, effect, or same-turn resubscription. Goal continuation may execute only the exact
-quiet-deadline action already in the checkpoint; elapsed time cannot invent or change a session.
+Stop/Resume, or endpoint is actionable. Progress stays with the child until such a receipt needs it.
+Other results stay inside the session; at expiry yield silently with no Hub output, checkpoint, read,
+effect, or same-turn resubscription. Goal continuation may perform only that checkpointed next wait;
+elapsed time cannot create cadence.
 
 For each continued target require cursor continuity, target/host identity, and non-regressing
 revision. An early wake may omit a target; retain its prior facts but do not call it unchanged.
@@ -125,11 +122,14 @@ successor's recorded next owner in the same turn. One receipt never triggers rep
 
 ## Critical-path and endpoints
 
-Independent nodes may work in parallel; overlap in an owner, repository path, contract, or external
-effect target serializes only that critical slice; unknown independence does the same. Bind shared
-non-repository mutation targets before dispatch. A predecessor that changes the canonical source
-freezes only the successor's dependency-consuming and final identity-bound slices. After exact merged
-evidence, recover the same child, integrate once, and revalidate changed inputs; never replace it.
+At each Plan or reconciliation, partition nodes by owner, write surface, contract, external effect
+target, and dependency-consuming slice. Release every nonconflicting runnable slice in the same wave;
+one blocked writer cannot hold frozen-input review, delivery preparation, consumer-revalidation
+preparation, or successor investigation. Serialize only overlaps and unknown independence. Bind
+shared non-repository mutation targets before dispatch. A predecessor that changes the canonical
+source freezes only the successor's dependency-consuming and final identity-bound slices. After exact
+merged evidence, recover the same child, integrate once, and revalidate changed inputs; never replace
+it.
 
 One child owns at most one candidate branch and one PR. GitHub Delivery owns publication,
 merge-readiness, and guarded-merge procedure. PR endpoints are:
