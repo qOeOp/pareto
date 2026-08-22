@@ -6,15 +6,15 @@ admits a Hub wave, never each child. It indexes native tasks, Git/GitHub, and us
 
 ```text
 Mission checkpoint
-Scope: <language; role=hub|child|single; exact Mission/native-task locator; Goal locator when applicable; exact consumer/acceptance locator; exact Origin and immutable candidate/change-set locators or unavailable>
+Scope: <language; role=hub|child|single; exact Mission and current native-task locators; Goal locator when applicable; exact consumer/acceptance locator; exact Origin and immutable candidate/change-set locators or unavailable>
 Control: <decision-relevant issued or unissued effects with exact receipts when issued; exact authority, Stop, and Resume locators or unavailable>
 State: <unresolved findings and decisive evidence locators; only for role=hub, exact active tasks, DAG, and cursors>
 Next: <stage; owner; predicate; one operation; terminal condition>
 ```
 
 Lines hold decisions, not history. Omit inventories, stable nonclaims, completed steps, and
-artifact-recoverable facts. Group checks by one locator. Goal, title, prose, or mutable names cannot replace
-exact Mission/task, consumer/acceptance, Origin/candidate, or authority/effect locators. Missing, conflicting,
+artifact-recoverable facts. Group checks by one locator. A Goal or mutable name cannot replace exact Mission,
+current task, consumer/acceptance, Origin/candidate, or authority/effect locators. Missing, conflicting,
 stale, duplicate, unavailable, or candidate-controlled identity, acceptance, or authority freezes its
 action. Native packets bind immutable producer identity/send receipt; never copy bytes. Retain only
 the four lines.
@@ -29,9 +29,8 @@ explicit post-recovery host request; otherwise keep it private.
 If the prior checkpoint cannot prove decision coverage through the
 interruption, invalidate Plan and replay affected owner reads; a newer checkpoint cannot heal
 omission. An unreadable affected identity freezes only its action and names the earliest useful read.
-A material Frame change clears Plan.
 
-For child or single role, require the same Mission, Origin/candidate, next owner, and effect boundary.
+For child or single, require the same Mission, current task, Origin/candidate, next owner, and effect boundary.
 For role=hub, additionally require:
 
 - every approved or attempted node and its exact disposition;

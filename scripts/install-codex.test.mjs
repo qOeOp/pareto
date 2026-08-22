@@ -448,11 +448,12 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedRecoveryOwner, /inventories, stable nonclaims, completed steps/);
   assert.match(installedRecoveryOwner, /role=hub\|child\|single/);
   assert.match(installedRecoveryOwner, /only for role=hub, exact active tasks, DAG, and cursors/);
-  assert.match(installedRecoveryOwner, /exact Mission\/native-task locator/);
+  assert.match(installedRecoveryOwner, /exact Mission and current native-task locators/);
+  assert.match(installedRecoveryOwner, /same Mission, current task/);
   assert.match(installedRecoveryOwner, /exact consumer\/acceptance locator/);
   assert.match(installedRecoveryOwner, /immutable candidate\/change-set locators or unavailable/);
   assert.match(installedRecoveryOwner, /exact receipts when issued/);
-  assert.match(installedRecoveryOwner, /Goal,\s+title, prose, or mutable names cannot replace/);
+  assert.match(installedRecoveryOwner, /Goal or mutable name cannot replace exact Mission/);
   assert.match(installedRecoveryOwner, /candidate-controlled identity, acceptance, or authority freezes/);
   const installedAgentRoutingOwner = await readFile(join(
     agentsRoot,
