@@ -78,8 +78,8 @@ not a prompt. The sole launch message binds:
   and claimed maturity, and any independently admitted lower-maturity slice. For a lane supporting
   executable readiness or Acceptance, include the cheapest currently callable positive golden-path
   result and exact deployed candidate/runtime identity, or the precise unavailable blocker;
-- `scope`: required inputs and locators, owned paths if writable, producer-to-consumer transformation
-  stages and dependencies, and excluded surface;
+- `scope`: required inputs/locators; for writes, exact owned paths, cwd, worktree, Git index;
+  producer-to-consumer transformation stages/dependencies; excluded surface;
 - `risk_atom`: one affected contract or premise, refuting counterexample, preservation control, and
   consequence;
 - `evidence_and_oracle`: direct evidence; actual runtime authority, verifier, and final-consumer
@@ -168,5 +168,5 @@ any ambiguity/path growth/failed premise; Main rechecks and decides.
 Independent review is owned entirely by reviewer handoff. The reviewer is fresh and read-only; Main
 reproduces findings and fans in once.
 
-Parallelize only independent immutable inputs and non-overlapping outputs. A lane never consumes live
-sibling state, delegates, authorizes effects, or creates a user-visible task.
+Parallel writers require immutable inputs, disjoint outputs, distinct cwd/worktree/index; shared Git state
+stays read-only. Lanes never consume sibling state, delegate, or authorize effects.
