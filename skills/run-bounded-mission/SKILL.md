@@ -172,9 +172,10 @@ before mutation; structural pressure loads
 A test, fixture, migration, or cleanup carries its real effects. A default, runtime, shared, fallback,
 or otherwise unverified target is unavailable, not a test target.
 
-Run verbose long tools in quiet mode, retaining complete failure output and terminal summaries. Keep exact
-session custody and one finite observation wait sized to process state or the next decision deadline;
-neither routine progress nor a wait deadline authorizes interruption.
+Locate before bounded owner/consumer dependency reads. Quiet verbose tools or capture silently; surface
+complete failure output and terminal summaries. Retain full launch result and session custody across one
+cursor-bound state/deadline wait; continue only transport yields. Progress/expiry authorizes neither
+re-observation nor interruption.
 
 ## Verify
 
