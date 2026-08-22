@@ -568,7 +568,10 @@ const origin = join(root, "qOeOp", "skills.git");
     /derive the current risk map,\s+and dispatch only its required identities/);
   assert.match(installedReviewerHandoffOwner, /inventories the complete changed surface/);
   assert.match(installedReviewerHandoffOwner, /reading unrelated files in full is not\s+review completeness/);
-  assert.match(installedReviewerHandoffOwner, /coverage_closure:/);
+  assert.match(installedReviewerHandoffOwner,
+    /`completed` asserts complete surface mapping and lens closure; omit passed inventories/);
+  assert.doesNotMatch(installedReviewerHandoffOwner,
+    /candidate_material:|coverage_closure:|observed_tool_surface:|limits:/);
   assert.match(installedReviewerHandoffOwner,
     /reviewer derives the complete changed surface from base to candidate/);
   assert.match(installedReviewerHandoffOwner,

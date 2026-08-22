@@ -105,24 +105,15 @@ defect.
 Return only:
 
 ```text
-review_status: completed | unsupported
-candidate_identity: committed commit/tree | local:sha256:<digest>
-candidate_origin:
-candidate_material:
-control_origin:
-risk_lens:
-findings: no_finding | ordered severity, cause, location, evidence, next action
-inspected_scope:
-coverage_closure: refuting and preservation paths, transformation stages, verifier, consumer, residual
-unavailable_evidence:
-observed_tool_surface:
-mutation_observation: none | detected | unverified
-limits:
+review_status: completed | unsupported:<missing>
+review_identity: <repository; Origin; candidate/tree or local digest; control; lens>
+findings: no_finding | ordered <severity; invariant; cause locator; reproduction; preservation; next>
+unavailable_evidence: <decision-relevant | none>
+mutation_observation: none | detected:<locator> | unverified
 ```
 
-`completed` requires the changed surface and assigned question to be resolved. Wrong identity/lens,
-missing fields, mutation, unavailable required evidence, or candidate-controlled authority is
-`unsupported`.
+`completed` asserts complete surface mapping and lens closure; omit passed inventories. Missing or wrong
+identity, control, lens, closure, required evidence, or read-only proof is `unsupported`.
 
 ## Main fan-in
 
