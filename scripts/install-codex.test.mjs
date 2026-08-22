@@ -420,6 +420,8 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.doesNotMatch(installedSkillSource, /Before any mutation or effect issuance/);
   assert.match(installedSkillSource, /A test, fixture, migration, or cleanup carries its real effects/);
   assert.match(installedSkillSource, /unverified target is unavailable, not a test target/);
+  assert.match(installedSkillSource,
+    /Capture complete verbose\/failure output silently; return byte-bounded\s+decisive excerpts plus terminal summaries, never line-only limits/);
   assert.match(installedSkillSource, /Never publish their labels or fields as progress/);
   assert.match(installedSkillSource, /host requests it after context recovery/);
   const installedRecoveryOwner = await readFile(join(
