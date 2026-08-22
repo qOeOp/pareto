@@ -5,15 +5,16 @@ admission, identity, DAG/custody, fan-in, and endpoints - not leaf work, review,
 
 ## Choose the execution primitive
 
-- A **native Task** uses native thread tools for a bounded, accepted, independently closable consumer
-  outcome that survives parent cancellation. Only it has `threadId`/`hostId`, enters the Goal DAG and
-  active-task set, and owns a child lifecycle, candidate, or PR.
+- A **native Task** is a bounded, accepted, independently closable consumer outcome created and sent
+  by native thread tools. Only its native create/reuse and send receipts admit `threadId`/`hostId` to
+  the Goal DAG and active-task set and confer child lifecycle, candidate, or PR custody.
 - An **agent lane** follows [agent routing](orchestration-agent-routing.md) and uses `spawn_agent` for
   one bounded question, frozen mechanical leaf, or review inside one Mission; it has no independent
-  identity, outcome, custody, branch, PR, or effect.
+  outcome, custody, branch, PR, or effect. An exposed `agentThreadId` remains agent activity, not Task
+  admission.
 - **Main** owns ordinary implementation and lifecycle authority; support work stays in its outcome's Mission.
 
-Custody names `native Task` or `agent lane`; never infer either from bare task, child, or leaf. Explicit
+Classify custody by issuing receipt, never names or thread locators. Explicit
 Hub-mode approval of bounded independent outcomes authorizes exact native-Task packets within the
 admitted Frame/effects. A new outcome or wider effect requires alignment. Missing or ambiguous native-
 Task capability freezes its node; never substitute an agent lane.
@@ -100,8 +101,9 @@ bounds exact target, turn, item, and output before model context; otherwise hist
 Only a receipt changing the next Hub operation, authority, identity, candidate verdict, DAG release,
 Stop/Resume, or endpoint is actionable. Progress stays with the child until such a receipt needs it.
 Other results stay inside the session; at expiry yield silently with no Hub output, checkpoint, read,
-effect, or same-turn resubscription. Goal continuation may perform only that checkpointed next wait;
-elapsed time cannot create cadence.
+effect, or same-turn resubscription. `source=goal` carries but never wakes one checkpointed wait. Only
+a target callback or authenticated user input wakes it; an unchanged window consumes it. Carrier
+status and time create no cadence.
 
 For each continued target require cursor continuity, target/host identity, and non-regressing
 revision. An early wake may omit a target; retain its prior facts but do not call it unchanged.
