@@ -30,7 +30,8 @@ effect before issuing it and mark its outcome unavailable; outcome arrival alone
 nor proves acceptance. Executable or product review still requires the original positive path, unless
 the user independently admitted a lower-maturity outcome.
 
-Main opens the locators and records the review identity plus repository status before launch. Once any
+Pre-dispatch Main records status and composes packets from bound-repository Git output; transcription
+blocks dispatch. Once any
 dispatch is attempted, `unsupported`, invalid, or unavailable consumes that identity. Supplying omitted
 fields, another prompt, follow-up, reviewer, role, or packet cannot repair or retry it; filling a missing
 binding is packet correction, not a new identity. Only changing an already complete candidate, neutral
