@@ -2476,3 +2476,159 @@
         post_install_check: pass
         native_role_routing: unavailable
         capability_evidence: unavailable
+
+- description: "[full] frozen mechanical work uses one lowest-sufficient dispatch"
+  metadata:
+    observations: { capability: { id: ORC-10, scenario: positive, case_id: orc-10-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. One bounded question establishes a frozen mechanical leaf with exact inputs,
+      paths, owner, oracle, and Stop. fast_builder is sufficient; its route is observable, but executed model
+      and effort are not. Return exactly the dispatch decision below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        bounded_question: one
+        lowest_sufficient_route: fast_builder
+        quality_floor: unchanged
+        dispatch_packet: complete
+        dispatch_count_per_identity: one
+        executed_model: unavailable
+        executed_effort: unavailable
+        durable_model_ranking: forbidden
+        capability_evidence: unavailable
+
+- description: "[full] support routing rejects both over-routing and unsafe under-routing"
+  metadata:
+    observations: { capability: { id: ORC-10, scenario: negative, case_id: orc-10-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Proposal A sends a frozen mechanical leaf to mission_evaluator although
+      fast_builder is sufficient. Proposal B sends an unresolved design and safety choice to fast_builder.
+      Proposal C lowers the quality floor because the preferred route has no quota. Return exactly the three
+      routing rejections below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        proposal_a:
+          lower_sufficient_route: fast_builder
+          proposed_route: mission_evaluator
+          decision: reject_over_routing
+        proposal_b:
+          unresolved_design_or_safety: true
+          proposed_route: fast_builder
+          decision: retain_authorized_main
+        proposal_c:
+          availability_or_quota: unavailable
+          proposed_quality_floor_reduction: true
+          decision: reject_quality_reduction
+        capability_evidence: unavailable
+
+- description: "[full] unavailable preferred route falls back once before dispatch"
+  metadata:
+    observations: { capability: { id: ORC-10, scenario: recovery, case_id: orc-10-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. fast_builder is the lowest sufficient route for a frozen packet but is observed
+      unavailable before any attempt. Authorized Main can execute the identical packet at the same quality floor.
+      Return exactly the recovery decision below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        preferred_route: fast_builder
+        unavailability_time: before_dispatch
+        attempted_dispatch: false
+        fallback_count: one
+        fallback_route: authorized_main
+        packet_input_identity: unchanged
+        quality_floor: unchanged
+        capability_evidence: unavailable
+
+- description: "[full] disjoint writers use distinct bound Git state"
+  metadata:
+    observations: { capability: { id: ORC-11, scenario: positive, case_id: orc-11-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Two writable lanes have exact frozen immutable inputs, consume no sibling state,
+      own disjoint paths, and bind exact distinct cwd, worktree, and Git indexes. Main is the only fan-in owner.
+      Return exactly the admission below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        immutable_inputs: exact_frozen
+        sibling_state_consumption: forbidden
+        owned_outputs: disjoint
+        cwd_bindings: exact_distinct
+        worktree_bindings: exact_distinct
+        git_index_bindings: exact_distinct
+        parallel_writers: admitted
+        fan_in_owner: main
+        capability_evidence: unavailable
+
+- description: "[full] disjoint paths do not excuse shared writable Git state"
+  metadata:
+    observations: { capability: { id: ORC-11, scenario: negative, case_id: orc-11-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Evaluate four writable proposals independently: A shares only its Git index while
+      cwd and worktree are distinct; B consumes mutable sibling input; C owns overlapping output; D omits its cwd
+      binding. A transient clean status is offered as proof of isolation. Return exactly the decisions below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        proposal_a:
+          shared_cwd: false
+          shared_worktree: false
+          shared_git_index: true
+          decision: reject
+          correction: distinct_git_index
+        proposal_b:
+          mutable_sibling_input: true
+          decision: reject
+          correction: freeze_immutable_inputs
+        proposal_c:
+          owned_outputs: overlapping
+          decision: reject
+          correction: disjoint_owned_outputs
+        proposal_d:
+          missing_binding: cwd
+          decision: reject
+          correction: exact_cwd_binding
+        status_sample_as_isolation: rejected
+        writable_dispatch: rejected_before_launch
+        capability_evidence: unavailable
+
+- description: "[full] shared Git state preserves read-only lanes and freezes a writable transition"
+  metadata:
+    observations: { capability: { id: ORC-11, scenario: recovery, case_id: orc-11-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Two sibling-independent lanes already have exact frozen inputs, disjoint owned paths
+      and outputs, but share one Git worktree and index while both are read-only. One later requests a write. Return
+      exactly the recovery decision below without serializing the unchanged read-only lane.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        initial_shared_state: read_only
+        immutable_inputs: exact_frozen
+        owned_paths: exact_disjoint
+        owned_outputs: disjoint
+        initial_parallel_lanes: admitted
+        unchanged_read_only_lane: continues
+        requested_transition: writable
+        writable_transition: frozen
+        release_predicate: exact_distinct_cwd_worktree_index_binding
+        sibling_state_consumption: forbidden
+        capability_evidence: unavailable
