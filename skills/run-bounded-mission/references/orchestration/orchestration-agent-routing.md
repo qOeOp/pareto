@@ -46,8 +46,9 @@ decision lane creates `blocks(lane, dependent slice)` until Main consumes its te
 cannot decide, mutate, or issue effects, while unrelated work remains runnable. If Main will not wait
 or an intervening action can stale the input, do not dispatch. Dispatch and fan in once per exact role,
 question, and frozen input identity. Progress, token budget, delay, a finding, packet correction, or
-unavailable output does not create a new identity. Only a changed question or frozen
-candidate/control/lens binding creates one; reopen only its required lanes.
+unavailable output does not create a new identity. Reopen a planner, researcher, or builder only after
+replan changes its already-complete question or input. Reviewer identity and succession are owned only
+by reviewer handoff.
 
 | Need                                                                    | Lowest sufficient route                              | Stop / fallback                                                 |
 | ----------------------------------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------- |

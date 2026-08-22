@@ -573,6 +573,14 @@ const origin = join(root, "qOeOp", "skills.git");
     /reviewer derives the complete changed surface from base to candidate/);
   assert.match(installedReviewerHandoffOwner,
     /filling a missing\s+binding is packet correction, not a new identity/);
+  assert.match(installedReviewerHandoffOwner,
+    /Only changing an already complete candidate, neutral\s+control, or lens after replan creates a new review identity/);
+  assert.match(installedAgentRoutingOwner,
+    /Reviewer identity and succession are owned only\s+by reviewer handoff/);
+  assert.doesNotMatch(installedAgentRoutingOwner,
+    /changed question or frozen\s+candidate\/control\/lens binding creates one/);
+  const installedEvaluatorProfile = await readFile(join(codexRoot, "agents", "mission-evaluator.toml"), "utf8");
+  assert.match(installedEvaluatorProfile, /Never accept supplemental input for a\s+consumed identity/);
   await writeFile(installedSkillFile, "drift\n");
   result = spawnSync(process.execPath, [installedHook], {
     encoding: "utf8",
