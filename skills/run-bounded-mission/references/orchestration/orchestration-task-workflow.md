@@ -116,6 +116,9 @@ before model context; otherwise history is unavailable.
 
 For each continued target require cursor continuity, target/host identity, and non-regressing
 revision. An early wake may omit a target; retain its prior facts but do not call it unchanged.
+`turnCompleted` proves an endpoint only when the wake turn and its exact terminal payload are present.
+If the snapshot advanced to a successor turn and omitted that payload, treat it as incomplete transport
+evidence, not carrier-only: retain the prior cursor and failure key; consume neither turn nor endpoint.
 Malformed, unknown, discontinuous, or incomplete evidence freezes affected slices and emits one
 needs-attention result with its predicate and earliest useful read. Transport or host unavailability
 uses this rule; no same-turn fallback is authorized.
