@@ -1779,6 +1779,33 @@
         next_observation_action: checkpointed
         disposition: silent_yield
 
+- description: "[full] carrier-only progress cannot reopen consumed Hub observation"
+  metadata:
+    observations: { capability: { id: ORC-07, scenario: negative, case_id: orc-07-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. One cursor-bound wait expires after the child emits ordinary progress, but no
+      receipt changes the next Hub operation, authority, identity, candidate verdict, DAG release, Stop/Resume,
+      or endpoint. A later source=goal carrier arrives without an actionable callback or authenticated user input.
+      Return exactly the required two-turn disposition below; do not relay progress, poll, comment, read history,
+      or resubscribe.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        first_turn_actionable_change: none
+        first_turn_native_wait_calls: one
+        checkpoint_record: retained_dormant
+        checkpoint_admission: consumed
+        carrier_turn_native_wait_calls: zero
+        fallback_sleep_or_read: none
+        commentary: none
+        history_read: none
+        repository_or_github_effect: none
+        later_observation_authority: actionable_callback_or_authenticated_user_input
+        disposition: silent_yield
+
 - description: "[full] incomplete recovery checkpoint freezes only the affected action"
   metadata:
     observations: { capability: { id: ORC-04, scenario: negative, case_id: orc-04-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, conversation_compaction_state, native_goal_state, native_task_state] }

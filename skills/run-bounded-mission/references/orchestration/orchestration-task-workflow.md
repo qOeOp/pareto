@@ -82,7 +82,7 @@ After release, add the child to the Hub active set and monitor only through the 
 ## Observe child events without polling
 
 An observation window is admitted by one explicit user status request, one unseen terminal or
-needs-attention receipt, or one checkpointed next observation action. Callback transport is an
+needs-attention receipt, or one unconsumed checkpointed next observation action. Callback transport is an
 optional early wake: it may report a structural authority gap, changed dependency receipt, or terminal
 state, but it does not replace Hub custody or make arrival order authoritative.
 
@@ -90,20 +90,19 @@ The Hub consumes Finalize's child decision index with the native identity carrie
 Missing, malformed, unknown, or unavailable locators freeze only the dependent Hub action; the
 acceptance gate below still resolves every required fact from its current owner.
 
-Ordinary child custody uses one native cursor-bound wait over the complete exact active set. Bind Stop
-and its finite timeout first; stop on an actionable receipt, user input, or expiry. An explicit status
-request uses one timeoutMs: 0 snapshot. Host orchestration may cancel non-returning transport at a
-stricter caller deadline; Main never emulates either deadline with sleep, thread reads, commentary,
-retry, or resubscription. Expiry or transport failure ends the session with custody intact. Admit a
-thread read only after an actionable receipt or explicit user history question, and only when the host
-bounds exact target, turn, item, and output before model context; otherwise history is unavailable.
+One Hub turn owns at most one native cursor-bound wait over the complete exact active set. Bind Stop
+and its finite timeout first. It ends on an actionable receipt, authenticated user input, expiry, or
+transport failure. An explicit status request uses one timeoutMs: 0 snapshot. Host orchestration may
+cancel non-returning transport at a stricter caller deadline; Main never emulates either deadline.
 
 Only a receipt changing the next Hub operation, authority, identity, candidate verdict, DAG release,
-Stop/Resume, or endpoint is actionable. Progress stays with the child until such a receipt needs it.
-Other results stay inside the session; at expiry yield silently with no Hub output, checkpoint, read,
-effect, or same-turn resubscription. `source=goal` carries but never wakes one checkpointed wait. Only
-a target callback or authenticated user input wakes it; an unchanged window consumes it. Carrier
-status and time create no cadence.
+Stop/Resume, or endpoint is actionable; child progress never is. Progress, expiry, or transport failure
+consumes the checkpoint's admission and ends the turn silently with custody intact—no Hub output, checkpoint,
+read, effect, or resubscription. The checkpoint remains dormant custody, not later wait authority.
+Later observation requires an actionable target callback or authenticated user input; `source=goal`,
+carrier status, and time cannot authorize it. Admit a thread read only after an actionable receipt or
+explicit user history question, and only when the host bounds exact target, turn, item, and output
+before model context; otherwise history is unavailable.
 
 For each continued target require cursor continuity, target/host identity, and non-regressing
 revision. An early wake may omit a target; retain its prior facts but do not call it unchanged.
