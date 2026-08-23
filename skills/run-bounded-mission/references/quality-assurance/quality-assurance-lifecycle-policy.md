@@ -21,11 +21,11 @@ Use `forensic` only when complete or scored coverage is requested; bind the peer
 load `evals/capabilities.json` plus the assessment owner, or mark coverage unavailable. The catalog
 indexes scope, not behavior; depth creates no stage, role, state store, or scheduler.
 
-Admit one finite session from request/checkpoint with exact targets, Stop, and quiet deadline. Each
-turn issues one longest-host-safe finite cursor wait; a later window needs its own wake. Require target,
-cursor continuity, and non-regressing revision; omitted targets are unknown. Apply the orchestration
-wait transition from the checkpointed transport-failure key/count. A matching Goal without a waitable
-target permits one pause/rebind decision, then silence.
+Admit one finite Goal-unbound session from request/checkpoint with exact targets, Stop, and quiet
+deadline; recurring observation uses a user-authorized product-native monitor. Each turn issues one
+longest-host-safe finite cursor wait; a later window needs its own wake. Require target, cursor
+continuity, and non-regressing revision; omitted targets are unknown. Apply the orchestration wait
+and empty-active-set transitions from the checkpointed transport-failure key/count.
 Malformed or discontinuous evidence freezes only dependent diagnosis and names its earliest useful
 read. Never busy-read, start an unadmitted session, demand a callback, or message the peer.
 
