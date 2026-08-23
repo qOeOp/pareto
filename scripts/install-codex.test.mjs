@@ -437,10 +437,10 @@ const origin = join(root, "qOeOp", "skills.git");
     "orchestration-context-recovery.md",
   ), "utf8");
   assert.match(installedRecoveryOwner, /Plan projection, a compaction summary, or recovery prose does not restore Execute/);
-  assert.match(installedRecoveryOwner, /Before the first later mutation or unissued effect/);
-  assert.match(installedRecoveryOwner, /restore the compact checkpoint/);
+  assert.match(installedRecoveryOwner, /Before a later mutation or unissued effect/);
+  assert.match(installedRecoveryOwner, /restore the checkpoint/);
   assert.match(installedRecoveryOwner, /One checkpoint\s+admits a Hub wave/);
-  assert.match(installedRecoveryOwner, /otherwise keep it private/);
+  assert.match(installedRecoveryOwner, /Publish once only on an explicit post-recovery\s+host request/);
   assert.match(installedRecoveryOwner, /carrier-only repeats never enter blocked audit/);
   const installedTaskWorkflow = await readFile(join(
     agentsRoot, "skills", "run-bounded-mission", "references", "orchestration",
@@ -452,15 +452,18 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedTaskWorkflow, /native create\/reuse and send receipts admit `threadId`\/`hostId` to\s+the Goal DAG and active-task set/);
   assert.match(installedTaskWorkflow, /An exposed `agentThreadId` remains agent activity, not Task\s+admission/);
   assert.match(installedTaskWorkflow, /Classify custody by issuing receipt, never names or thread locators/);
-  assert.match(installedTaskWorkflow, /`source=goal`,\s+carrier status, and time cannot authorize it/);
+  assert.match(installedTaskWorkflow,
+    /`source=goal`,\s+carrier status, time, or unlocated `continue` prove no authority/);
   assert.match(installedTaskWorkflow, /One Hub turn owns at most one native cursor-bound wait/);
-  assert.match(installedTaskWorkflow, /one unconsumed checkpointed next observation action/);
+  assert.match(installedTaskWorkflow, /an unconsumed checkpointed\s+next action/);
   assert.match(installedTaskWorkflow, /child progress never is/);
   assert.match(installedTaskWorkflow,
     /Progress, expiry, or transport failure\s+consumes the checkpoint's admission and ends the turn silently with custody intact—no Hub output, checkpoint,\s+read, effect, or resubscription/);
   assert.match(installedTaskWorkflow, /checkpoint remains dormant custody, not later wait authority/);
+  assert.match(installedTaskWorkflow, /exact native user-message locator proves non-carrier\s+source/);
+  assert.match(installedRecoveryOwner, /Compaction preserves turn identity and consumed observation admission/);
   assert.match(installedTaskWorkflow,
-    /Later observation requires an actionable target callback or authenticated user input/);
+    /Later observation requires an actionable callback or that exact user-message locator/);
   assert.doesNotMatch(installedTaskWorkflow, /Only it has `threadId`\/`hostId`/);
   assert.match(installedTaskWorkflow, /never substitute an agent lane/);
   assert.match(installedTaskWorkflow, /A \*\*Leaf Main\*\* \(single or child\) owns implementation/);
@@ -476,7 +479,7 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedRecoveryOwner, /exact consumer\/acceptance locator/);
   assert.match(installedRecoveryOwner, /immutable candidate\/change-set locators or unavailable/);
   assert.match(installedRecoveryOwner, /exact receipts when issued/);
-  assert.match(installedRecoveryOwner, /Goal or mutable name cannot replace exact Mission/);
+  assert.match(installedRecoveryOwner, /Mutable names cannot replace exact Mission/);
   assert.match(installedRecoveryOwner, /candidate-controlled identity, acceptance, or authority freezes/);
   const installedAgentRoutingOwner = await readFile(join(
     agentsRoot,

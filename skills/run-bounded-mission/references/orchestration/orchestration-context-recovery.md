@@ -13,22 +13,24 @@ Next: <stage; owner; predicate; one operation; terminal condition>
 ```
 
 Lines hold decisions, not history. Omit inventories, stable nonclaims, completed steps, and
-artifact-recoverable facts. Group checks by one locator. A Goal or mutable name cannot replace exact Mission,
-current task, consumer/acceptance, Origin/candidate, or authority/effect locators. Missing, conflicting,
+artifact-recoverable facts. Group checks by one locator. Mutable names cannot replace exact Mission, task,
+consumer/acceptance, Origin/candidate, or authority/effect locators. Missing, conflicting,
 stale, duplicate, unavailable, or candidate-controlled identity, acceptance, or authority freezes its
 action. Native packets bind immutable producer identity/send receipt; never copy bytes. Retain only
 the four lines.
 
 ## Recovery gate
 
-A new turn, interruption, compaction, source drift, or user override freezes mutation and unissued
+A new turn, interruption, source drift, or user override freezes mutation and unissued
 effects. The Plan projection, a compaction summary, or recovery prose does not restore Execute
-admission. Before the first later mutation or unissued effect, reconcile request/checkpoint with current Goal,
-task, Git/GitHub, effects, and owners; restore the compact checkpoint. Publish it once only on an
-explicit post-recovery host request; otherwise keep it private.
-If the prior checkpoint cannot prove decision coverage through the
-interruption, invalidate Plan and replay affected owner reads; a newer checkpoint cannot heal
-omission. An unreadable affected identity freezes only its action and names the earliest useful read.
+admission. Before a later mutation or unissued effect, reconcile request/checkpoint with current Goal,
+task, Git/GitHub, effects, and owners; restore the checkpoint. Publish once only on an explicit post-recovery
+host request.
+Compaction preserves turn identity and consumed observation admission; it authorizes no second wait,
+thread/status read, output, or effect.
+If the checkpoint cannot prove decision coverage through interruption, invalidate Plan and replay affected
+owner reads; replacement cannot heal omission. An unreadable affected identity freezes only its action and
+names the earliest useful read.
 
 For child or single, require the same Mission, current task, Origin/candidate, next owner, and effect boundary.
 For role=hub, additionally require:

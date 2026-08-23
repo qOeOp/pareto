@@ -81,10 +81,10 @@ After release, add the child to the Hub active set and monitor only through the 
 
 ## Observe child events without polling
 
-An observation window is admitted by one explicit user status request, one unseen terminal or
-needs-attention receipt, or one unconsumed checkpointed next observation action. Callback transport is an
-optional early wake: it may report a structural authority gap, changed dependency receipt, or terminal
-state, but it does not replace Hub custody or make arrival order authoritative.
+An observation window requires an unseen terminal/needs-attention receipt, an unconsumed checkpointed
+next action, or an explicit status request whose exact native user-message locator proves non-carrier
+source. Callback transport may wake early for a structural authority gap, dependency change, or terminal
+state; it neither replaces Hub custody nor makes arrival order authoritative.
 
 The Hub consumes Finalize's child decision index with the native identity carried by transport.
 Missing, malformed, unknown, or unavailable locators freeze only the dependent Hub action; the
@@ -99,8 +99,8 @@ Only a receipt changing the next Hub operation, authority, identity, candidate v
 Stop/Resume, or endpoint is actionable; child progress never is. Progress, expiry, or transport failure
 consumes the checkpoint's admission and ends the turn silently with custody intact—no Hub output, checkpoint,
 read, effect, or resubscription. The checkpoint remains dormant custody, not later wait authority.
-Later observation requires an actionable target callback or authenticated user input; `source=goal`,
-carrier status, and time cannot authorize it. Admit a thread read only after an actionable receipt or
+Later observation requires an actionable callback or that exact user-message locator; `source=goal`,
+carrier status, time, or unlocated `continue` prove no authority. Admit a thread read only after an actionable receipt or
 explicit user history question, and only when the host bounds exact target, turn, item, and output
 before model context; otherwise history is unavailable.
 
