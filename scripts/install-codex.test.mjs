@@ -452,8 +452,15 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedTaskWorkflow, /native create\/reuse and send receipts admit `threadId`\/`hostId` to\s+the Goal DAG and active-task set/);
   assert.match(installedTaskWorkflow, /An exposed `agentThreadId` remains agent activity, not Task\s+admission/);
   assert.match(installedTaskWorkflow, /Classify custody by issuing receipt, never names or thread locators/);
-  assert.match(installedTaskWorkflow, /`source=goal` carries but never wakes one checkpointed wait/);
-  assert.match(installedTaskWorkflow, /target callback or authenticated user input wakes it; an unchanged window consumes it/);
+  assert.match(installedTaskWorkflow, /`source=goal`,\s+carrier status, and time cannot authorize it/);
+  assert.match(installedTaskWorkflow, /One Hub turn owns at most one native cursor-bound wait/);
+  assert.match(installedTaskWorkflow, /one unconsumed checkpointed next observation action/);
+  assert.match(installedTaskWorkflow, /child progress never is/);
+  assert.match(installedTaskWorkflow,
+    /Progress, expiry, or transport failure\s+consumes the checkpoint's admission and ends the turn silently with custody intact—no Hub output, checkpoint,\s+read, effect, or resubscription/);
+  assert.match(installedTaskWorkflow, /checkpoint remains dormant custody, not later wait authority/);
+  assert.match(installedTaskWorkflow,
+    /Later observation requires an actionable target callback or authenticated user input/);
   assert.doesNotMatch(installedTaskWorkflow, /Only it has `threadId`\/`hostId`/);
   assert.match(installedTaskWorkflow, /never substitute an agent lane/);
   assert.match(installedTaskWorkflow, /A \*\*Leaf Main\*\* \(single or child\) owns implementation/);
