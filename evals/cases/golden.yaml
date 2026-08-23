@@ -1806,6 +1806,33 @@
         later_observation_authority: actionable_callback_or_authenticated_user_input
         disposition: silent_yield
 
+- description: "[full] compaction preserves consumed Hub observation admission"
+  metadata:
+    observations: { capability: { id: ORC-07, scenario: recovery, case_id: orc-07-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, conversation_compaction_state, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A source=goal carrier says `continue` without an actionable callback or exact
+      native user-message locator. Later, an explicit status request with an exact non-carrier native user-message
+      locator admits one timeoutMs: 0 snapshot; it returns only child progress and consumes observation admission.
+      Compaction then occurs within that same turn. Return exactly the recovery disposition below; do not make a
+      second wait, read thread/status, emit progress, or perform an effect.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        carrier_exact_user_message_locator: missing
+        carrier_turn_native_wait_calls: zero
+        status_request_locator: exact_non_carrier_native_user_message
+        status_turn_native_wait_calls: one
+        checkpoint_admission: consumed
+        compaction_turn_identity: preserved
+        post_compaction_native_wait_calls: zero
+        post_compaction_thread_or_status_read: none
+        commentary: none
+        repository_or_github_effect: none
+        disposition: silent_yield
+
 - description: "[full] incomplete recovery checkpoint freezes only the affected action"
   metadata:
     observations: { capability: { id: ORC-04, scenario: negative, case_id: orc-04-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, conversation_compaction_state, native_goal_state, native_task_state] }
