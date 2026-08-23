@@ -100,17 +100,14 @@ Choose session mode from independently valuable outcomes:
 
 - zero: work directly;
 - one: use the current task, Goal-unbound unless explicit matching Goal authority exists;
-- multiple: require a matching active Goal and load
-  [Codex task dispatch](references/orchestration/orchestration-task-workflow.md).
+- multiple: load [Codex task dispatch](references/orchestration/orchestration-task-workflow.md);
+  bind a Goal only when the host can keep it dormant between runnable actions.
 
-Observe Goal capability before a Goal effect; absence freezes only Goal/DAG-dependent effects. A Goal
+Observe Goal capability before a Goal effect; absence freezes only that effect. A Goal
 is persistence for the overall outcome, not a clock or work scheduler.
 
-For Hub work, task dispatch owns native identity, DAG, active-task custody, callbacks, bounded
-observation, fan-in, and endpoints. A Hub acts only on an admitted user request, unseen terminal or
-needs-attention receipt, or one checkpointed observation action. An unchanged observation is a silent
-yield with no immediate resubscription. Callback transport may close a window early but is not the
-only custody mechanism.
+For Hub work, task dispatch owns native identity, DAG, active-task custody, wake admission, bounded
+observation, fan-in, and endpoints.
 
 For a native Task, bind one exact target, one complete message, required title/identity gates, and the
 observable native send receipt. Raw payload length or digest is producer identity, not proof of model

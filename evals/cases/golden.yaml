@@ -1779,6 +1779,29 @@
         next_observation_action: checkpointed
         disposition: silent_yield
 
+- description: "[full] host wake owns recurring Hub observation without an active Goal"
+  metadata:
+    observations: { capability: { id: ORC-07, scenario: positive, case_id: orc-07-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_goal_state, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A Hub has active native Tasks and the host automatically emits source=goal
+      continuations while an active Goal waits. The user explicitly authorized one product-native recurring
+      monitor with an exact target, cadence, output policy, and terminal condition. Return exactly the required
+      custody design below; do not use Goal continuation or blocked status as a wait mechanism.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        async_hub_goal_binding: none
+        wake_owner: product_native_recurring_monitor
+        wake_authority: exact_target_cadence_output_terminal
+        scheduled_window_native_wait_calls: one
+        native_task_custody: hub_checkpoint
+        wake_owner_dag_or_candidate_authority: none
+        source_goal_observation_authority: none
+        blocked_as_wait: forbidden
+
 - description: "[full] carrier-only progress cannot reopen consumed Hub observation"
   metadata:
     observations: { capability: { id: ORC-07, scenario: negative, case_id: orc-07-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }

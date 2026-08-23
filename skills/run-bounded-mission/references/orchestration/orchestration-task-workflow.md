@@ -7,7 +7,7 @@ admission, identity, DAG/custody, fan-in, and endpoints - not leaf work, review,
 
 - A **native Task** is a bounded, accepted, independently closable consumer outcome created and sent
   by native thread tools. Only its native create/reuse and send receipts admit `threadId`/`hostId` to
-  the Goal DAG and active-task set and confer child lifecycle, candidate, or PR custody.
+  the Hub DAG and active-task set and confer child lifecycle, candidate, or PR custody.
 - An **agent lane** follows [agent routing](orchestration-agent-routing.md) and uses `spawn_agent` for
   one bounded question, frozen mechanical leaf, or review inside one Mission; it has no independent
   outcome, custody, branch, PR, or effect. An exposed `agentThreadId` remains agent activity, not Task
@@ -19,8 +19,9 @@ Hub-mode approval of bounded independent outcomes authorizes exact native-Task p
 admitted Frame/effects. A new outcome or wider effect requires alignment. Missing or ambiguous native-
 Task capability freezes its node; never substitute an agent lane.
 
-Before a Goal effect, reconcile the matching Goal. It stores overall outcome and completion, not a work
-clock; absent capability or a nonmatching Goal freezes Goal/DAG effects.
+Before a Goal effect, reconcile the matching Goal. It stores overall outcome and completion, not work
+cadence; absent capability or a nonmatching Goal freezes only that effect. Bind no Goal to an
+asynchronous Hub when the host automatically continues active Goals between runnable actions.
 
 For new independent Missions only, [canonical task types](orchestration-task-types.md) owns one stable
 label/title; native identity remains exact `threadId`/`hostId`. Only a Hub creates or reuses it. A child
@@ -81,10 +82,10 @@ After release, add the child to the Hub active set and monitor only through the 
 
 ## Observe child events without polling
 
-An observation window requires an unseen terminal/needs-attention receipt, an unconsumed checkpointed
-next action, or an explicit status request whose exact native user-message locator proves non-carrier
-source. Callback transport may wake early for a structural authority gap, dependency change, or terminal
-state; it neither replaces Hub custody nor makes arrival order authoritative.
+Host wake admission consumes exactly one just-issued first observation, actionable callback, exact
+non-carrier user request, or due tick from a product-native recurring monitor whose target, cadence,
+output policy, and terminal condition the user authorized. The wake owner never owns the DAG,
+authority, or candidate.
 
 The Hub consumes Finalize's child decision index with the native identity carried by transport.
 Missing, malformed, unknown, or unavailable locators freeze only the dependent Hub action; the
@@ -98,9 +99,9 @@ cancel non-returning transport at a stricter caller deadline; Main never emulate
 Only a receipt changing the next Hub operation, authority, identity, candidate verdict, DAG release,
 Stop/Resume, or endpoint is actionable; child progress never is. Progress, expiry, or transport failure
 consumes the checkpoint's admission and ends the turn silently with custody intact—no Hub output, checkpoint,
-read, effect, or resubscription. The checkpoint remains dormant custody, not later wait authority.
-Later observation requires an actionable callback or that exact user-message locator; `source=goal`,
-carrier status, time, or unlocated `continue` prove no authority. Admit a thread read only after an actionable receipt or
+read, effect, or immediate resubscription. The checkpoint remains dormant custody, not later wait
+authority; a later window requires its wake owner again. `source=goal`, carrier status, elapsed time,
+or unlocated `continue` authorize no wait, Resume, read, output, or effect. Admit a thread read only after an actionable receipt or
 explicit user history question, and only when the host bounds exact target, turn, item, and output
 before model context; otherwise history is unavailable.
 
@@ -147,12 +148,13 @@ authorized cancellation. A child never updates the Goal.
 
 ## Capability fallback
 
-Unavailable Goal capability freezes Goal/DAG effects but permits an explicitly Goal-unbound single
-Mission. Native Task custody runs from consumed create/send attempt to exact endpoint or explicit
+Unavailable Goal capability freezes only Goal effects. Native Task custody runs from consumed
+create/send attempt to exact endpoint or explicit
 cancellation/reframe; availability never vacates its identity, owner, candidate, or endpoint. Before
 identity, ambiguous success is host-defect/no-change. After identity, preserve the Task, candidate,
 branch, and worktree; mark its node `needs_attention` until that same Task resumes. Retry, replacement,
 support/hidden writer, or substitute endpoint is forbidden. Independent
 nodes may continue.
-Never serialize Hub state into repository files or add an automation, reminder, daemon, heartbeat,
-queue, or scheduler.
+Never serialize Hub state or build a Skill-local clock, queue, daemon, or scheduler. Explicit recurring
+observation uses only the product-native wake owner above and remains Goal-unbound when active Goals
+auto-continue.

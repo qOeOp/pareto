@@ -6,7 +6,7 @@ Frame, Plan, the writable winner, fan-in, effects, acceptance, and Finalize; its
 a proposal, or a bounded leaf.
 
 A lane answers only its dispatching Mission and cannot cross live parent or sibling state. No route here
-creates a Goal/DAG node, active-task member, independent outcome, native Task replacement, branch, PR,
+creates a Hub DAG node, active-task member, independent outcome, native Task replacement, branch, PR,
 or lane-owned or lane-authorized downstream effect.
 
 Role load map:
