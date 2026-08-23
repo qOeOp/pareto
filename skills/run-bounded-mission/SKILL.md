@@ -174,10 +174,11 @@ before mutation; structural pressure loads
 A test, fixture, migration, or cleanup carries its real effects. A default, runtime, shared, fallback,
 or otherwise unverified target is unavailable, not a test target.
 
-Locate before dependency reads. Capture complete verbose/failure output silently; return byte-bounded
-decisive excerpts plus terminal summaries, never line-only limits. Retain full launch result and session
-custody across one cursor-bound state/deadline wait; continue only transport yields. Progress/expiry authorizes neither
-re-observation nor interruption.
+Locate before dependency reads. Capture output silently. Admit pass only from a finished zero-status
+invocation on the unchanged candidate; output is optional. Progress, incomplete/truncated terminal receipt,
+or nonzero/unknown status is unavailable. Return byte-bounded excerpts and a terminal summary. Retain launch/session custody
+across one cursor-bound state/deadline wait; continue only transport yields. Progress/expiry authorizes
+neither re-observation nor interruption.
 
 ## Verify
 
@@ -186,8 +187,7 @@ For the exact candidate:
 1. exercise the real consumer;
 2. run the smallest authoritative owner and boundary regressions;
 3. inspect the complete diff and run the repository root gate plus git diff --check;
-4. prove checks created no unintended workspace changes;
-5. record failures and unavailable evidence without turning them into passes.
+4. prove checks created no unintended workspace changes.
 
 Tests support but do not override a higher-authority consumer. Static closure is not dynamic proof.
 Candidate changes stale only affected evidence. Mark claims `declared`, `reachable`, `dynamic`, or
