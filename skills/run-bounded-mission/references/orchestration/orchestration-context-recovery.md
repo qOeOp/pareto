@@ -47,10 +47,10 @@ omitted target. Callback unavailability does not erase native Task custody.
 Bind each user control event once by its exact locator in `Authority / Stop / Resume`. A finite pause
 remains armed until a strictly later authenticated native control receipt or user confirmation resumes
 that exact Goal and pause, with no newer conflict. `source=goal`, Goal status/text, or time alone prove
-no Resume, drift, or blocker; only a matching continuation with checkpointed non-empty targets may
-carry its exact wait; carrier-only repeats never enter blocked audit. Otherwise freeze dependent
-effects; do not write status, load owners, or observe. Once authenticated, consume the Goal and
-its next
+no Resume or drift. Goal status follows only the kernel inherited-Goal transition; observation and an
+empty active set follow task dispatch. Only a matching continuation with checkpointed non-empty
+targets may carry its exact wait. Otherwise freeze dependent effects; do not load owners or observe.
+Once authenticated, consume the Goal and its next
 action once; only a new exact pause can arm another.
 
 When a release predicate changed, invoke its recorded next owner before unrelated work. When evidence

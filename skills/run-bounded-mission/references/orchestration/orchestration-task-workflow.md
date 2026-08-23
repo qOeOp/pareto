@@ -19,9 +19,10 @@ Hub-mode approval of bounded independent outcomes authorizes exact native-Task p
 admitted Frame/effects. A new outcome or wider effect requires alignment. Missing or ambiguous native-
 Task capability freezes its node; never substitute an agent lane.
 
-Before a Goal effect, reconcile the matching Goal. It stores overall outcome and completion, not work
-cadence; absent capability or a nonmatching Goal freezes only that effect. Bind no Goal to an
-asynchronous Hub when automatic continuation cannot carry the checkpointed active-task wait below.
+Before a Goal effect, reconcile the matching Goal and apply the kernel binding rule. It stores overall
+outcome and completion, not work cadence; absent capability or a nonmatching Goal freezes only that
+effect. An asynchronous Hub may bind it only while a runnable operation or the checkpointed active-task
+wait below exists.
 
 For new independent Missions only, [canonical task types](orchestration-task-types.md) owns one stable
 label/title; native identity remains exact `threadId`/`hostId`. Only a Hub creates or reuses it. A child
@@ -104,8 +105,11 @@ target-set/cursor/failure-class key and consecutive-window count, saturated at t
 successful wait or target-set change. Counts one and two are silent with no read/retry; count three is
 unavailable only when decision consumption is blocked and no independent running or runnable node can progress.
 Waiting never enters blocked audit. Only a later admitted wake may re-arm the exact wait; a
-source=goal wake must match its checkpointed non-empty active set. Without a waitable target it permits
-one idempotent needs-attention pause/rebind, then silence; it never authorizes Resume, read, or an effect.
+source=goal wake must match its checkpointed non-empty active set. An empty active set is a DAG
+scheduling event, not evidence that the Goal is blocked: missing Finalize from a known Task returns
+that node to one exact runnable recovery; a repeated empty completion freezes only that node. Every
+independent runnable node releases in the same turn. If neither recovery, release, nor a wait remains,
+apply the kernel inherited-Goal transition.
 Admit a thread read only after an actionable receipt or
 explicit user history question, and only when the host bounds exact target, turn, item, and output
 before model context; otherwise history is unavailable.
@@ -161,5 +165,5 @@ branch, and worktree; mark its node `needs_attention` until that same Task resum
 support/hidden writer, or substitute endpoint is forbidden. Independent
 nodes may continue.
 Never serialize Hub state or build a Skill-local clock, queue, daemon, or scheduler. Explicit recurring
-observation uses the matching Goal carrier only for the exact checkpointed active-target wait;
-otherwise use the product-native wake owner above and remain Goal-unbound.
+observation uses the product-native wake owner above and remains Goal-unbound. A Goal-bound executable
+Hub may carry only the exact checkpointed active-target wait.

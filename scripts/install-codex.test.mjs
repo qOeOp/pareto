@@ -419,6 +419,8 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.ok(executeHeading < implementationBoundary);
   assert.doesNotMatch(installedSkillSource, /Before any mutation or effect issuance/);
   assert.match(installedSkillSource, /A test, fixture, migration, or cleanup carries its real effects/);
+  assert.match(installedSkillSource, /Passive observation uses a product-native recurring\s+monitor and remains Goal-unbound/);
+  assert.match(installedSkillSource, /enters the host blocked audit; it never returns silence/);
   assert.match(installedSkillSource, /unverified target is unavailable, not a test target/);
   assert.match(installedSkillSource,
     /Admit pass only from a finished zero-status\s+invocation on the unchanged candidate/);
@@ -441,7 +443,8 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedRecoveryOwner, /restore the checkpoint/);
   assert.match(installedRecoveryOwner, /One checkpoint\s+admits a Hub wave/);
   assert.match(installedRecoveryOwner, /Publish once only on an explicit post-recovery\s+host request/);
-  assert.match(installedRecoveryOwner, /carrier-only repeats never enter blocked audit/);
+  assert.match(installedRecoveryOwner,
+    /Goal status follows only the kernel inherited-Goal transition/);
   const installedTaskWorkflow = await readFile(join(
     agentsRoot, "skills", "run-bounded-mission", "references", "orchestration",
     "orchestration-task-workflow.md",
@@ -455,7 +458,12 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedTaskWorkflow,
     /Only a later admitted wake may re-arm the exact wait; a\s+source=goal wake must match/);
   assert.match(installedTaskWorkflow,
-    /Without a waitable target it permits\s+one idempotent needs-attention pause\/rebind, then silence/);
+    /An empty active set is a DAG\s+scheduling event, not evidence that the Goal is blocked/);
+  assert.match(installedTaskWorkflow,
+    /missing Finalize from a known Task returns\s+that node to one exact runnable recovery/);
+  assert.match(installedTaskWorkflow, /a repeated empty completion freezes only that node/);
+  assert.match(installedTaskWorkflow,
+    /apply the kernel inherited-Goal transition/);
   assert.match(installedTaskWorkflow, /One Hub turn owns at most one native cursor-bound wait/);
   assert.match(installedTaskWorkflow, /Host wake admission consumes exactly one just-issued first observation/);
   assert.match(installedTaskWorkflow,
@@ -470,7 +478,7 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedTaskWorkflow, /exact\s+non-carrier user request/);
   assert.match(installedRecoveryOwner, /Compaction preserves turn identity and consumed observation admission/);
   assert.match(installedTaskWorkflow,
-    /Bind no Goal to an\s+asynchronous Hub when automatic continuation cannot carry the checkpointed active-task wait/);
+    /An asynchronous Hub may bind it only while a runnable operation or the checkpointed active-task\s+wait below exists/);
   assert.match(installedTaskWorkflow, /Waiting never enters blocked audit/);
   assert.match(installedTaskWorkflow,
     /count three is\s+unavailable only when decision consumption is blocked and no independent running or runnable node can progress/);
@@ -480,12 +488,14 @@ const origin = join(root, "qOeOp", "skills.git");
     "quality-assurance-lifecycle-policy.md",
   ), "utf8");
   assert.match(installedLifecycleQa,
-    /Apply the orchestration\s+wait transition from the checkpointed transport-failure key\/count/);
+    /Apply the orchestration\s+wait\s+and empty-active-set transitions from the checkpointed transport-failure key\/count/);
+  assert.match(installedLifecycleQa,
+    /Admit one finite Goal-unbound session/);
   assert.doesNotMatch(installedLifecycleQa, /task-table read/);
   assert.match(installedTaskWorkflow, /Unavailable Goal capability freezes only Goal effects/);
   assert.match(installedTaskWorkflow, /Never serialize Hub state or build a Skill-local clock/);
   assert.match(installedTaskWorkflow,
-    /matching Goal carrier only for the exact checkpointed active-target wait/);
+    /Goal-bound executable\s+Hub may carry only the exact checkpointed active-target wait/);
   assert.doesNotMatch(installedTaskWorkflow,
     /add an automation, reminder, daemon, heartbeat,\s+queue, or scheduler/);
   assert.doesNotMatch(installedTaskWorkflow, /Only it has `threadId`\/`hostId`/);

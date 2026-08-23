@@ -101,11 +101,13 @@ Choose session mode from independently valuable outcomes:
 - zero: work directly;
 - one: use the current task, Goal-unbound unless explicit matching Goal authority exists;
 - multiple: load [Codex task dispatch](references/orchestration/orchestration-task-workflow.md);
-  bind a Goal only when the host keeps it dormant or its continuation can carry one exact
-  checkpointed active-target wait.
+  bind a Goal only while it has an admitted next operation or its continuation can carry one exact
+  checkpointed non-empty active-target wait.
 
-Observe Goal capability before a Goal effect; absence freezes only that effect. A Goal
-is persistence for the overall outcome, not a clock or work scheduler.
+Observe Goal capability before a Goal effect; absence freezes only that effect. A Goal persists the
+overall outcome; it never supplies cadence. Passive observation uses a product-native recurring
+monitor and remains Goal-unbound. An inherited Goal with neither a runnable operation nor the exact
+wait emits one visible rebind decision and enters the host blocked audit; it never returns silence.
 
 For Hub work, task dispatch owns native identity, DAG, active-task custody, wake admission, bounded
 observation, fan-in, and endpoints.

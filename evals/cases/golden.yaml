@@ -1856,6 +1856,56 @@
         repository_or_github_effect: none
         disposition: silent_yield
 
+- description: "[full] missing Finalize recovers the same Tasks without blocking independent DAG work"
+  metadata:
+    observations: { capability: { id: ORC-08, scenario: recovery, case_id: orc-08-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_goal_state, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A Hub's active set became empty after two receipt-admitted Native Tasks completed,
+      but each callback and exact terminal turn has items=[] instead of Finalize. Their exact identities, custody,
+      and last admitted message locators remain known, and another independent DAG node is runnable. Return exactly
+      the required recovery disposition below, including the result if one recovery also completes empty; do not
+      create replacement Tasks or block the overall Goal.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        empty_active_set: dag_scheduling_event
+        missing_finalize_nodes: runnable_recovery
+        recovery_identity: same_native_tasks
+        recovery_continuation_send: once_each
+        repeated_empty_completion: freeze_affected_acceptance
+        replacement_task_create: forbidden
+        independent_runnable_release: same_turn
+        whole_goal_blocked: false
+        visible_goal_rebind: none
+
+- description: "[full] passive observer cannot silently recycle an inherited active Goal"
+  metadata:
+    observations: { capability: { id: QUA-04, scenario: negative, case_id: qua-04-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_goal_state, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A passive observer inherited an active Goal, but it has no runnable operation and
+      no checkpointed non-empty active-task wait. A source=goal carrier arrives. Return exactly the required finite
+      disposition below; do not wait, read history, observe a peer, or perform a repository or GitHub effect.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        session_mode: passive_observation
+        inherited_goal_binding: misbound
+        runnable_operation: none
+        checkpointed_nonempty_wait: none
+        native_wait_calls: zero
+        history_read: none
+        repository_or_github_effect: none
+        visible_decision: pause_or_clear_goal_and_rebind_product_native_monitor
+        silent_return: forbidden
+        blocked_as_wait: forbidden
+        disposition: enter_host_blocked_audit
+
 - description: "[full] incomplete recovery checkpoint freezes only the affected action"
   metadata:
     observations: { capability: { id: ORC-04, scenario: negative, case_id: orc-04-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, conversation_compaction_state, native_goal_state, native_task_state] }
