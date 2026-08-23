@@ -12,7 +12,7 @@ admission, identity, DAG/custody, fan-in, and endpoints - not leaf work, review,
   one bounded question, frozen mechanical leaf, or review inside one Mission; it has no independent
   outcome, custody, branch, PR, or effect. An exposed `agentThreadId` remains agent activity, not Task
   admission.
-- **Main** owns ordinary implementation and lifecycle authority; support work stays in its outcome's Mission.
+- A **Leaf Main** (single or child) owns implementation; support stays inside that Mission.
 
 Classify custody by issuing receipt, never names or thread locators. Explicit
 Hub-mode approval of bounded independent outcomes authorizes exact native-Task packets within the
@@ -46,10 +46,10 @@ Every edge must have an immutable locator and bounded affected slice. Recompute 
 before a dependent effect; a cycle or overlapping writer returns the component to Plan. Repository
 labels, receipt order, elapsed time, or task status cannot invent an edge.
 
-The Hub owns the registered active-task set, exact cursors, consumed actionable locators, current
-window, and next observation action. A child owns its Frame through Finalize, implementation,
-verification, CI, review, waiting, and terminal evidence. Hub work is limited to admission, custody,
-DAG/authority reconciliation, fan-in, and guarded merge.
+The Hub owns active Tasks, cursors, the current window, DAG/authority, fan-in, and guarded merge. A
+child owns Frame through Finalize. Before a Hub repository mutation, require exact terminal child
+evidence and integration scope; otherwise release or recover its native Task, or freeze the node when
+Task capability is unavailable. Agent lanes never satisfy this gate.
 
 ## Admit one native Task message
 
@@ -153,7 +153,7 @@ Mission. Native Task custody runs from consumed create/send attempt to exact end
 cancellation/reframe; availability never vacates its identity, owner, candidate, or endpoint. Before
 identity, ambiguous success is host-defect/no-change. After identity, preserve the Task, candidate,
 branch, and worktree; mark its node `needs_attention` until that same Task resumes. Retry, replacement,
-support/hidden writer, Hub foreground execution, or substitute endpoint is forbidden. Independent
+support/hidden writer, or substitute endpoint is forbidden. Independent
 nodes may continue.
 Never serialize Hub state into repository files or add an automation, reminder, daemon, heartbeat,
 queue, or scheduler.

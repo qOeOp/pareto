@@ -38,6 +38,25 @@
         - "prove_no_lost_task: true"
         - "prove_no_duplicate_create: true"
 
+- description: "[holdout] Hub blocks foreground leaf before first mutation"
+  metadata:
+    observations: { capability: { id: ORC-09, scenario: negative, case_id: orc-09-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. An authorized Hub has a runnable independently closable implementation
+      leaf, no native create/send attempt for it, and several available read-only agent lanes. The Hub
+      is about to edit that leaf in its own candidate. Return the effect admission before the first edit.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: contains-all
+      value:
+        - "hub_foreground_mutation: forbidden"
+        - "native_task_action: release_or_recover"
+        - "agent_lane_substitution: forbidden"
+        - "hub_repository_write: terminal-child-integration-only"
+        - "task_capability_unavailable: freeze_node"
+
 - description: "[holdout] terminal artifact custody preserves unique and prunable work"
   metadata:
     observations: { capability: { id: DLV-04, scenario: positive, case_id: terminal-artifact-custody }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, github_state] }
