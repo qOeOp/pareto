@@ -1,14 +1,14 @@
 # Mission Replacement Checkpoint
 
-After a nontrivial Plan, keep one private effect-admission checkpoint. Replace it only for an affected
-mutation/message/effect or recovery; read-only decisions and Finalize produce none. One checkpoint
+After a nontrivial Plan, keep one private effect-admission checkpoint. Replace it only when effect
+admission or retained decision state changes, and on recovery; Finalize produces none. One checkpoint
 admits a Hub wave, never each child. It indexes native tasks, Git/GitHub, and user facts, not authority.
 
 ```text
 Mission checkpoint
 Scope: <language; role=hub|child|single; exact Mission and current native-task locators; Goal locator when applicable; exact consumer/acceptance locator; exact Origin and immutable candidate/change-set locators or unavailable>
 Control: <decision-relevant issued or unissued effects with exact receipts when issued; exact authority, Stop, and Resume locators or unavailable>
-State: <unresolved findings and decisive evidence locators; only for role=hub, exact active tasks, DAG, and cursors>
+State: <unresolved findings and decisive evidence locators; only for role=hub, exact active tasks, DAG, cursors, and wait-transport failure key/count>
 Next: <stage; owner; predicate; one operation; terminal condition>
 ```
 
@@ -47,7 +47,8 @@ omitted target. Callback unavailability does not erase native Task custody.
 Bind each user control event once by its exact locator in `Authority / Stop / Resume`. A finite pause
 remains armed until a strictly later authenticated native control receipt or user confirmation resumes
 that exact Goal and pause, with no newer conflict. `source=goal`, Goal status/text, or time alone prove
-no Resume, intent drift, or blocker; carrier-only repeats never enter blocked audit. Freeze dependent
+no Resume, drift, or blocker; only a matching continuation with checkpointed non-empty targets may
+carry its exact wait; carrier-only repeats never enter blocked audit. Otherwise freeze dependent
 effects; do not write status, load owners, or observe. Once authenticated, consume the Goal and
 its next
 action once; only a new exact pause can arm another.

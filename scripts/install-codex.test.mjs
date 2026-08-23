@@ -453,21 +453,39 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedTaskWorkflow, /An exposed `agentThreadId` remains agent activity, not Task\s+admission/);
   assert.match(installedTaskWorkflow, /Classify custody by issuing receipt, never names or thread locators/);
   assert.match(installedTaskWorkflow,
-    /`source=goal`, carrier status, elapsed time,\s+or unlocated `continue` authorize no wait, Resume, read, output, or effect/);
+    /Only a later admitted wake may re-arm the exact wait; a\s+source=goal wake must match/);
+  assert.match(installedTaskWorkflow,
+    /Without a waitable target it permits\s+one idempotent needs-attention pause\/rebind, then silence/);
   assert.match(installedTaskWorkflow, /One Hub turn owns at most one native cursor-bound wait/);
   assert.match(installedTaskWorkflow, /Host wake admission consumes exactly one just-issued first observation/);
-  assert.match(installedTaskWorkflow, /due tick from a product-native recurring monitor/);
+  assert.match(installedTaskWorkflow,
+    /matching Goal continuation for a checkpointed non-empty active set/);
+  assert.match(installedTaskWorkflow, /due\s+tick from a product-native recurring monitor/);
   assert.match(installedTaskWorkflow, /wake owner never owns the DAG,\s+authority, or candidate/);
   assert.match(installedTaskWorkflow, /child progress never is/);
+  assert.match(installedTaskWorkflow, /Progress\/expiry is silent waiting/);
   assert.match(installedTaskWorkflow,
-    /Progress, expiry, or transport failure\s+consumes the checkpoint's admission and ends the turn silently with custody intact—no Hub output, checkpoint,\s+read, effect, or immediate resubscription/);
-  assert.match(installedTaskWorkflow, /checkpoint remains dormant custody, not later wait\s+authority/);
+    /checkpoint the exact\s+target-set\/cursor\/failure-class key and consecutive-window count/);
+  assert.match(installedTaskWorkflow, /saturated at three/);
   assert.match(installedTaskWorkflow, /exact\s+non-carrier user request/);
   assert.match(installedRecoveryOwner, /Compaction preserves turn identity and consumed observation admission/);
-  assert.match(installedTaskWorkflow, /Bind no Goal to an\s+asynchronous Hub when the host automatically continues active Goals/);
+  assert.match(installedTaskWorkflow,
+    /Bind no Goal to an\s+asynchronous Hub when automatic continuation cannot carry the checkpointed active-task wait/);
+  assert.match(installedTaskWorkflow, /Waiting never enters blocked audit/);
+  assert.match(installedTaskWorkflow,
+    /count three is\s+unavailable only when decision consumption is blocked and no independent running or runnable node can progress/);
+  assert.match(installedRecoveryOwner, /wait-transport failure key\/count/);
+  const installedLifecycleQa = await readFile(join(
+    agentsRoot, "skills", "run-bounded-mission", "references", "quality-assurance",
+    "quality-assurance-lifecycle-policy.md",
+  ), "utf8");
+  assert.match(installedLifecycleQa,
+    /Apply the orchestration\s+wait transition from the checkpointed transport-failure key\/count/);
+  assert.doesNotMatch(installedLifecycleQa, /task-table read/);
   assert.match(installedTaskWorkflow, /Unavailable Goal capability freezes only Goal effects/);
   assert.match(installedTaskWorkflow, /Never serialize Hub state or build a Skill-local clock/);
-  assert.match(installedTaskWorkflow, /remains Goal-unbound when active Goals\s+auto-continue/);
+  assert.match(installedTaskWorkflow,
+    /matching Goal carrier only for the exact checkpointed active-target wait/);
   assert.doesNotMatch(installedTaskWorkflow,
     /add an automation, reminder, daemon, heartbeat,\s+queue, or scheduler/);
   assert.doesNotMatch(installedTaskWorkflow, /Only it has `threadId`\/`hostId`/);
@@ -479,7 +497,8 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.doesNotMatch(installedRecoveryOwner, /complete current Frame|complete admitted Plan/);
   assert.match(installedRecoveryOwner, /inventories, stable nonclaims, completed steps/);
   assert.match(installedRecoveryOwner, /role=hub\|child\|single/);
-  assert.match(installedRecoveryOwner, /only for role=hub, exact active tasks, DAG, and cursors/);
+  assert.match(installedRecoveryOwner,
+    /only for role=hub, exact active tasks, DAG, cursors, and wait-transport failure key\/count/);
   assert.match(installedRecoveryOwner, /exact Mission and current native-task locators/);
   assert.match(installedRecoveryOwner, /same Mission, current task/);
   assert.match(installedRecoveryOwner, /exact consumer\/acceptance locator/);
