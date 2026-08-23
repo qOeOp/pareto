@@ -437,6 +437,7 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedRecoveryOwner, /restore the compact checkpoint/);
   assert.match(installedRecoveryOwner, /One checkpoint\s+admits a Hub wave/);
   assert.match(installedRecoveryOwner, /otherwise keep it private/);
+  assert.match(installedRecoveryOwner, /carrier-only repeats never enter blocked audit/);
   const installedTaskWorkflow = await readFile(join(
     agentsRoot, "skills", "run-bounded-mission", "references", "orchestration",
     "orchestration-task-workflow.md",
