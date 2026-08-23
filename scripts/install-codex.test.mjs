@@ -421,7 +421,11 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedSkillSource, /A test, fixture, migration, or cleanup carries its real effects/);
   assert.match(installedSkillSource, /unverified target is unavailable, not a test target/);
   assert.match(installedSkillSource,
-    /Capture complete verbose\/failure output silently; return byte-bounded\s+decisive excerpts plus terminal summaries, never line-only limits/);
+    /Admit pass only from a finished zero-status\s+invocation on the unchanged candidate/);
+  assert.match(installedSkillSource, /output is optional/);
+  assert.match(installedSkillSource,
+    /Progress, incomplete\/truncated terminal receipt,\s+or nonzero\/unknown status is unavailable/);
+  assert.match(installedSkillSource, /Return byte-bounded excerpts and a terminal summary/);
   assert.match(installedSkillSource, /Never publish their labels or fields as progress/);
   assert.match(installedSkillSource, /host requests it after context recovery/);
   const installedRecoveryOwner = await readFile(join(
