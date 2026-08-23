@@ -1881,6 +1881,33 @@
         whole_goal_blocked: false
         visible_goal_rebind: none
 
+- description: "[full] successor snapshot cannot erase a completed turn"
+  metadata:
+    observations: { capability: { id: ORC-08, scenario: negative, case_id: orc-08-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A native wait wakes with reason=turnCompleted for exact turn A, but its poll
+      snapshot has already advanced to successor turn B and contains no terminal payload for A. The same exact
+      target/prior-cursor/failure class recurs in three independent admitted windows, no independent running or
+      runnable node can progress, and consuming A would decide the endpoint. Return exactly the required
+      disposition below; do not call A carrier-only, advance its cursor, retry in-window, or read history.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        wake_reason: turnCompleted
+        wake_turn_identity: exact_A
+        snapshot_latest_turn_identity: successor_B
+        wake_terminal_payload: missing
+        carrier_only: unproved
+        cursor_advance: none
+        transport_failure_key: exact_target_prior_cursor_shadowed_terminal
+        same_window_retry_or_history_read: none
+        dependent_endpoint: frozen
+        independent_dag_work: none
+        third_window_disposition: transport_unavailable
+
 - description: "[full] passive observer cannot silently recycle an inherited active Goal"
   metadata:
     observations: { capability: { id: QUA-04, scenario: negative, case_id: qua-04-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_goal_state, native_task_state] }

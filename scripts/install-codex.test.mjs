@@ -476,6 +476,11 @@ const origin = join(root, "qOeOp", "skills.git");
     /checkpoint the exact\s+target-set\/cursor\/failure-class key and consecutive-window count/);
   assert.match(installedTaskWorkflow, /saturated at three/);
   assert.match(installedTaskWorkflow, /exact\s+non-carrier user request/);
+  assert.match(installedTaskWorkflow,
+    /`turnCompleted` proves an endpoint only when the wake turn and its exact terminal payload are present/);
+  assert.match(installedTaskWorkflow,
+    /snapshot advanced to a successor turn and omitted that payload, treat it as incomplete transport\s+evidence, not carrier-only/);
+  assert.match(installedTaskWorkflow, /retain the prior cursor and failure key/);
   assert.match(installedRecoveryOwner, /Compaction preserves turn identity and consumed observation admission/);
   assert.match(installedTaskWorkflow,
     /An asynchronous Hub may bind it only while a runnable operation or the checkpointed active-task\s+wait below exists/);
