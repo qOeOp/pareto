@@ -101,7 +101,8 @@ Choose session mode from independently valuable outcomes:
 - zero: work directly;
 - one: use the current task, Goal-unbound unless explicit matching Goal authority exists;
 - multiple: load [Codex task dispatch](references/orchestration/orchestration-task-workflow.md);
-  bind a Goal only when the host can keep it dormant between runnable actions.
+  bind a Goal only when the host keeps it dormant or its continuation can carry one exact
+  checkpointed active-target wait.
 
 Observe Goal capability before a Goal effect; absence freezes only that effect. A Goal
 is persistence for the overall outcome, not a clock or work scheduler.

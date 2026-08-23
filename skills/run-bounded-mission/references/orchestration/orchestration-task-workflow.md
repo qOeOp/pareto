@@ -21,7 +21,7 @@ Task capability freezes its node; never substitute an agent lane.
 
 Before a Goal effect, reconcile the matching Goal. It stores overall outcome and completion, not work
 cadence; absent capability or a nonmatching Goal freezes only that effect. Bind no Goal to an
-asynchronous Hub when the host automatically continues active Goals between runnable actions.
+asynchronous Hub when automatic continuation cannot carry the checkpointed active-task wait below.
 
 For new independent Missions only, [canonical task types](orchestration-task-types.md) owns one stable
 label/title; native identity remains exact `threadId`/`hostId`. Only a Hub creates or reuses it. A child
@@ -83,25 +83,30 @@ After release, add the child to the Hub active set and monitor only through the 
 ## Observe child events without polling
 
 Host wake admission consumes exactly one just-issued first observation, actionable callback, exact
-non-carrier user request, or due tick from a product-native recurring monitor whose target, cadence,
-output policy, and terminal condition the user authorized. The wake owner never owns the DAG,
-authority, or candidate.
+non-carrier user request, matching Goal continuation for a checkpointed non-empty active set, or due
+tick from a product-native recurring monitor with user-authorized target, cadence, output policy, and
+terminal condition. The wake owner never owns the DAG, authority, or candidate.
 
 The Hub consumes Finalize's child decision index with the native identity carried by transport.
 Missing, malformed, unknown, or unavailable locators freeze only the dependent Hub action; the
 acceptance gate below still resolves every required fact from its current owner.
 
 One Hub turn owns at most one native cursor-bound wait over the complete exact active set. Bind Stop
-and its finite timeout first. It ends on an actionable receipt, authenticated user input, expiry, or
-transport failure. An explicit status request uses one timeoutMs: 0 snapshot. Host orchestration may
-cancel non-returning transport at a stricter caller deadline; Main never emulates either deadline.
+and the longest host-safe finite timeout first. It ends on an actionable receipt, authenticated user
+input, expiry, or transport failure. An explicit status request uses one timeoutMs: 0 snapshot. Host
+orchestration may cancel non-returning transport at a stricter caller deadline; Main never emulates
+either deadline.
 
 Only a receipt changing the next Hub operation, authority, identity, candidate verdict, DAG release,
-Stop/Resume, or endpoint is actionable; child progress never is. Progress, expiry, or transport failure
-consumes the checkpoint's admission and ends the turn silently with custody intact—no Hub output, checkpoint,
-read, effect, or immediate resubscription. The checkpoint remains dormant custody, not later wait
-authority; a later window requires its wake owner again. `source=goal`, carrier status, elapsed time,
-or unlocated `continue` authorize no wait, Resume, read, output, or effect. Admit a thread read only after an actionable receipt or
+Stop/Resume, or endpoint is actionable; child progress never is. Every other result retains custody
+and ends the turn. Progress/expiry is silent waiting. For transport failure, checkpoint the exact
+target-set/cursor/failure-class key and consecutive-window count, saturated at three; clear it after a
+successful wait or target-set change. Counts one and two are silent with no read/retry; count three is
+unavailable only when decision consumption is blocked and no independent running or runnable node can progress.
+Waiting never enters blocked audit. Only a later admitted wake may re-arm the exact wait; a
+source=goal wake must match its checkpointed non-empty active set. Without a waitable target it permits
+one idempotent needs-attention pause/rebind, then silence; it never authorizes Resume, read, or an effect.
+Admit a thread read only after an actionable receipt or
 explicit user history question, and only when the host bounds exact target, turn, item, and output
 before model context; otherwise history is unavailable.
 
@@ -109,7 +114,7 @@ For each continued target require cursor continuity, target/host identity, and n
 revision. An early wake may omit a target; retain its prior facts but do not call it unchanged.
 Malformed, unknown, discontinuous, or incomplete evidence freezes affected slices and emits one
 needs-attention result with its predicate and earliest useful read. Transport or host unavailability
-ends the session with custody intact and authorizes no same-turn read or retry.
+uses this rule; no same-turn fallback is authorized.
 
 For a changed Hub window, reconcile all stable components once against current
 Goal/task/Git/GitHub/dependency/authority. Main reproduces decisive consumer conflicts and records each
@@ -156,5 +161,5 @@ branch, and worktree; mark its node `needs_attention` until that same Task resum
 support/hidden writer, or substitute endpoint is forbidden. Independent
 nodes may continue.
 Never serialize Hub state or build a Skill-local clock, queue, daemon, or scheduler. Explicit recurring
-observation uses only the product-native wake owner above and remains Goal-unbound when active Goals
-auto-continue.
+observation uses the matching Goal carrier only for the exact checkpointed active-target wait;
+otherwise use the product-native wake owner above and remain Goal-unbound.
