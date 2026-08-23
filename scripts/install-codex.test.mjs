@@ -449,21 +449,27 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedTaskWorkflow, /Replace one private checkpoint for the wave/);
   assert.match(installedTaskWorkflow, /publish only\s+if recovery permits/);
   assert.match(installedTaskWorkflow, /release every newly ready nonconflicting direct successor/);
-  assert.match(installedTaskWorkflow, /native create\/reuse and send receipts admit `threadId`\/`hostId` to\s+the Goal DAG and active-task set/);
+  assert.match(installedTaskWorkflow, /native create\/reuse and send receipts admit `threadId`\/`hostId` to\s+the Hub DAG and active-task set/);
   assert.match(installedTaskWorkflow, /An exposed `agentThreadId` remains agent activity, not Task\s+admission/);
   assert.match(installedTaskWorkflow, /Classify custody by issuing receipt, never names or thread locators/);
   assert.match(installedTaskWorkflow,
-    /`source=goal`,\s+carrier status, time, or unlocated `continue` prove no authority/);
+    /`source=goal`, carrier status, elapsed time,\s+or unlocated `continue` authorize no wait, Resume, read, output, or effect/);
   assert.match(installedTaskWorkflow, /One Hub turn owns at most one native cursor-bound wait/);
-  assert.match(installedTaskWorkflow, /an unconsumed checkpointed\s+next action/);
+  assert.match(installedTaskWorkflow, /Host wake admission consumes exactly one just-issued first observation/);
+  assert.match(installedTaskWorkflow, /due tick from a product-native recurring monitor/);
+  assert.match(installedTaskWorkflow, /wake owner never owns the DAG,\s+authority, or candidate/);
   assert.match(installedTaskWorkflow, /child progress never is/);
   assert.match(installedTaskWorkflow,
-    /Progress, expiry, or transport failure\s+consumes the checkpoint's admission and ends the turn silently with custody intact—no Hub output, checkpoint,\s+read, effect, or resubscription/);
-  assert.match(installedTaskWorkflow, /checkpoint remains dormant custody, not later wait authority/);
-  assert.match(installedTaskWorkflow, /exact native user-message locator proves non-carrier\s+source/);
+    /Progress, expiry, or transport failure\s+consumes the checkpoint's admission and ends the turn silently with custody intact—no Hub output, checkpoint,\s+read, effect, or immediate resubscription/);
+  assert.match(installedTaskWorkflow, /checkpoint remains dormant custody, not later wait\s+authority/);
+  assert.match(installedTaskWorkflow, /exact\s+non-carrier user request/);
   assert.match(installedRecoveryOwner, /Compaction preserves turn identity and consumed observation admission/);
-  assert.match(installedTaskWorkflow,
-    /Later observation requires an actionable callback or that exact user-message locator/);
+  assert.match(installedTaskWorkflow, /Bind no Goal to an\s+asynchronous Hub when the host automatically continues active Goals/);
+  assert.match(installedTaskWorkflow, /Unavailable Goal capability freezes only Goal effects/);
+  assert.match(installedTaskWorkflow, /Never serialize Hub state or build a Skill-local clock/);
+  assert.match(installedTaskWorkflow, /remains Goal-unbound when active Goals\s+auto-continue/);
+  assert.doesNotMatch(installedTaskWorkflow,
+    /add an automation, reminder, daemon, heartbeat,\s+queue, or scheduler/);
   assert.doesNotMatch(installedTaskWorkflow, /Only it has `threadId`\/`hostId`/);
   assert.match(installedTaskWorkflow, /never substitute an agent lane/);
   assert.match(installedTaskWorkflow, /A \*\*Leaf Main\*\* \(single or child\) owns implementation/);
