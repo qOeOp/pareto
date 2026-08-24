@@ -432,6 +432,8 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedSkillSource, /host requests it after context recovery/);
   assert.match(installedSkillSource, /Choose session mode from execution custody, not outcome count/);
   assert.match(installedSkillSource, /user-requested peer outcome that must outlive Hub cancellation/);
+  assert.match(installedSkillSource,
+    /agent routing[\s\S]+before any admitted evidence,\s+path-bounded implementation, mechanical, or review lane/);
   const installedRecoveryOwner = await readFile(join(
     agentsRoot,
     "skills",

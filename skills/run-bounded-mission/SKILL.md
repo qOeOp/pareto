@@ -150,8 +150,8 @@ otherwise reload it:
   test restructuring can change the candidate;
 - [optimization assessment](references/optimization/optimization-mission-assessment.md) only for an
   explicitly requested scored or system comparison;
-- [agent routing](references/orchestration/orchestration-agent-routing.md) for one unresolved evidence
-  question, one frozen mechanical leaf, or independent frozen-candidate risk questions.
+- [agent routing](references/orchestration/orchestration-agent-routing.md) before any admitted evidence,
+  path-bounded implementation, mechanical, or review lane;
 - [bounded Doctor](references/quality-assurance/quality-assurance-doctor.md) only for an explicit or
   admitted bounded cross-contract diagnostic; Discovery cannot authorize Acceptance.
 
