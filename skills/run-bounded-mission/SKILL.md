@@ -14,8 +14,8 @@ Request Admission → Frame → Plan → Execute → Verify → Finalize
 Request Admission is the Frame entrance gate, not a sixth lifecycle stage, second Spec, or Mission.
 
 The main agent owns Request Admission, Frame, Plan admission, the single writable candidate, evidence
-and finding judgment, effects, acceptance, and Finalize. A support lane may return evidence or a
-frozen leaf but cannot own those decisions. Keep repository authority current-state-only,
+and finding judgment, effects, acceptance, and Finalize. A support lane may return evidence, a proposal,
+or a leased-path bounded diff but cannot own those decisions. Keep repository authority current-state-only,
 dependencies acyclic, and the user's interaction language unchanged unless the user changes it.
 
 Build every candidate as one integrated appliance: one owner and state path per responsibility.

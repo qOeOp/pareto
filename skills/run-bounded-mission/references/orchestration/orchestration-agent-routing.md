@@ -119,7 +119,8 @@ the path callable, keeps the path and maturity unavailable, and cannot supply la
 Acceptance evidence.
 
 Before dispatch, put the exact immutable Skill root already bound for this Mission in the launch
-packet. A missing, unreadable, mismatched, mutable, or candidate-controlled root freezes dispatch
+packet and require the lane to load this owner plus its role load-map owners from that root before any
+action. A missing, unreadable, mismatched, mutable, or candidate-controlled root freezes dispatch
 before any host effect; never derive one from repository cwd, an installation convention, inherited
 context, or the candidate. Apply the selected route's Stop/fallback: Main continues directly only
 where that route permits; otherwise freeze the dependent decision.

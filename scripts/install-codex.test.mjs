@@ -567,6 +567,10 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedAgentRoutingOwner,
     /disjoint path-bounded implementation inside one Mission[\s\S]+`worker`/);
   assert.match(installedAgentRoutingOwner, /after Frame selects an intra-Mission lane/);
+  assert.match(installedSkillSource,
+    /support lane may return evidence, a proposal,\s+or a leased-path bounded diff but cannot own those decisions/);
+  assert.match(installedAgentRoutingOwner,
+    /require the lane to load this owner plus its role load-map owners from that root before any\s+action/);
   assert.match(installedAgentRoutingOwner,
     /freezes the lane and returns its custody predicate to Frame[\s\S]+only Frame may admit native Hub/);
   assert.match(installedAgentRoutingOwner,
