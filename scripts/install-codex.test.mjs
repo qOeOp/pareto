@@ -453,6 +453,10 @@ const origin = join(root, "qOeOp", "skills.git");
     agentsRoot, "skills", "run-bounded-mission", "references", "orchestration",
     "orchestration-task-workflow.md",
   ), "utf8");
+  const installedDeliveryWorkflow = await readFile(join(
+    agentsRoot, "skills", "run-bounded-mission", "references", "delivery",
+    "delivery-pullrequest-workflow.md",
+  ), "utf8");
   assert.match(installedTaskWorkflow, /Replace one private checkpoint for the wave/);
   assert.match(installedTaskWorkflow, /publish only\s+if recovery permits/);
   assert.match(installedTaskWorkflow, /release every newly ready nonconflicting direct successor/);
@@ -565,9 +569,12 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedAgentRoutingOwner, /after Frame selects an intra-Mission lane/);
   assert.match(installedAgentRoutingOwner,
     /freezes the lane and returns its custody predicate to Frame[\s\S]+only Frame may admit native Hub/);
+  assert.match(installedAgentRoutingOwner,
+    /Writable lanes run one at a time in Main's worktree[\s\S]+Parallel writers require immutable inputs[\s\S]+exact distinct cwd\/worktree\/index/);
   assert.doesNotMatch(installedAgentRoutingOwner, /Task dispatch[^\n]+chooses the primitive/);
   assert.doesNotMatch(installedAgentRoutingOwner, /use native Tasks/);
-  assert.match(installedAgentRoutingOwner, /Main alone uses Git state/);
+  assert.match(installedDeliveryWorkflow, /The native Task returns the exact PR\/head\/tree\/receipt locators/);
+  assert.doesNotMatch(installedDeliveryWorkflow, /The child returns/);
   assert.match(installedAgentRoutingOwner, /## Compile one complete lane prompt/);
   for (const field of [
     "mission_and_lane",
