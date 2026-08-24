@@ -169,7 +169,8 @@ sibling state, or delegation; it returns diff/check locators and any ambiguity o
 Independent review is owned entirely by reviewer handoff. The reviewer is fresh and read-only; Main
 reproduces findings and fans in once.
 
-Writable lanes run one at a time in Main's worktree. Parallel writers require immutable inputs, disjoint
-path leases, and exact distinct cwd/worktree/index, all Git state Main-owned. A need for a branch, PR,
+While a writable lane uses Main's worktree, it runs alone and Main makes no repository, Git/index, or
+candidate mutation until terminal fan-in. Parallel writers require immutable inputs, disjoint path leases,
+and exact distinct cwd/worktree/index, all Git state Main-owned. A need for a branch, PR,
 durable worktree, or independent lifecycle freezes the lane and returns its custody predicate to Frame;
 only Frame may admit native Hub. Lanes never consume sibling state, delegate, or authorize effects.

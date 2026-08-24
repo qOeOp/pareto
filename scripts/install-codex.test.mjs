@@ -574,7 +574,7 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedAgentRoutingOwner,
     /freezes the lane and returns its custody predicate to Frame[\s\S]+only Frame may admit native Hub/);
   assert.match(installedAgentRoutingOwner,
-    /Writable lanes run one at a time in Main's worktree[\s\S]+Parallel writers require immutable inputs[\s\S]+exact distinct cwd\/worktree\/index/);
+    /While a writable lane uses Main's worktree[\s\S]+Main makes no repository, Git\/index, or\s+candidate mutation until terminal fan-in[\s\S]+Parallel writers require immutable inputs[\s\S]+exact distinct cwd\/worktree\/index/);
   assert.doesNotMatch(installedAgentRoutingOwner, /Task dispatch[^\n]+chooses the primitive/);
   assert.doesNotMatch(installedAgentRoutingOwner, /use native Tasks/);
   assert.match(installedDeliveryWorkflow, /The native Task returns the exact PR\/head\/tree\/receipt locators/);
