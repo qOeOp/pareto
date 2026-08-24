@@ -169,5 +169,6 @@ Independent review is owned entirely by reviewer handoff. The reviewer is fresh 
 reproduces findings and fans in once.
 
 Parallel writable lanes require immutable inputs, disjoint path leases, and one writer per path. In a
-shared worktree, Main alone uses Git state; if writers require separate worktrees, branches, PRs, or
-durable lifecycles, use native Tasks. Lanes never consume sibling state, delegate, or authorize effects.
+shared worktree, Main alone uses Git state. A need for separate worktrees, branches, PRs, or durable
+lifecycles freezes the lane and returns its custody predicate to Frame; only Frame may admit native Hub.
+Lanes never consume sibling state, delegate, or authorize effects.

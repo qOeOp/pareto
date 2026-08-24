@@ -207,7 +207,7 @@ new observation for the same predicate.
 Accept only a verified exact candidate bound to a commit or preserved diff. Lead with the result and
 exact effect state; distinguish current external evidence, local inference, and unavailable evidence.
 
-A child terminal or needs-attention final is only:
+A native Task terminal or needs-attention final is only:
 
 ```text
 state: <terminal|needs_attention; endpoint or blocker>
@@ -221,7 +221,7 @@ handoff evidence is `unavailable` and freezes its dependent action.
 
 Load [GitHub delivery](references/delivery/delivery-pullrequest-workflow.md) before PR publication,
 merge-readiness, merge, or cleanup. It owns title validation, exact-head CI, conversations,
-mergeability, freshness, guarded merge, and conditional cleanup. A child ending at a merged endpoint
+mergeability, freshness, guarded merge, and conditional cleanup. A native Task ending at a merged endpoint
 hands off merge-ready evidence; Hub alone owns merge and node closure.
 
 A Mission that created a task, branch, worktree, PR, cache, or continuing source checkout is not

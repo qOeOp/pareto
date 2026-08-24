@@ -515,7 +515,7 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedTaskWorkflow, /a new user\s+outcome or wider effect still requires alignment/);
   assert.doesNotMatch(installedRecoveryOwner, /complete current Frame|complete admitted Plan/);
   assert.match(installedRecoveryOwner, /inventories, stable nonclaims, completed steps/);
-  assert.match(installedRecoveryOwner, /role=hub\|child\|single/);
+  assert.match(installedRecoveryOwner, /role=hub\|native_task\|single/);
   assert.match(installedRecoveryOwner,
     /only for role=hub, exact active native Tasks, DAG, cursors, and wait-transport failure key\/count/);
   assert.match(installedRecoveryOwner, /exact active writable lanes\/path leases/);
@@ -563,7 +563,10 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedAgentRoutingOwner,
     /disjoint path-bounded implementation inside one Mission[\s\S]+`worker`/);
   assert.match(installedAgentRoutingOwner, /after Frame selects an intra-Mission lane/);
+  assert.match(installedAgentRoutingOwner,
+    /freezes the lane and returns its custody predicate to Frame[\s\S]+only Frame may admit native Hub/);
   assert.doesNotMatch(installedAgentRoutingOwner, /Task dispatch[^\n]+chooses the primitive/);
+  assert.doesNotMatch(installedAgentRoutingOwner, /use native Tasks/);
   assert.match(installedAgentRoutingOwner, /Main alone uses Git state/);
   assert.match(installedAgentRoutingOwner, /## Compile one complete lane prompt/);
   for (const field of [
