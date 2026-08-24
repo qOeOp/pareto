@@ -1,9 +1,9 @@
 # Route Agent Lanes
 
-[Task dispatch](orchestration-task-workflow.md) chooses the primitive first. Load this owner only for an
-admitted evidence question, frozen mechanical leaf, or candidate lens inside one Mission. Main retains
-Frame, Plan, the writable winner, fan-in, effects, acceptance, and Finalize; its lane returns evidence,
-a proposal, or a bounded leaf.
+[Task dispatch](orchestration-task-workflow.md) chooses the primitive first. Load this owner for an
+admitted evidence question, path-bounded implementation, frozen mechanical leaf, or candidate lens
+inside one Mission. Main retains Frame, Plan, semantic candidate ownership, fan-in, effects,
+acceptance, and Finalize; its lane returns evidence, a proposal, or a bounded diff.
 
 A lane answers only its dispatching Mission and cannot cross live parent or sibling state. No route here
 creates a Hub DAG node, active-task member, independent outcome, native Task replacement, branch, PR,
@@ -15,7 +15,7 @@ Role load map:
   pressure, `../planning/planning-revision-workflow.md`;
 - `mission_researcher` also loads `../planning/planning-decision-evidence.md` and, only for
   `reuse/prior_art`, `../planning/planning-decision-workflow.md`;
-- `fast_builder` also loads `../execution/execution-mission-routing-policy.md`;
+- `worker` and `fast_builder` also load `../execution/execution-mission-routing-policy.md`;
 - `mission_evaluator` follows `../verification/reviewer-handoff.md` under neutral control.
 
 Current role TOMLs are startup deltas. An immutable older Origin may select its historical
@@ -32,8 +32,9 @@ Dispatch only at one of three stability windows:
 - **pre-mutation decision frontier:** the exact structural or evidence question can still change the
   next Main decision, its upstream inputs are frozen, Main has exhausted cheaper direct evidence, and
   the dependent mutation has not begun;
-- **frozen mechanical execution boundary:** every builder field and safe oracle is frozen under the
-  execution owner, with no unresolved decision or overlapping writer;
+- **bounded execution boundary:** Plan, consumer boundary, inputs, leased paths, dependencies, oracle,
+  authority, and Stop are frozen; a `worker` may choose implementation details only inside them, while
+  `fast_builder` additionally requires an exact mechanical transform;
 - **acceptance-ready coherence boundary:** candidate, control, Frame, Plan, risk map, and decisive
   evidence are frozen, and no known pending write or deterministic check can change the reviewed
   identity before fan-in.
@@ -53,8 +54,9 @@ by reviewer handoff.
 | pre-mutation evidenced structural challenge                             | one `mission_planner` proposal                       | main decides                                                    |
 | pre-mutation bounded read-only repository fact                          | one `explorer` evidence return                       | main continues directly or freezes the dependent decision       |
 | pre-mutation decision-changing current/external fact                    | one `mission_researcher` brief                       | main or freeze dependent decision                               |
-| ordinary implementation                                                 | authorized main                                      | never delegate                                                  |
-| exact low-risk mechanical leaf                                          | `fast_builder` only when all fields below are frozen | authorized main only if unavailable before dispatch             |
+| current candidate core, overlapping design, or global integration       | authorized main                                      | never delegate                                                  |
+| disjoint path-bounded implementation inside one Mission                 | one `worker`                                         | Main inspects and integrates its return                         |
+| exact low-risk mechanical leaf                                          | `fast_builder`                                       | authorized main only if unavailable before dispatch             |
 | acceptance-ready ambiguous risk coverage                                | one `mission_planner` scope challenge                | main completes or splits the risk map                           |
 | acceptance-ready frozen-candidate semantic risk                         | reviewer-handoff's zero/one/two lens set             | reviewer-handoff one-way admission                              |
 
@@ -65,8 +67,8 @@ request.
 
 ## Compile one complete lane prompt
 
-Main compiles every admitted planner, researcher, explorer, builder, or evaluator lane from the same
-envelope. Worker and generic/default implementation routes are unavailable; only reviewer handoff may
+Main compiles every admitted planner, researcher, explorer, worker, builder, or evaluator lane from
+the same envelope. Generic/default implementation routes are unavailable; only reviewer handoff may
 select its fresh generic reviewer fallback. The role label, a broad topic, the repository name, or
 inherited conversation is not a prompt. The sole launch message binds:
 
@@ -76,7 +78,8 @@ inherited conversation is not a prompt. The sole launch message binds:
   and claimed maturity, and any independently admitted lower-maturity slice. For a lane supporting
   executable readiness or Acceptance, include the cheapest currently callable positive golden-path
   result and exact deployed candidate/runtime identity, or the precise unavailable blocker;
-- `scope`: required inputs/locators; for writes, exact owned paths, cwd, worktree, Git index;
+- `scope`: required inputs/locators; for writes, exact owned paths, cwd, and path lease; Main keeps
+  branch/index/commit custody;
   producer-to-consumer transformation stages/dependencies; excluded surface;
 - `risk_atom`: one affected contract or premise, refuting counterexample, preservation control, and
   consequence;
@@ -158,13 +161,14 @@ it does not review the candidate, alter Plan admission, select lenses, or author
 Stop, and returns decisive primary locators, conflicts, limits, reproduction, and the Plan consequence.
 It does not inspect live task state, select a candidate, or act on external systems.
 
-`fast_builder` requires exact paths, one writer, owner, boundary, exact transformation/replacement,
-supplied safe checks, oracle, and Stop. No design, wording, schema, authority, safety, dependency,
-public-contract, or effect decision may remain. It returns changed paths, diff locator, checks, and
-any ambiguity/path growth/failed premise; Main rechecks and decides.
+A writable lane receives one frozen consumer, leased paths, inputs, oracle, checks, and Stop. `worker`
+may make local implementation choices; `fast_builder` additionally requires an exact mechanical
+transform with no design, contract, safety, or authority decision. Neither uses Git state, PRs, effects,
+sibling state, or delegation; it returns diff/check locators and any ambiguity or boundary breach.
 
 Independent review is owned entirely by reviewer handoff. The reviewer is fresh and read-only; Main
 reproduces findings and fans in once.
 
-Parallel writers require immutable inputs, disjoint outputs, distinct cwd/worktree/index; shared Git state
-stays read-only. Lanes never consume sibling state, delegate, or authorize effects.
+Parallel writable lanes require immutable inputs, disjoint path leases, and one writer per path. In a
+shared worktree, Main alone uses Git state; if writers require separate worktrees, branches, PRs, or
+durable lifecycles, use native Tasks. Lanes never consume sibling state, delegate, or authorize effects.

@@ -96,21 +96,21 @@ remain canonical. A material change to any field freezes mutation and unissued e
 the Plan, and requires a new projection; changing a user-owned field also requires alignment and
 re-admission.
 
-Choose session mode from independently valuable outcomes:
+Choose session mode from execution custody, not outcome count:
 
 - zero: work directly;
-- one: use the current task, Goal-unbound unless explicit matching Goal authority exists;
-- multiple: load [Codex task dispatch](references/orchestration/orchestration-task-workflow.md);
-  bind a Goal only while it has an admitted next operation or its continuation can carry one exact
-  checkpointed non-empty active-target wait.
+- default: keep one Mission in the current Task; use agent lanes for support or leased-path work;
+- native Hub: load [Codex task dispatch](references/orchestration/orchestration-task-workflow.md) only
+  for a user-requested peer outcome that must outlive Hub cancellation and needs a separate worktree,
+  branch/PR, effect custody, direct control, or asynchronous lifecycle.
+
+Bind a Goal only while it has an admitted next operation or its continuation can carry one exact
+checkpointed non-empty active-target wait.
 
 Observe Goal capability before a Goal effect; absence freezes only that effect. A Goal persists the
 overall outcome; it never supplies cadence. Passive observation uses a product-native recurring
 monitor and remains Goal-unbound. An inherited Goal with neither a runnable operation nor the exact
 wait emits one visible rebind decision and enters the host blocked audit; it never returns silence.
-
-For Hub work, task dispatch owns native identity, DAG, active-task custody, wake admission, bounded
-observation, fan-in, and endpoints.
 
 For a native Task, bind one exact target, one complete message, required title/identity gates, and the
 observable native send receipt. Raw payload length or digest is producer identity, not proof of model

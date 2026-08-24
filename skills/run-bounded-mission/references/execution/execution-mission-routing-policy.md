@@ -24,7 +24,7 @@ loaded context, communications, correction/recheck, and failures as observed or 
 an observed Pareto improvement among routes that pass every quality floor; one sample is not a durable
 ranking. Do not create a benchmark, task, test, typo, or permanent model table to manufacture evidence.
 
-Candidate work remains one coherent consumer slice with one semantic writer. A conditional native
-test hook may be used when a maintained oracle materially shortens correction; repository-specific
-test processes are never a default. Test evidence that can change the candidate routes to
+Candidate work remains one coherent consumer slice with Main as semantic owner and one writer per
+path. A conditional native test hook may be used when a maintained oracle materially shortens
+correction; repository-specific test processes are never a default. Test evidence that can change the candidate routes to
 `../verification/verification-test-integrity-policy.md`.
