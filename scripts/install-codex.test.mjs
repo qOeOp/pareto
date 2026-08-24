@@ -475,6 +475,8 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedTaskWorkflow, /Progress\/expiry is silent waiting/);
   assert.match(installedTaskWorkflow,
     /checkpoint the exact target-set\/cursor\/failure-class key[\s\S]+saturated at three/);
+  assert.match(installedTaskWorkflow,
+    /clear it only after a successful cursor-bound wait or target-set change[\s\S]+Fallback reads never clear it/);
   assert.match(installedTaskWorkflow, /exact\s+non-carrier user request/);
   assert.match(installedTaskWorkflow,
     /`turnCompleted` proves an endpoint only when the wake turn and its exact terminal payload are present/);
@@ -562,6 +564,8 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedAgentRoutingOwner, /lane-owned or lane-authorized downstream effect/);
   assert.match(installedAgentRoutingOwner,
     /disjoint path-bounded implementation inside one Mission[\s\S]+`worker`/);
+  assert.match(installedAgentRoutingOwner, /after Frame selects an intra-Mission lane/);
+  assert.doesNotMatch(installedAgentRoutingOwner, /Task dispatch[^\n]+chooses the primitive/);
   assert.match(installedAgentRoutingOwner, /Main alone uses Git state/);
   assert.match(installedAgentRoutingOwner, /## Compile one complete lane prompt/);
   for (const field of [

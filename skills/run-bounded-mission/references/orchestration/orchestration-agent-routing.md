@@ -1,9 +1,8 @@
 # Route Agent Lanes
 
-[Task dispatch](orchestration-task-workflow.md) chooses the primitive first. Load this owner for an
-admitted evidence question, path-bounded implementation, frozen mechanical leaf, or candidate lens
-inside one Mission. Main retains Frame, Plan, semantic candidate ownership, fan-in, effects,
-acceptance, and Finalize; its lane returns evidence, a proposal, or a bounded diff.
+Load this owner for an admitted evidence question, path-bounded implementation, frozen mechanical leaf,
+or candidate lens after Frame selects an intra-Mission lane. Main retains Frame, Plan, semantic candidate
+ownership, fan-in, effects, acceptance, and Finalize; its lane returns evidence, a proposal, or a bounded diff.
 
 A lane answers only its dispatching Mission and cannot cross live parent or sibling state. No route here
 creates a Hub DAG node, active-task member, independent outcome, native Task replacement, branch, PR,

@@ -105,7 +105,8 @@ Waiting never enters blocked audit. Only a later admitted wake may re-arm the ex
 wake must match its checkpointed non-empty active set.
 
 On transport failure, checkpoint the exact target-set/cursor/failure-class key and consecutive-window
-count, saturated at three; clear it after success or target-set change. Counts one and two are silent;
+count, saturated at three; clear it only after a successful cursor-bound wait or target-set change.
+Fallback reads never clear it. Counts one and two are silent;
 count three is unavailable only when decision consumption is blocked and no independent running or
 runnable node can progress. After a wait-handler capability failure, retain cursor and end the window
 without retry. A later admitted scheduling action may use one bounded exact-target status read only to
