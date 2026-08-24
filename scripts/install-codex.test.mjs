@@ -457,10 +457,9 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedTaskWorkflow, /publish only\s+if recovery permits/);
   assert.match(installedTaskWorkflow, /release every newly ready nonconflicting direct successor/);
   assert.match(installedTaskWorkflow,
-    /Native create\/reuse\s+and send receipts alone admit `threadId`\/`hostId` to the logical Hub DAG and active set/);
-  assert.match(installedTaskWorkflow,
-    /An exposed `agentThreadId`\s+remains agent activity, not Task admission/);
-  assert.match(installedTaskWorkflow, /classify custody by issuing receipt, never names or\s+locators/);
+    /Native create\/reuse and send receipts alone\s+admit `threadId`\/`hostId` to the logical Hub DAG and active set/);
+  assert.match(installedTaskWorkflow, /`agentThreadId` never does/);
+  assert.match(installedTaskWorkflow, /Classify custody by receipt, never names or locators/);
   assert.match(installedTaskWorkflow,
     /Only a later admitted wake may re-arm the exact wait; a\s+source=goal\s+wake must match/);
   assert.match(installedTaskWorkflow,
@@ -507,14 +506,13 @@ const origin = join(root, "qOeOp", "skills.git");
     /add an automation, reminder, daemon, heartbeat,\s+queue, or scheduler/);
   assert.doesNotMatch(installedTaskWorkflow, /Only it has `threadId`\/`hostId`/);
   assert.match(installedTaskWorkflow,
-    /A \*\*native Task\*\* is a peer user Task[\s\S]+requires both an independently[\s\S]+native-only need/);
+    /A \*\*native Task\*\* is a peer user Task[\s\S]+explicit user[\s\S]+native-only need/);
   assert.match(installedTaskWorkflow,
-    /Independence is necessary but insufficient[\s\S]+user must\s+explicitly request separate Tasks/);
-  assert.match(installedTaskWorkflow,
-    /Main owns Frame, Plan[\s\S]+Intra-Mission writable\s+lanes instead mutate only Main's leased paths/);
+    /Main owns\s+Frame, Plan[\s\S]+Intra-Mission writable\s+lanes instead mutate only Main's leased paths/);
+  assert.doesNotMatch(installedTaskWorkflow, /owns primitive selection|Choose the execution primitive|outcome may need a user-owned Task/);
   assert.match(installedTaskWorkflow,
     /After a wait-handler capability failure, retain cursor and end the window\s+without retry/);
-  assert.match(installedTaskWorkflow, /A new user\s+outcome or wider effect still requires alignment/);
+  assert.match(installedTaskWorkflow, /a new user\s+outcome or wider effect still requires alignment/);
   assert.doesNotMatch(installedRecoveryOwner, /complete current Frame|complete admitted Plan/);
   assert.match(installedRecoveryOwner, /inventories, stable nonclaims, completed steps/);
   assert.match(installedRecoveryOwner, /role=hub\|child\|single/);

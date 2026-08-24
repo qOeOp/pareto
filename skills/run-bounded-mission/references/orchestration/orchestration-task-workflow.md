@@ -1,25 +1,16 @@
 # Codex Task Dispatch
 
-Load this owner when an outcome may need a user-owned Task, for existing Tasks, or for Hub
-orchestration. It owns primitive selection plus native Task identity, DAG/custody, fan-in, and
-endpoints - not leaf work, review, CI, or merge.
+Load this owner after Frame selects native Hub or for an existing native Task. It owns native identity,
+DAG/custody, fan-in, and endpoints - not lane work, review, CI, or merge.
 
-## Choose the execution primitive
+## Bind the native boundary
 
-- An **agent lane** follows [agent routing](orchestration-agent-routing.md) and uses `spawn_agent` for
-  bounded work inside one Mission. It is the default parallel primitive and has no user-owned outcome,
-  branch, PR, effect, or lifecycle. An exposed `agentThreadId` remains agent activity, not Task admission.
-- A **native Task** is a peer user Task, not a subagent or host child. It requires both an independently
-  acceptable/cancellable/resumable outcome surviving Hub cancellation and a native-only need: separate
-  worktree/branch/PR, effect custody, direct user control, or asynchronous lifetime. Native create/reuse
-  and send receipts alone admit `threadId`/`hostId` to the logical Hub DAG and active set.
-- Main owns Frame, Plan, the current candidate, integration, acceptance, and effects. Native Task Main
-  owns its separate candidate; an agent lane owns only its leased paths until Main consumes its return.
-
-Independence is necessary but insufficient for native creation: parallelism, task type, or an internal
-leaf stays in one Mission when Main can integrate it. Eligibility is not authority; the user must
-explicitly request separate Tasks. Once admitted, classify custody by issuing receipt, never names or
-locators; missing capability freezes the node. A new user outcome or wider effect still requires alignment.
+A **native Task** is a peer user Task, not a subagent or host child. Frame must bind the explicit user
+request, durable independent outcome, and native-only need. Native create/reuse and send receipts alone
+admit `threadId`/`hostId` to the logical Hub DAG and active set; `agentThreadId` never does. Main owns
+Frame, Plan, integration, acceptance, and effects; each native Task Main owns its separate candidate.
+Classify custody by receipt, never names or locators. Missing capability freezes the node; a new user
+outcome or wider effect still requires alignment.
 
 Before a Goal effect, reconcile the matching Goal and apply the kernel binding rule. It stores overall
 outcome and completion, not work cadence; absent capability or a nonmatching Goal freezes only that
