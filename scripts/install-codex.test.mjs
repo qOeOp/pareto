@@ -430,6 +430,10 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedSkillSource, /Return byte-bounded excerpts and a terminal summary/);
   assert.match(installedSkillSource, /Never publish their labels or fields as progress/);
   assert.match(installedSkillSource, /host requests it after context recovery/);
+  assert.match(installedSkillSource, /Choose session mode from execution custody, not outcome count/);
+  assert.match(installedSkillSource, /user-requested peer outcome that must outlive Hub cancellation/);
+  assert.match(installedSkillSource,
+    /agent routing[\s\S]+before any admitted evidence,\s+path-bounded implementation, mechanical, or review lane/);
   const installedRecoveryOwner = await readFile(join(
     agentsRoot,
     "skills",
@@ -449,32 +453,33 @@ const origin = join(root, "qOeOp", "skills.git");
     agentsRoot, "skills", "run-bounded-mission", "references", "orchestration",
     "orchestration-task-workflow.md",
   ), "utf8");
+  const installedDeliveryWorkflow = await readFile(join(
+    agentsRoot, "skills", "run-bounded-mission", "references", "delivery",
+    "delivery-pullrequest-workflow.md",
+  ), "utf8");
   assert.match(installedTaskWorkflow, /Replace one private checkpoint for the wave/);
   assert.match(installedTaskWorkflow, /publish only\s+if recovery permits/);
   assert.match(installedTaskWorkflow, /release every newly ready nonconflicting direct successor/);
-  assert.match(installedTaskWorkflow, /native create\/reuse and send receipts admit `threadId`\/`hostId` to\s+the Hub DAG and active-task set/);
-  assert.match(installedTaskWorkflow, /An exposed `agentThreadId` remains agent activity, not Task\s+admission/);
-  assert.match(installedTaskWorkflow, /Classify custody by issuing receipt, never names or thread locators/);
   assert.match(installedTaskWorkflow,
-    /Only a later admitted wake may re-arm the exact wait; a\s+source=goal wake must match/);
+    /Native create\/reuse and send receipts alone\s+admit `threadId`\/`hostId` to the logical Hub DAG and active set/);
+  assert.match(installedTaskWorkflow, /`agentThreadId` never does/);
+  assert.match(installedTaskWorkflow, /Classify custody by receipt, never names or locators/);
   assert.match(installedTaskWorkflow,
-    /An empty active set is a DAG\s+scheduling event, not evidence that the Goal is blocked/);
+    /Only a later admitted wake may re-arm the exact wait; a\s+source=goal\s+wake must match/);
   assert.match(installedTaskWorkflow,
-    /missing Finalize from a known Task returns\s+that node to one exact runnable recovery/);
-  assert.match(installedTaskWorkflow, /a repeated empty completion freezes only that node/);
-  assert.match(installedTaskWorkflow,
-    /apply the kernel inherited-Goal transition/);
+    /An empty active set is a DAG scheduling event[\s\S]+Missing Finalize[\s\S]+repeated empty completion[\s\S]+kernel inherited-Goal transition/);
   assert.match(installedTaskWorkflow, /One Hub turn owns at most one native cursor-bound wait/);
   assert.match(installedTaskWorkflow, /Host wake admission consumes exactly one just-issued first observation/);
   assert.match(installedTaskWorkflow,
     /matching Goal continuation for a checkpointed non-empty active set/);
   assert.match(installedTaskWorkflow, /due\s+tick from a product-native recurring monitor/);
   assert.match(installedTaskWorkflow, /wake owner never owns the DAG,\s+authority, or candidate/);
-  assert.match(installedTaskWorkflow, /child progress never is/);
+  assert.match(installedTaskWorkflow, /Task progress never is/);
   assert.match(installedTaskWorkflow, /Progress\/expiry is silent waiting/);
   assert.match(installedTaskWorkflow,
-    /checkpoint the exact\s+target-set\/cursor\/failure-class key and consecutive-window count/);
-  assert.match(installedTaskWorkflow, /saturated at three/);
+    /checkpoint the exact target-set\/cursor\/failure-class key[\s\S]+saturated at three/);
+  assert.match(installedTaskWorkflow,
+    /clear it only after a successful cursor-bound wait or target-set change[\s\S]+Fallback reads never clear it/);
   assert.match(installedTaskWorkflow, /exact\s+non-carrier user request/);
   assert.match(installedTaskWorkflow,
     /`turnCompleted` proves an endpoint only when the wake turn and its exact terminal payload are present/);
@@ -486,7 +491,7 @@ const origin = join(root, "qOeOp", "skills.git");
     /An asynchronous Hub may bind it only while a runnable operation or the checkpointed active-task\s+wait below exists/);
   assert.match(installedTaskWorkflow, /Waiting never enters blocked audit/);
   assert.match(installedTaskWorkflow,
-    /count three is\s+unavailable only when decision consumption is blocked and no independent running or runnable node can progress/);
+    /count three is unavailable only when decision consumption is blocked[\s\S]+runnable node can progress/);
   assert.match(installedRecoveryOwner, /wait-transport failure key\/count/);
   const installedLifecycleQa = await readFile(join(
     agentsRoot, "skills", "run-bounded-mission", "references", "quality-assurance",
@@ -504,16 +509,20 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.doesNotMatch(installedTaskWorkflow,
     /add an automation, reminder, daemon, heartbeat,\s+queue, or scheduler/);
   assert.doesNotMatch(installedTaskWorkflow, /Only it has `threadId`\/`hostId`/);
-  assert.match(installedTaskWorkflow, /never substitute an agent lane/);
-  assert.match(installedTaskWorkflow, /A \*\*Leaf Main\*\* \(single or child\) owns implementation/);
-  assert.match(installedTaskWorkflow, /Before a Hub repository mutation, require exact terminal child\s+evidence and integration scope/);
-  assert.match(installedTaskWorkflow, /Agent lanes never satisfy this gate/);
-  assert.match(installedTaskWorkflow, /A new outcome or wider effect requires alignment/);
+  assert.match(installedTaskWorkflow,
+    /A \*\*native Task\*\* is a peer user Task[\s\S]+explicit user[\s\S]+native-only need/);
+  assert.match(installedTaskWorkflow,
+    /Main owns\s+Frame, Plan[\s\S]+Intra-Mission writable\s+lanes instead mutate only Main's leased paths/);
+  assert.doesNotMatch(installedTaskWorkflow, /owns primitive selection|Choose the execution primitive|outcome may need a user-owned Task/);
+  assert.match(installedTaskWorkflow,
+    /After a wait-handler capability failure, retain cursor and end the window\s+without retry/);
+  assert.match(installedTaskWorkflow, /a new user\s+outcome or wider effect still requires alignment/);
   assert.doesNotMatch(installedRecoveryOwner, /complete current Frame|complete admitted Plan/);
   assert.match(installedRecoveryOwner, /inventories, stable nonclaims, completed steps/);
-  assert.match(installedRecoveryOwner, /role=hub\|child\|single/);
+  assert.match(installedRecoveryOwner, /role=hub\|native_task\|single/);
   assert.match(installedRecoveryOwner,
-    /only for role=hub, exact active tasks, DAG, cursors, and wait-transport failure key\/count/);
+    /only for role=hub, exact active native Tasks, DAG, cursors, and wait-transport failure key\/count/);
+  assert.match(installedRecoveryOwner, /exact active writable lanes\/path leases/);
   assert.match(installedRecoveryOwner, /exact Mission and current native-task locators/);
   assert.match(installedRecoveryOwner, /same Mission, current task/);
   assert.match(installedRecoveryOwner, /exact consumer\/acceptance locator/);
@@ -552,9 +561,24 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedAgentRoutingOwner,
     /Apply the selected route's Stop\/fallback: Main continues directly only\s+where that route permits; otherwise freeze the dependent decision/);
   assert.match(installedAgentRoutingOwner, /Use `fork_turns: none` for every admitted lane/);
-  assert.match(installedAgentRoutingOwner, /Worker and generic\/default implementation routes are unavailable/);
+  assert.match(installedAgentRoutingOwner, /Generic\/default implementation routes are unavailable/);
   assert.match(installedAgentRoutingOwner, /only reviewer handoff may\s+select its fresh generic reviewer fallback/);
   assert.match(installedAgentRoutingOwner, /lane-owned or lane-authorized downstream effect/);
+  assert.match(installedAgentRoutingOwner,
+    /disjoint path-bounded implementation inside one Mission[\s\S]+`worker`/);
+  assert.match(installedAgentRoutingOwner, /after Frame selects an intra-Mission lane/);
+  assert.match(installedSkillSource,
+    /support lane may return evidence, a proposal,\s+or a leased-path bounded diff but cannot own those decisions/);
+  assert.match(installedAgentRoutingOwner,
+    /require the lane to load this owner plus its role load-map owners from that root before any\s+action/);
+  assert.match(installedAgentRoutingOwner,
+    /freezes the lane and returns its custody predicate to Frame[\s\S]+only Frame may admit native Hub/);
+  assert.match(installedAgentRoutingOwner,
+    /While a writable lane uses Main's worktree[\s\S]+Main makes no repository, Git\/index, or\s+candidate mutation until terminal fan-in[\s\S]+Parallel writers require immutable inputs[\s\S]+exact distinct cwd\/worktree\/index/);
+  assert.doesNotMatch(installedAgentRoutingOwner, /Task dispatch[^\n]+chooses the primitive/);
+  assert.doesNotMatch(installedAgentRoutingOwner, /use native Tasks/);
+  assert.match(installedDeliveryWorkflow, /The native Task returns the exact PR\/head\/tree\/receipt locators/);
+  assert.doesNotMatch(installedDeliveryWorkflow, /The child returns/);
   assert.match(installedAgentRoutingOwner, /## Compile one complete lane prompt/);
   for (const field of [
     "mission_and_lane",

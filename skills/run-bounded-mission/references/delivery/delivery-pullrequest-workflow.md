@@ -68,7 +68,7 @@ Git replay. A failed create or verify is a delivery Stop, not permission to hand
 Immediately before merge, refresh the exact PR head/base, potential merge tree, mergeability, required
 checks, conversations, and drift evidence. Recreate and verify the compact receipt when any bound fact
 changes. Only the authority named by the admitted lifecycle may merge; in a Hub DAG the Hub alone owns
-merge and node closure. The child returns the exact PR/head/tree/receipt locators and does not merge.
+merge and node closure. The native Task returns the exact PR/head/tree/receipt locators and does not merge.
 
 After the effect, read back the terminal PR state and merge commit/tree. A non-terminal or mismatched
 readback is `partial` or `unknown`, never success.

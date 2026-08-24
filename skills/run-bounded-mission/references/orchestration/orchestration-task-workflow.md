@@ -1,32 +1,25 @@
 # Codex Task Dispatch
 
-Load this owner for independent outcomes, existing children, or Hub orchestration. It owns native Task
-admission, identity, DAG/custody, fan-in, and endpoints - not leaf work, review, CI, or merge.
+Load this owner after Frame selects native Hub or for an existing native Task. It owns native identity,
+DAG/custody, fan-in, and endpoints - not lane work, review, CI, or merge.
 
-## Choose the execution primitive
+## Bind the native boundary
 
-- A **native Task** is a bounded, accepted, independently closable consumer outcome created and sent
-  by native thread tools. Only its native create/reuse and send receipts admit `threadId`/`hostId` to
-  the Hub DAG and active-task set and confer child lifecycle, candidate, or PR custody.
-- An **agent lane** follows [agent routing](orchestration-agent-routing.md) and uses `spawn_agent` for
-  one bounded question, frozen mechanical leaf, or review inside one Mission; it has no independent
-  outcome, custody, branch, PR, or effect. An exposed `agentThreadId` remains agent activity, not Task
-  admission.
-- A **Leaf Main** (single or child) owns implementation; support stays inside that Mission.
-
-Classify custody by issuing receipt, never names or thread locators. Explicit
-Hub-mode approval of bounded independent outcomes authorizes exact native-Task packets within the
-admitted Frame/effects. A new outcome or wider effect requires alignment. Missing or ambiguous native-
-Task capability freezes its node; never substitute an agent lane.
+A **native Task** is a peer user Task, not a subagent or host child. Frame must bind the explicit user
+request, durable independent outcome, and native-only need. Native create/reuse and send receipts alone
+admit `threadId`/`hostId` to the logical Hub DAG and active set; `agentThreadId` never does. Main owns
+Frame, Plan, integration, acceptance, and effects; each native Task Main owns its separate candidate.
+Classify custody by receipt, never names or locators. Missing capability freezes the node; a new user
+outcome or wider effect still requires alignment.
 
 Before a Goal effect, reconcile the matching Goal and apply the kernel binding rule. It stores overall
 outcome and completion, not work cadence; absent capability or a nonmatching Goal freezes only that
 effect. An asynchronous Hub may bind it only while a runnable operation or the checkpointed active-task
 wait below exists.
 
-For new independent Missions only, [canonical task types](orchestration-task-types.md) owns one stable
-label/title; native identity remains exact `threadId`/`hostId`. Only a Hub creates or reuses it. A child
-or single Main returns a further independent outcome as one ready proposal.
+For new native Missions only, [canonical task types](orchestration-task-types.md) owns one stable
+label/title; native identity remains exact `threadId`/`hostId`. Only a Hub creates or reuses it. A Task
+or single Main returns a further native-only outcome as one ready proposal.
 
 ## Keep one compact DAG
 
@@ -48,10 +41,11 @@ Every edge must have an immutable locator and bounded affected slice. Recompute 
 before a dependent effect; a cycle or overlapping writer returns the component to Plan. Repository
 labels, receipt order, elapsed time, or task status cannot invent an edge.
 
-The Hub owns active Tasks, cursors, the current window, DAG/authority, fan-in, and guarded merge. A
-child owns Frame through Finalize. Before a Hub repository mutation, require exact terminal child
-evidence and integration scope; otherwise release or recover its native Task, or freeze the node when
-Task capability is unavailable. Agent lanes never satisfy this gate.
+The Hub owns active Tasks, cursors, the current window, DAG/authority, fan-in, and guarded merge. Each
+native Task owns Frame through Finalize. Before integrating its separate candidate, require exact
+terminal evidence and scope; otherwise recover that Task or freeze its node. Intra-Mission writable
+lanes instead mutate only Main's leased paths; Main inspects their return and owns the resulting
+candidate.
 
 ## Admit one native Task message
 
@@ -79,40 +73,40 @@ message, or retry it before causal mapping to threadId/hostId. Set/read an exact
 once; the native receipt is semantic release. Continuation shares that gate and has no supplement.
 Failure, mismatch, or ambiguity is host-defect/no-change; never retry, repacket, or replace.
 
-After release, add the child to the Hub active set and monitor only through the custody contract below.
+After release, add the peer Task to the Hub active set and monitor only through the custody contract below.
 
-## Observe child events without polling
+## Observe Task events without polling
 
 Host wake admission consumes exactly one just-issued first observation, actionable callback, exact
 non-carrier user request, matching Goal continuation for a checkpointed non-empty active set, or due
 tick from a product-native recurring monitor with user-authorized target, cadence, output policy, and
 terminal condition. The wake owner never owns the DAG, authority, or candidate.
 
-The Hub consumes Finalize's child decision index with the native identity carried by transport.
+The Hub consumes Finalize's Task decision index with the native identity carried by transport.
 Missing, malformed, unknown, or unavailable locators freeze only the dependent Hub action; the
 acceptance gate below still resolves every required fact from its current owner.
 
-One Hub turn owns at most one native cursor-bound wait over the complete exact active set. Bind Stop
-and the longest host-safe finite timeout first. It ends on an actionable receipt, authenticated user
-input, expiry, or transport failure. An explicit status request uses one timeoutMs: 0 snapshot. Host
-orchestration may cancel non-returning transport at a stricter caller deadline; Main never emulates
-either deadline.
+One Hub turn owns at most one native cursor-bound wait over the complete exact active set. It is a
+notification accelerator, never acceptance or custody authority. Bind Stop and a host-safe finite
+timeout; explicit status uses one timeoutMs: 0 snapshot. Only the host may impose a stricter caller deadline.
 
-Only a receipt changing the next Hub operation, authority, identity, candidate verdict, DAG release,
-Stop/Resume, or endpoint is actionable; child progress never is. Every other result retains custody
-and ends the turn. Progress/expiry is silent waiting. For transport failure, checkpoint the exact
-target-set/cursor/failure-class key and consecutive-window count, saturated at three; clear it after a
-successful wait or target-set change. Counts one and two are silent with no read/retry; count three is
-unavailable only when decision consumption is blocked and no independent running or runnable node can progress.
-Waiting never enters blocked audit. Only a later admitted wake may re-arm the exact wait; a
-source=goal wake must match its checkpointed non-empty active set. An empty active set is a DAG
-scheduling event, not evidence that the Goal is blocked: missing Finalize from a known Task returns
-that node to one exact runnable recovery; a repeated empty completion freezes only that node. Every
-independent runnable node releases in the same turn. If neither recovery, release, nor a wait remains,
-apply the kernel inherited-Goal transition.
-Admit a thread read only after an actionable receipt or
-explicit user history question, and only when the host bounds exact target, turn, item, and output
-before model context; otherwise history is unavailable.
+Only a receipt changing the next operation, authority, identity, candidate verdict, DAG release,
+Stop/Resume, or endpoint is actionable; Task progress never is. Progress/expiry is silent waiting and
+Waiting never enters blocked audit. Only a later admitted wake may re-arm the exact wait; a source=goal
+wake must match its checkpointed non-empty active set.
+
+On transport failure, checkpoint the exact target-set/cursor/failure-class key and consecutive-window
+count, saturated at three; clear it only after a successful cursor-bound wait or target-set change.
+Fallback reads never clear it. Counts one and two are silent;
+count three is unavailable only when decision consumption is blocked and no independent running or
+runnable node can progress. After a wait-handler capability failure, retain cursor and end the window
+without retry. A later admitted scheduling action may use one bounded exact-target status read only to
+unblock a terminal or needs-attention decision, never to relay progress, scan history, or replace a Task receipt.
+
+An empty active set is a DAG scheduling event, not evidence that the Goal is blocked. Missing Finalize
+from a known Task returns that node to one exact runnable recovery; a repeated empty completion freezes
+only that node. Release every independent runnable node in the same turn; with no recovery, release, or
+wait, apply the kernel inherited-Goal transition.
 
 For each continued target require cursor continuity, target/host identity, and non-regressing
 revision. An early wake may omit a target; retain its prior facts but do not call it unchanged.
@@ -137,26 +131,26 @@ one blocked writer cannot hold frozen-input review, delivery preparation, consum
 preparation, or successor investigation. Serialize only overlaps and unknown independence. Bind
 shared non-repository mutation targets before dispatch. A predecessor that changes the canonical
 source freezes only the successor's dependency-consuming and final identity-bound slices. After exact
-merged evidence, recover the same child, integrate once, and revalidate changed inputs; never replace
+merged evidence, recover the same Task, integrate once, and revalidate changed inputs; never replace
 it.
 
-One child owns at most one candidate branch and one PR. GitHub Delivery owns publication,
+One native Task owns at most one candidate branch and one PR. GitHub Delivery owns publication,
 merge-readiness, and guarded-merge procedure. PR endpoints are:
 
 - open: exact candidate published in the authorized Draft/Ready state;
 - merge-ready: exact candidate satisfies [GitHub delivery](../delivery/delivery-pullrequest-workflow.md)
   without merging;
-- merged: child stops at merge-ready; Hub alone performs the separately authorized merge effect under
+- merged: the Task stops at merge-ready; Hub alone performs the separately authorized merge effect under
   Delivery's procedure and closes the node after exact readback;
 - no-PR: closes on its admitted consumer evidence.
 
 Hub accepts a terminal handoff only when identity, candidate, base, endpoint, conversations, checks,
-freshness, and authority match current owners. Drift returns the same child to Plan. Closed,
+freshness, and authority match current owners. Drift returns the same Task to Plan. Closed,
 superseded, rejected, waiting, or unavailable nodes remain explicit evidence and cannot satisfy another
 endpoint.
 
 Complete the overall Goal only after every required node has exact endpoint evidence or explicit
-authorized cancellation. A child never updates the Goal.
+authorized cancellation. A native Task never updates the Goal.
 
 ## Capability fallback
 

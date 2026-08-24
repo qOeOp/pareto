@@ -14,8 +14,8 @@ Request Admission → Frame → Plan → Execute → Verify → Finalize
 Request Admission is the Frame entrance gate, not a sixth lifecycle stage, second Spec, or Mission.
 
 The main agent owns Request Admission, Frame, Plan admission, the single writable candidate, evidence
-and finding judgment, effects, acceptance, and Finalize. A support lane may return evidence or a
-frozen leaf but cannot own those decisions. Keep repository authority current-state-only,
+and finding judgment, effects, acceptance, and Finalize. A support lane may return evidence, a proposal,
+or a leased-path bounded diff but cannot own those decisions. Keep repository authority current-state-only,
 dependencies acyclic, and the user's interaction language unchanged unless the user changes it.
 
 Build every candidate as one integrated appliance: one owner and state path per responsibility.
@@ -96,21 +96,20 @@ remain canonical. A material change to any field freezes mutation and unissued e
 the Plan, and requires a new projection; changing a user-owned field also requires alignment and
 re-admission.
 
-Choose session mode from independently valuable outcomes:
+Choose session mode from execution custody, not outcome count:
 
-- zero: work directly;
-- one: use the current task, Goal-unbound unless explicit matching Goal authority exists;
-- multiple: load [Codex task dispatch](references/orchestration/orchestration-task-workflow.md);
-  bind a Goal only while it has an admitted next operation or its continuation can carry one exact
-  checkpointed non-empty active-target wait.
+- default: keep one Mission in the current Task; work directly or use agent lanes for leased-path work;
+- native Hub: load [Codex task dispatch](references/orchestration/orchestration-task-workflow.md) only
+  for a user-requested peer outcome that must outlive Hub cancellation and needs a durable worktree,
+  branch/PR, effect custody, direct control, or asynchronous lifecycle.
+
+Bind a Goal only while it has an admitted next operation or its continuation can carry one exact
+checkpointed non-empty active-target wait.
 
 Observe Goal capability before a Goal effect; absence freezes only that effect. A Goal persists the
 overall outcome; it never supplies cadence. Passive observation uses a product-native recurring
 monitor and remains Goal-unbound. An inherited Goal with neither a runnable operation nor the exact
 wait emits one visible rebind decision and enters the host blocked audit; it never returns silence.
-
-For Hub work, task dispatch owns native identity, DAG, active-task custody, wake admission, bounded
-observation, fan-in, and endpoints.
 
 For a native Task, bind one exact target, one complete message, required title/identity gates, and the
 observable native send receipt. Raw payload length or digest is producer identity, not proof of model
@@ -150,8 +149,8 @@ otherwise reload it:
   test restructuring can change the candidate;
 - [optimization assessment](references/optimization/optimization-mission-assessment.md) only for an
   explicitly requested scored or system comparison;
-- [agent routing](references/orchestration/orchestration-agent-routing.md) for one unresolved evidence
-  question, one frozen mechanical leaf, or independent frozen-candidate risk questions.
+- [agent routing](references/orchestration/orchestration-agent-routing.md) before any admitted evidence,
+  path-bounded implementation, mechanical, or review lane;
 - [bounded Doctor](references/quality-assurance/quality-assurance-doctor.md) only for an explicit or
   admitted bounded cross-contract diagnostic; Discovery cannot authorize Acceptance.
 
@@ -207,7 +206,7 @@ new observation for the same predicate.
 Accept only a verified exact candidate bound to a commit or preserved diff. Lead with the result and
 exact effect state; distinguish current external evidence, local inference, and unavailable evidence.
 
-A child terminal or needs-attention final is only:
+A native Task terminal or needs-attention final is only:
 
 ```text
 state: <terminal|needs_attention; endpoint or blocker>
@@ -221,7 +220,7 @@ handoff evidence is `unavailable` and freezes its dependent action.
 
 Load [GitHub delivery](references/delivery/delivery-pullrequest-workflow.md) before PR publication,
 merge-readiness, merge, or cleanup. It owns title validation, exact-head CI, conversations,
-mergeability, freshness, guarded merge, and conditional cleanup. A child ending at a merged endpoint
+mergeability, freshness, guarded merge, and conditional cleanup. A native Task ending at a merged endpoint
 hands off merge-ready evidence; Hub alone owns merge and node closure.
 
 A Mission that created a task, branch, worktree, PR, cache, or continuing source checkout is not

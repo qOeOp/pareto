@@ -2,13 +2,14 @@
 
 After a nontrivial Plan, keep one private effect-admission checkpoint. Replace it only when effect
 admission or retained decision state changes, and on recovery; Finalize produces none. One checkpoint
-admits a Hub wave, never each child. It indexes native tasks, Git/GitHub, and user facts, not authority.
+admits a Hub wave, never each Task or lane. It indexes active writable-lane leases, native Tasks,
+Git/GitHub, and user facts, not authority.
 
 ```text
 Mission checkpoint
-Scope: <language; role=hub|child|single; exact Mission and current native-task locators; Goal locator when applicable; exact consumer/acceptance locator; exact Origin and immutable candidate/change-set locators or unavailable>
+Scope: <language; role=hub|native_task|single; exact Mission and current native-task locators; Goal locator when applicable; exact consumer/acceptance locator; exact Origin and immutable candidate/change-set locators or unavailable>
 Control: <decision-relevant issued or unissued effects with exact receipts when issued; exact authority, Stop, and Resume locators or unavailable>
-State: <unresolved findings and decisive evidence locators; only for role=hub, exact active tasks, DAG, cursors, and wait-transport failure key/count>
+State: <unresolved findings and decisive evidence locators; exact active writable lanes/path leases; only for role=hub, exact active native Tasks, DAG, cursors, and wait-transport failure key/count>
 Next: <stage; owner; predicate; one operation; terminal condition>
 ```
 
@@ -32,7 +33,8 @@ If the checkpoint cannot prove decision coverage through interruption, invalidat
 owner reads; replacement cannot heal omission. An unreadable affected identity freezes only its action and
 names the earliest useful read.
 
-For child or single, require the same Mission, current task, Origin/candidate, next owner, and effect boundary.
+For native_task or single, require the same Mission, current task, Origin/candidate, active writable-lane
+leases, next owner, and effect boundary.
 For role=hub, additionally require:
 
 - every approved or attempted node and its exact disposition;
