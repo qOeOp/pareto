@@ -516,6 +516,12 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.doesNotMatch(installedTaskWorkflow, /owns primitive selection|Choose the execution primitive|outcome may need a user-owned Task/);
   assert.match(installedTaskWorkflow,
     /After a wait-handler capability failure, retain cursor and end the window\s+without retry/);
+  assert.match(installedTaskWorkflow,
+    /Run the wait under the existing host-orchestration\s+caller deadline[\s\S]+abandon a pending handler and return control before Stop/);
+  assert.match(installedTaskWorkflow,
+    /cannot prove that boundary for the current call, do not invoke the wait; observation is unavailable/);
+  assert.match(installedTaskWorkflow,
+    /deadline is transport control, not a second scheduler, wake, retry, or state authority/);
   assert.match(installedTaskWorkflow, /a new user\s+outcome or wider effect still requires alignment/);
   assert.doesNotMatch(installedRecoveryOwner, /complete current Frame|complete admitted Plan/);
   assert.match(installedRecoveryOwner, /inventories, stable nonclaims, completed steps/);

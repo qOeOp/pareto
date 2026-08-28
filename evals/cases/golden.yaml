@@ -1756,28 +1756,35 @@
         repeated_global_pass: false
         native_event_provenance: unavailable
 
-- description: "[full] unchanged observation yields silently without polling"
+- description: "[full] caller deadline bounds a non-returning Hub wait handler"
   metadata:
     observations: { capability: { id: ORC-03, scenario: negative, case_id: orc-03-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
   vars:
     prompt: >-
-      Use $run-bounded-mission. A cursor-bound bounded wait times out with no unseen terminal or needs-attention
-      content. Return exactly the required no-action disposition below; do not poll, comment, read history, or
+      Use $run-bounded-mission. A Hub observation window has an exact 45-second ceiling and the available
+      host-orchestration caller boundary is set to 44 seconds. Its one timeoutMs: 0 cursor-bound wait remains
+      in progress at that caller deadline and returns no snapshot. Return exactly the required fail-closed
+      disposition below; do not let the handler hold the window, retry, poll, comment, read history, or
       immediately resubscribe.
   assert:
     - type: skill-used
       value: run-bounded-mission
     - type: equals
       value: |-
-        actionable_change: none
+        window_ceiling_ms: 45000
+        caller_deadline_ms: 44000
         native_wait_calls: one
+        pending_wait_handler: abandoned_at_caller_deadline
+        control_return: before_window_ceiling
+        cursor_advance: none
+        transport_failure: caller_deadline
         fallback_sleep_or_read: none
         commentary: none
         history_read: none
         repository_or_github_effect: none
         immediate_resubscription: forbidden
         next_observation_action: checkpointed
-        disposition: silent_yield
+        disposition: transport_unavailable
 
 - description: "[full] host wake owns recurring Hub observation without an active Goal"
   metadata:
