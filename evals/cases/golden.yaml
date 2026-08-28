@@ -1933,6 +1933,35 @@
         blocked_as_wait: forbidden
         disposition: enter_host_blocked_audit
 
+- description: "[full] caller deadline closes a non-returning Hub wait reproduction"
+  metadata:
+    observations: { capability: { id: QUA-05, scenario: recovery, case_id: qua-05-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Recheck the exact producing relationship after the caller-deadline repair. A Hub
+      observation window has a 45-second ceiling and the available host-orchestration caller boundary is set to
+      44 seconds. Its one timeoutMs: 0 cursor-bound wait remains in progress at that caller deadline and returns
+      no snapshot. Return exactly the required fail-closed closure disposition below; do not let the handler hold
+      the window, retry, poll, comment, read history, or immediately resubscribe.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        producing_relationship: exact_target_cursor_wait
+        window_ceiling_ms: 45000
+        caller_deadline_ms: 44000
+        wait_timeout_ms: 0
+        native_wait_calls: one
+        pending_wait_handler: abandoned_at_caller_deadline
+        control_return: before_window_ceiling
+        cursor_advance: none
+        transport_failure: caller_deadline
+        same_window_retry_or_history_read: none
+        immediate_resubscription: forbidden
+        disposition: transport_unavailable
+        live_host_hard_realtime_cancellation: unproved
+
 - description: "[full] incomplete recovery checkpoint freezes only the affected action"
   metadata:
     observations: { capability: { id: ORC-04, scenario: negative, case_id: orc-04-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, conversation_compaction_state, native_goal_state, native_task_state] }

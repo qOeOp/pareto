@@ -88,7 +88,10 @@ acceptance gate below still resolves every required fact from its current owner.
 
 One Hub turn owns at most one native cursor-bound wait over the complete exact active set. It is a
 notification accelerator, never acceptance or custody authority. Bind Stop and a host-safe finite
-timeout; explicit status uses one timeoutMs: 0 snapshot. Only the host may impose a stricter caller deadline.
+timeout; explicit status uses one timeoutMs: 0 snapshot. Run the wait under the existing host-orchestration
+caller deadline, set early enough to abandon a pending handler and return control before Stop. If the host
+cannot prove that boundary for the current call, do not invoke the wait; observation is unavailable. The
+deadline is transport control, not a second scheduler, wake, retry, or state authority.
 
 Only a receipt changing the next operation, authority, identity, candidate verdict, DAG release,
 Stop/Resume, or endpoint is actionable; Task progress never is. Progress/expiry is silent waiting and
