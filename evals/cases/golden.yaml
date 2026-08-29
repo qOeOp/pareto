@@ -2815,3 +2815,38 @@
         release_predicate: exact_distinct_cwd_worktree_index_binding
         sibling_state_consumption: forbidden
         capability_evidence: unavailable
+
+- description: "[full] yielded wait cell is terminated before caller Stop"
+  metadata:
+    observations: { capability: { id: QUA-05, scenario: positive, case_id: qua-05-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Reproduce the post-repair path deterministically. A Hub has one exact
+      cursor-bound wait_threads call with timeoutMs 45000 and a caller-visible Stop at 45000 ms. The current
+      native contract says timeoutMs bounds only event waiting and a trailing progress snapshot may add latency.
+      A functions.exec wrapper yields the still-running call at 44000 ms with an exact cell ID and
+      functions.wait can terminate that cell. Return exactly the closure below; do not race an unowned promise,
+      retry the native wait, read history, accept late output, or resubscribe.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        producing_relationship: exact_target_cursor_wait
+        native_timeout_semantics: event_wait_plus_possible_snapshot_latency
+        caller_stop_ms: 45000
+        runner_yield_ms: 44000
+        functions_exec_cells: one
+        native_wait_calls: one
+        yielded_cell_id: exact
+        cleanup_cell_id: exact_yielded_cell
+        cleanup: functions_wait_exact_cell_terminate_true_once
+        cleanup_receipt: terminal
+        late_output: discarded
+        cursor_advance: none
+        transport_failure: caller_deadline
+        duplicate_wait_or_history_read: none
+        immediate_resubscription: forbidden
+        transport_leak: none
+        disposition: transport_unavailable
+        live_host_hard_realtime_cancellation: unproved

@@ -517,11 +517,21 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedTaskWorkflow,
     /After a wait-handler capability failure, retain cursor and end the window\s+without retry/);
   assert.match(installedTaskWorkflow,
-    /Run the wait under the existing host-orchestration\s+caller deadline[\s\S]+abandon a pending handler and return control before Stop/);
+    /A native `wait_threads\.timeoutMs` bounds only its\s+event wait[\s\S]+trailing bounded progress snapshot may add latency/);
   assert.match(installedTaskWorkflow,
-    /cannot prove that boundary for the current call, do not invoke the wait; observation is unavailable/);
+    /one `functions\.exec` cell and set that call's `yield\x5ftime\x5fms` earlier than\s+Stop/);
   assert.match(installedTaskWorkflow,
-    /deadline is transport control, not a second scheduler, wake, retry, or state authority/);
+    /returns `Script running with cell ID`, immediately call `functions\.wait` once[\s\S]+exact `cell_id`[\s\S]+`terminate: true`[\s\S]+terminal cleanup receipt[\s\S]+discard late output[\s\S]+retain the cursor/);
+  assert.match(installedTaskWorkflow,
+    /promise race or yield without\s+exact cell termination\s+leaks the transport and is forbidden/);
+  assert.match(installedTaskWorkflow,
+    /cannot prove bounded yield, exact cell custody, and terminal\s+cleanup for the current call, do not invoke the wait; observation is unavailable/);
+  assert.match(installedTaskWorkflow,
+    /wrapper\s+deadline is\s+transport control, not a second scheduler, wake,\s+retry, fallback read, or state authority/);
+  assert.match(installedTaskWorkflow,
+    /`pending_wait_handler:\s+abandoned_at_caller_deadline` means its late receipt is abandoned after exact-cell termination/);
+  assert.match(installedTaskWorkflow,
+    /`live_host_hard_realtime_cancellation: unproved` preserves that evidence limit[\s\S]+does not weaken the mandatory cleanup path/);
   assert.match(installedTaskWorkflow, /a new user\s+outcome or wider effect still requires alignment/);
   assert.doesNotMatch(installedRecoveryOwner, /complete current Frame|complete admitted Plan/);
   assert.match(installedRecoveryOwner, /inventories, stable nonclaims, completed steps/);
