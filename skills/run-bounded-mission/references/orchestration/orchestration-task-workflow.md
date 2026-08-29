@@ -88,10 +88,22 @@ acceptance gate below still resolves every required fact from its current owner.
 
 One Hub turn owns at most one native cursor-bound wait over the complete exact active set. It is a
 notification accelerator, never acceptance or custody authority. Bind Stop and a host-safe finite
-timeout; explicit status uses one timeoutMs: 0 snapshot. Run the wait under the existing host-orchestration
-caller deadline, set early enough to abandon a pending handler and return control before Stop. If the host
-cannot prove that boundary for the current call, do not invoke the wait; observation is unavailable. The
-deadline is transport control, not a second scheduler, wake, retry, or state authority.
+timeout; explicit status uses one timeoutMs: 0 snapshot. A native `wait_threads.timeoutMs` bounds only its
+event wait; a trailing bounded progress snapshot may add latency, so that value is never the caller-visible
+deadline. Put the one native wait in one `functions.exec` cell and set that call's `yield_time_ms` earlier than
+Stop. If it completes before that deadline, consume its byte-bounded receipt and clear the cell normally. If
+it returns `Script running with cell ID`, immediately call `functions.wait` once with that exact `cell_id` and
+`terminate: true`; require the terminal cleanup receipt, discard late output, retain the cursor, checkpoint
+caller-deadline transport failure, and end the window. A promise race or yield without exact cell termination
+leaks the transport and is forbidden. If the host cannot prove bounded yield, exact cell custody, and terminal
+cleanup for the current call, do not invoke the wait; observation is unavailable. The wrapper deadline is
+transport control, not a second scheduler, wake, retry, fallback read, or state authority.
+
+A terminal cleanup receipt proves only that this wrapper stopped its owned cell; deterministic text cannot
+prove live host hard-real-time cancellation. In legacy closure output, `pending_wait_handler:
+abandoned_at_caller_deadline` means its late receipt is abandoned after exact-cell termination, never that the
+transport remains running. `live_host_hard_realtime_cancellation: unproved` preserves that evidence limit and
+does not weaken the mandatory cleanup path.
 
 Only a receipt changing the next operation, authority, identity, candidate verdict, DAG release,
 Stop/Resume, or endpoint is actionable; Task progress never is. Progress/expiry is silent waiting and
