@@ -34,10 +34,12 @@ async function fixtureExecutable({
   exitEarly = false,
   fileApproval = false,
   finalCompletedMismatch = false,
+  fixtureFinalText = finalText,
   mutateProbe = false,
   omitResolved = false,
   itemStartedBeforeThreadResponse = false,
   itemStartedBeforeTurnResponse = false,
+  incompleteUtf8AfterReadback = false,
   postFinalAuthority = false,
   postTerminalItem = false,
   readbackExtraTurn = false,
@@ -47,6 +49,7 @@ async function fixtureExecutable({
   readbackAuthorityBeforePrompt = false,
   readbackPromptMismatch = false,
   serverConfigMismatch = false,
+  splitUtf8Readback = false,
   terminalStatus = "completed",
   turnStartStatus = "inProgress",
   unterminatedAfterReadback = false,
@@ -54,7 +57,7 @@ async function fixtureExecutable({
   version = "0.148.0",
 } = {}) {
   const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalText, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, serverConfigMismatch, terminalStatus, threadId, turnId, turnStartStatus, unterminatedAfterReadback, unapprovedCommand, version };
+  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalText: fixtureFinalText, incompleteUtf8AfterReadback, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, serverConfigMismatch, splitUtf8Readback, terminalStatus, threadId, turnId, turnStartStatus, unterminatedAfterReadback, unapprovedCommand, version };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
@@ -154,6 +157,12 @@ rl.on("line", (line) => {
     if (fixture.readbackExtraTurn) turns.push({ error: null, id: "019fb8b4-ebd0-7c20-8ba1-041ed6836210", items: [], status: "completed" });
     const response = { id: 3, result: { thread: { cwd: process.cwd(), id: fixture.threadId, turns } } };
     if (fixture.duplicateReadback) process.stdout.write(JSON.stringify(response) + "\\n" + JSON.stringify(response) + "\\n");
+    else if (fixture.splitUtf8Readback) {
+      const encoded = Buffer.from(JSON.stringify(response) + "\\n");
+      const marker = encoded.indexOf(Buffer.from([0xc3, 0xa9]));
+      process.stdout.write(encoded.subarray(0, marker + 1), () => setImmediate(() => process.stdout.write(encoded.subarray(marker + 1))));
+    }
+    else if (fixture.incompleteUtf8AfterReadback) process.stdout.write(Buffer.concat([Buffer.from(JSON.stringify(response) + "\\n"), Buffer.from([0xc3])]));
     else if (fixture.unterminatedAfterReadback) process.stdout.write(JSON.stringify(response) + "\\n{\\\"id\\\":3");
     else if (fixture.exitAfterReadback) process.stdout.write(JSON.stringify(response) + "\\n", () => process.exit(7));
     else send(response);
@@ -219,6 +228,7 @@ try {
   });
   assert.equal(receipt.content_sha256, digest(JSON.stringify(receipt.payload)));
   assert.equal((await run({ mutateProbe: true })).payload.turn.status, "completed");
+  assert.equal((await run({ fixtureFinalText: "controller fixture réussi", splitUtf8Readback: true })).payload.final.text, "controller fixture réussi");
 
   const approved = await run({ approval: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" });
   assert.equal(approved.payload.approvals[0].decision, "accept");
@@ -366,6 +376,7 @@ try {
   await assert.rejects(() => run({ serverConfigMismatch: true }), /did not confirm requested authority configuration/);
   await assert.rejects(() => run({ duplicateInitialize: true }), /duplicate response id/);
   await assert.rejects(() => run({ duplicateReadback: true }), /duplicate response id/);
+  await assert.rejects(() => run({ incompleteUtf8AfterReadback: true }), /unterminated frame/);
   await assert.rejects(() => run({ unterminatedAfterReadback: true }), /unterminated frame/);
   await assert.rejects(() => run({ exitEarly: true }), /exited before terminal receipt/);
   await assert.rejects(() => run({ exitAfterReadback: true }), /exited before terminal receipt/);

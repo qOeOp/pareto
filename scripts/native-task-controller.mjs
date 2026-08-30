@@ -189,8 +189,8 @@ async function executeNativeTask({
   let pendingLines = 0;
   let successSealScheduled = false;
   let wireSequence = 0;
-  let framingRemainder = "";
-  const stdoutDecoder = new TextDecoder("utf-8", { fatal: true });
+  let framingRemainder = Buffer.alloc(0);
+  const frameDecoder = new TextDecoder("utf-8", { fatal: true });
 
   const send = (message) => {
     if (!child.stdin.write(`${JSON.stringify(message)}\n`)) child.stdin.once("drain", () => {});
@@ -478,25 +478,19 @@ async function executeNativeTask({
         finish(reject, new Error("app-server response exceeded 16 MiB"));
         return;
       }
-      try {
-        framingRemainder += stdoutDecoder.decode(chunk, { stream: true });
-      } catch {
-        finish(reject, new Error("app-server response is not valid UTF-8"));
-        return;
-      }
-      let newlineIndex = framingRemainder.indexOf("\n");
+      framingRemainder = Buffer.concat([framingRemainder, chunk]);
+      let newlineIndex = framingRemainder.indexOf(0x0a);
       while (newlineIndex !== -1) {
-        const framed = framingRemainder.slice(0, newlineIndex);
-        framingRemainder = framingRemainder.slice(newlineIndex + 1);
-        enqueueLine(framed.endsWith("\r") ? framed.slice(0, -1) : framed);
-        newlineIndex = framingRemainder.indexOf("\n");
-      }
-    });
-    child.stdout.once("end", () => {
-      try {
-        framingRemainder += stdoutDecoder.decode();
-      } catch {
-        finish(reject, new Error("app-server response is not valid UTF-8"));
+        let framed = framingRemainder.subarray(0, newlineIndex);
+        framingRemainder = framingRemainder.subarray(newlineIndex + 1);
+        if (framed.at(-1) === 0x0d) framed = framed.subarray(0, -1);
+        try {
+          enqueueLine(frameDecoder.decode(framed));
+        } catch {
+          finish(reject, new Error("app-server response is not valid UTF-8"));
+          return;
+        }
+        newlineIndex = framingRemainder.indexOf(0x0a);
       }
     });
     child.once("error", () => finish(reject, new Error("app-server process failed")));
