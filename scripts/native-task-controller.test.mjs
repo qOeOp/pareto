@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { chmod, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { runNativeTask } from "./native-task-controller.mjs";
@@ -252,6 +252,17 @@ async function waitForFile(file) {
   throw new Error(`timed out waiting for fixture file: ${file}`);
 }
 
+async function cliJson(arguments_) {
+  const child = spawn(process.execPath, [path.resolve("scripts/native-task-controller.mjs"), ...arguments_], { stdio: ["ignore", "pipe", "pipe"] });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+  child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+  const [code] = await once(child, "exit");
+  assert.equal(code, 0, stderr);
+  return JSON.parse(stdout);
+}
+
 try {
   const receipt = await run();
   assert.equal(receipt.schema, "rbm-native-task-terminal-envelope/v1");
@@ -360,6 +371,81 @@ try {
   assert.match(cliStderr, /approval decision/);
   assert.equal(JSON.parse(cliStdout).payload.approvals[0].decision, "accept");
   assert.equal(JSON.parse(cliStdout).payload.approvals[0].decision_source, "interactive_stdin_after_request");
+
+  const detachedInvocations = path.join(temporaryRoot, "detached-invocations.txt");
+  const detachedFixture = await fixtureExecutable({ invocationFile: detachedInvocations });
+  const detachedReceiptDir = path.join(temporaryRoot, "detached-receipt");
+  const dispatchArguments = [
+    "dispatch",
+    "--codex-executable", detachedFixture.executable,
+    "--expected-sha256", detachedFixture.sha256,
+    "--expected-version", "0.148.0",
+    "--cwd", temporaryRoot,
+    "--prompt-file", promptFile,
+    "--sandbox", "read-only",
+    "--receipt-dir", detachedReceiptDir,
+    "--timeout-ms", "2000",
+    "--start-timeout-ms", "2000",
+  ];
+  const dispatched = await cliJson(dispatchArguments);
+  assert.ok(["running", "terminal"].includes(dispatched.payload.state));
+  assert.equal(dispatched.payload.attempt.request.prompt_sha256, digest(prompt));
+  assert.equal(dispatched.payload.attempt.request.sandbox, "read-only");
+  await waitForFile(path.join(detachedReceiptDir, "terminal.json"));
+  const inspected = await cliJson(["inspect", "--receipt-dir", detachedReceiptDir]);
+  assert.equal(inspected.payload.state, "terminal");
+  assert.equal(inspected.payload.terminal.payload.terminal.payload.turn.id, turnId);
+  assert.equal(inspected.payload.terminal.payload.terminal.payload.final.text, finalText);
+  const invocationsBeforeRetry = await readFile(detachedInvocations, "utf8");
+  const retried = await cliJson(dispatchArguments);
+  assert.equal(retried.payload.state, "terminal");
+  assert.equal(await readFile(detachedInvocations, "utf8"), invocationsBeforeRetry);
+
+  const receiptLink = path.join(temporaryRoot, "detached-receipt-link");
+  await symlink(detachedReceiptDir, receiptLink, "dir");
+  const linkedInspect = spawn(process.execPath, [path.resolve("scripts/native-task-controller.mjs"), "inspect", "--receipt-dir", receiptLink], { stdio: ["ignore", "pipe", "pipe"] });
+  let linkedStderr = "";
+  linkedInspect.stdout.resume();
+  linkedInspect.stderr.setEncoding("utf8").on("data", (chunk) => { linkedStderr += chunk; });
+  const [linkedCode] = await once(linkedInspect, "exit");
+  assert.notEqual(linkedCode, 0);
+  assert.match(linkedStderr, /directory is missing or unsafe/);
+
+  const terminalReceiptPath = path.join(detachedReceiptDir, "terminal.json");
+  const terminalReceiptSource = await readFile(terminalReceiptPath, "utf8");
+  await writeFile(terminalReceiptPath, terminalReceiptSource.replace(finalText, "tampered final"));
+  const tamperedInspect = spawn(process.execPath, [path.resolve("scripts/native-task-controller.mjs"), "inspect", "--receipt-dir", detachedReceiptDir], { stdio: ["ignore", "pipe", "pipe"] });
+  let tamperedStderr = "";
+  tamperedInspect.stdout.resume();
+  tamperedInspect.stderr.setEncoding("utf8").on("data", (chunk) => { tamperedStderr += chunk; });
+  const [tamperedCode] = await once(tamperedInspect, "exit");
+  assert.notEqual(tamperedCode, 0);
+  assert.match(tamperedStderr, /invalid content identity/);
+  await writeFile(terminalReceiptPath, terminalReceiptSource);
+
+  const failedDetachedFixture = await fixtureExecutable({ serverConfigMismatch: true });
+  const failedReceiptDir = path.join(temporaryRoot, "failed-detached-receipt");
+  const failedDispatch = await cliJson([
+    "dispatch", "--codex-executable", failedDetachedFixture.executable,
+    "--expected-sha256", failedDetachedFixture.sha256, "--expected-version", "0.148.0",
+    "--cwd", temporaryRoot, "--prompt-file", promptFile, "--sandbox", "read-only",
+    "--receipt-dir", failedReceiptDir, "--timeout-ms", "2000", "--start-timeout-ms", "2000",
+  ]);
+  assert.equal(failedDispatch.payload.state, "needs_attention");
+  assert.match(failedDispatch.payload.failure.payload.error, /did not confirm requested authority configuration/);
+
+  const mismatchedPrompt = path.join(temporaryRoot, "different-prompt.txt");
+  await writeFile(mismatchedPrompt, "different prompt");
+  const mismatch = spawn(process.execPath, [
+    path.resolve("scripts/native-task-controller.mjs"), "dispatch", ...dispatchArguments.slice(1).map((value, index, values) =>
+      values[index - 1] === "--prompt-file" ? mismatchedPrompt : value),
+  ], { stdio: ["ignore", "pipe", "pipe"] });
+  let mismatchStderr = "";
+  mismatch.stdout.resume();
+  mismatch.stderr.setEncoding("utf8").on("data", (chunk) => { mismatchStderr += chunk; });
+  const [mismatchCode] = await once(mismatch, "exit");
+  assert.notEqual(mismatchCode, 0);
+  assert.match(mismatchStderr, /different or incomplete attempt/);
 
   const earlyFixture = await fixtureExecutable({ approval: true });
   const earlyCli = spawn(process.execPath, [

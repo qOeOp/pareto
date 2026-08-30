@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ownedAgents = ["fast-builder.toml", "mission-evaluator.toml", "mission-planner.toml", "mission-researcher.toml"];
 const ownedHook = "qoeop-trade-session-start.mjs";
+const ownedControllerFiles = ["json.mjs", "native-task-controller.mjs"];
 const gitAuthorityEnvironment = Object.fromEntries(
   Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name)),
 );
@@ -94,6 +95,8 @@ async function verifyLock(path) {
     "codex/agents",
     `codex/hooks/${ownedHook}`,
     "scripts/install-codex.mjs",
+    "scripts/json.mjs",
+    "scripts/native-task-controller.mjs",
   );
   if (sourceDrift) throw new Error("Codex install source differs from the locked Git tree");
   return actual;
@@ -404,7 +407,7 @@ async function mergedHooks(path, destinationHook) {
   return `${JSON.stringify(document, null, 2)}\n`;
 }
 
-async function verify(sourceSkill, destinationSkill, sourceAgents, destinationAgents, sourceHook, destinationHook) {
+async function verify(sourceSkill, destinationSkill, sourceAgents, destinationAgents, sourceController, destinationController, sourceHook, destinationHook) {
   const mismatches = [];
   try {
     if ((await manifest(sourceSkill)) !== (await manifest(destinationSkill))) mismatches.push("skill");
@@ -416,6 +419,13 @@ async function verify(sourceSkill, destinationSkill, sourceAgents, destinationAg
       if (!((await readFile(join(sourceAgents, name))).equals(await readFile(join(destinationAgents, name))))) mismatches.push(`agent:${name}`);
     } catch {
       mismatches.push(`agent:${name}`);
+    }
+  }
+  for (const name of ownedControllerFiles) {
+    try {
+      if (!((await readFile(join(sourceController, name))).equals(await readFile(join(destinationController, name))))) mismatches.push(`controller:${name}`);
+    } catch {
+      mismatches.push(`controller:${name}`);
     }
   }
   if (sourceHook) {
@@ -434,9 +444,11 @@ const identity = await verifyLock(options.lock);
 const sourceSkill = join(repositoryRoot, "skills", "run-bounded-mission");
 const sourceAgents = join(repositoryRoot, "codex", "agents");
 const sourceHook = join(repositoryRoot, "codex", "hooks", ownedHook);
+const sourceController = join(repositoryRoot, "scripts");
 const destinationSkill = join(options.agentsRoot, "skills", "run-bounded-mission");
 const destinationAgents = join(options.codexRoot, "agents");
 const destinationHook = join(options.codexRoot, "hooks", ownedHook);
+const destinationController = join(options.codexRoot, "native-task-controller");
 const hooksConfig = join(options.codexRoot, "hooks.json");
 const installReceipt = join(options.codexRoot, "run-bounded-mission-install.json");
 const receipt = {
@@ -444,6 +456,7 @@ const receipt = {
   ...identity,
   skill_manifest_sha256: createHash("sha256").update(await manifest(sourceSkill)).digest("hex"),
   agent_manifest_sha256: createHash("sha256").update(await ownedAgentManifest(sourceAgents)).digest("hex"),
+  controller_manifest_sha256: createHash("sha256").update((await Promise.all(ownedControllerFiles.map(async (name) => `${name}\t${createHash("sha256").update(await readFile(join(sourceController, name))).digest("hex")}`))).join("\n") + "\n").digest("hex"),
   agents_root: options.agentsRoot,
   codex_root: options.codexRoot,
 };
@@ -451,6 +464,7 @@ const receipt = {
 if (!options.check) {
   await replaceDirectory(sourceSkill, destinationSkill);
   for (const name of ownedAgents) await replaceFile(join(sourceAgents, name), join(destinationAgents, name));
+  for (const name of ownedControllerFiles) await replaceFile(join(sourceController, name), join(destinationController, name));
   if (options.installTradeSessionHook) {
     await replaceFile(sourceHook, destinationHook);
     await replaceBytes(await mergedHooks(hooksConfig, destinationHook), hooksConfig);
@@ -462,6 +476,8 @@ await verify(
   destinationSkill,
   sourceAgents,
   destinationAgents,
+  sourceController,
+  destinationController,
   options.installTradeSessionHook ? sourceHook : undefined,
   options.installTradeSessionHook ? destinationHook : undefined,
 );
@@ -484,5 +500,5 @@ if (options.installTradeSessionHook) {
   }
 }
 process.stdout.write(
-  `${options.check ? "Verified" : "Installed"} run-bounded-mission and ${ownedAgents.length} Codex agent profiles${options.installTradeSessionHook ? ", plus the trade pin hook" : ""}.\n`,
+  `${options.check ? "Verified" : "Installed"} run-bounded-mission, the native task controller, and ${ownedAgents.length} Codex agent profiles${options.installTradeSessionHook ? ", plus the trade pin hook" : ""}.\n`,
 );
