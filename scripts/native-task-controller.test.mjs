@@ -423,6 +423,21 @@ try {
   assert.match(tamperedStderr, /invalid content identity/);
   await writeFile(terminalReceiptPath, terminalReceiptSource);
 
+  const secondReceiptDir = path.join(temporaryRoot, "second-detached-receipt");
+  await cliJson(dispatchArguments.map((value, index, values) => values[index - 1] === "--receipt-dir" ? secondReceiptDir : value));
+  const secondTerminalPath = path.join(secondReceiptDir, "terminal.json");
+  await waitForFile(secondTerminalPath);
+  const secondTerminalSource = await readFile(secondTerminalPath, "utf8");
+  await writeFile(secondTerminalPath, terminalReceiptSource);
+  const transplantedInspect = spawn(process.execPath, [path.resolve("scripts/native-task-controller.mjs"), "inspect", "--receipt-dir", secondReceiptDir], { stdio: ["ignore", "pipe", "pipe"] });
+  let transplantedStderr = "";
+  transplantedInspect.stdout.resume();
+  transplantedInspect.stderr.setEncoding("utf8").on("data", (chunk) => { transplantedStderr += chunk; });
+  const [transplantedCode] = await once(transplantedInspect, "exit");
+  assert.notEqual(transplantedCode, 0);
+  assert.match(transplantedStderr, /lacks its exact start attempt/);
+  await writeFile(secondTerminalPath, secondTerminalSource);
+
   const failedDetachedFixture = await fixtureExecutable({ serverConfigMismatch: true });
   const failedReceiptDir = path.join(temporaryRoot, "failed-detached-receipt");
   const failedDispatch = await cliJson([

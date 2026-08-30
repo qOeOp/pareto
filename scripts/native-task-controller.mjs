@@ -757,13 +757,41 @@ async function inspectReceipt(receiptDir) {
     || attempt.content_sha256 !== digest(JSON.stringify(canonical({ attempt_id: attempt.attempt_id, request: attempt.request, schema: attempt.schema })))) {
     fail("native task attempt receipt is missing, malformed, or has invalid content identity");
   }
-  const terminal = await readJson(path.join(root, "terminal.json"));
-  if (terminal) return sealed({ attempt, state: "terminal", terminal: verifyEnvelope(terminal, "rbm-native-task-detached-terminal-envelope/v1", "terminal") }, "rbm-native-task-inspection-envelope/v1");
-  const failureValue = await readJson(path.join(root, "failure.json"));
-  const failure = failureValue ? verifyEnvelope(failureValue, "rbm-native-task-failure-envelope/v1", "failure") : null;
-  if (failure) return sealed({ attempt, failure, state: "needs_attention" }, "rbm-native-task-inspection-envelope/v1");
   const startValue = await readJson(path.join(root, "start.json"));
   const start = startValue ? verifyEnvelope(startValue, "rbm-native-task-start-envelope/v1", "start") : null;
+  const failureValue = await readJson(path.join(root, "failure.json"));
+  const failure = failureValue ? verifyEnvelope(failureValue, "rbm-native-task-failure-envelope/v1", "failure") : null;
+  const terminalValue = await readJson(path.join(root, "terminal.json"));
+  const terminal = terminalValue ? verifyEnvelope(terminalValue, "rbm-native-task-detached-terminal-envelope/v1", "terminal") : null;
+  if (start && (start.payload.attempt_id !== attempt.attempt_id || start.payload.start?.schema !== "rbm-native-task-start/v1")) {
+    fail("start receipt differs from its exact attempt");
+  }
+  if (failure && failure.payload.attempt_id !== attempt.attempt_id) fail("failure receipt differs from its exact attempt");
+  if (terminal) {
+    if (failure) fail("terminal and failure receipts conflict");
+    if (!start || terminal.payload.attempt_id !== attempt.attempt_id) fail("terminal receipt lacks its exact start attempt");
+    const inner = verifyEnvelope(terminal.payload.terminal, "rbm-native-task-terminal-envelope/v1", "nested terminal");
+    const startPayload = start.payload.start;
+    const terminalPayload = inner.payload;
+    const expectedRequestedConfiguration = canonical({
+      approval_policy: "never", cwd: attempt.request.cwd, model: attempt.request.model, sandbox: attempt.request.sandbox,
+    });
+    if (startPayload.prompt_sha256 !== attempt.request.prompt_sha256
+      || !sameCanonical(startPayload.requested_configuration, expectedRequestedConfiguration)
+      || startPayload.executable?.sha256 !== attempt.request.expected_sha256
+      || startPayload.executable?.version !== attempt.request.expected_version
+      || terminalPayload.prompt_sha256 !== attempt.request.prompt_sha256
+      || !sameCanonical(terminalPayload.requested_configuration, expectedRequestedConfiguration)
+      || !sameCanonical(terminalPayload.executable, startPayload.executable)
+      || !sameCanonical(terminalPayload.server_configuration, startPayload.server_configuration)
+      || terminalPayload.thread?.id !== startPayload.thread?.id
+      || terminalPayload.turn?.id !== startPayload.turn?.id
+      || !["completed", "failed", "interrupted"].includes(terminalPayload.turn?.status)) {
+      fail("terminal receipt differs from its exact attempt or start receipt");
+    }
+    return sealed({ attempt, start, state: "terminal", terminal }, "rbm-native-task-inspection-envelope/v1");
+  }
+  if (failure) return sealed({ attempt, failure, state: "needs_attention" }, "rbm-native-task-inspection-envelope/v1");
   return sealed({ attempt, start, state: start ? "running" : "starting" }, "rbm-native-task-inspection-envelope/v1");
 }
 
@@ -783,13 +811,14 @@ async function main() {
   if (command === "dispatch") {
     const root = await receiptDirectory(options["receipt-dir"]);
     const prompt = await readPrompt(options["prompt-file"]);
+    const taskCwd = await directoryIdentity(options.cwd);
     const taskTimeoutMs = options["timeout-ms"] === undefined ? 7_200_000 : Number(options["timeout-ms"]);
     if (!Number.isSafeInteger(taskTimeoutMs) || taskTimeoutMs < 1_000 || taskTimeoutMs > 86_400_000) fail("timeout must be between 1000 and 86400000 ms");
     const startTimeoutMs = options["start-timeout-ms"] === undefined ? 15_000 : Number(options["start-timeout-ms"]);
     if (!Number.isSafeInteger(startTimeoutMs) || startTimeoutMs < 0 || startTimeoutMs > 60_000) fail("start timeout must be between 0 and 60000 ms");
     const request = canonical({
       codex_executable: options["codex-executable"],
-      cwd: options.cwd,
+      cwd: taskCwd,
       expected_sha256: options["expected-sha256"],
       expected_version: options["expected-version"],
       model: options.model ?? null,
@@ -818,7 +847,7 @@ async function main() {
     const workerArguments = [path.resolve(process.argv[1]), "worker"];
     for (const [name, value] of [
       ["codex-executable", options["codex-executable"]], ["expected-sha256", options["expected-sha256"]],
-      ["expected-version", options["expected-version"]], ["cwd", options.cwd], ["prompt-file", materializedPrompt],
+      ["expected-version", options["expected-version"]], ["cwd", taskCwd], ["prompt-file", materializedPrompt],
       ["sandbox", options.sandbox], ["receipt-dir", root], ["attempt-id", attemptId], ["model", options.model],
       ["timeout-ms", options["timeout-ms"]],
     ]) if (value !== undefined) workerArguments.push(`--${name}`, value);
