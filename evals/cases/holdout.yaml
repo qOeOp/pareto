@@ -56,8 +56,6 @@
         - "agent_lane_substitution: forbidden"
         - "hub_repository_write: terminal-child-integration-only"
         - "task_capability_unavailable: freeze_node"
-        - "available_read_only_lanes: release"
-        - "whole_goal_blocked: false"
 
 - description: "[holdout] terminal artifact custody preserves unique and prunable work"
   metadata:

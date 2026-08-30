@@ -228,6 +228,9 @@
     {"capability_id":"ORC-10","scenario":"recovery","case_id":"orc-10-recovery","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding","executable_suite":"golden"},
     {"capability_id":"ORC-11","scenario":"positive","case_id":"orc-11-positive","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding","executable_suite":"golden"},
     {"capability_id":"ORC-11","scenario":"negative","case_id":"orc-11-negative","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding","executable_suite":"golden"},
-    {"capability_id":"ORC-11","scenario":"recovery","case_id":"orc-11-recovery","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding","executable_suite":"golden"}
+    {"capability_id":"ORC-11","scenario":"recovery","case_id":"orc-11-recovery","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding","executable_suite":"golden"},
+    {"capability_id":"ORC-12","scenario":"positive","case_id":"orc-12-positive","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding","executable_suite":"golden"},
+    {"capability_id":"ORC-12","scenario":"negative","case_id":"orc-12-negative","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding","executable_suite":"golden"},
+    {"capability_id":"ORC-12","scenario":"recovery","case_id":"orc-12-recovery","observer_kind":"fixed_real_consumer","authority_status":"authority_unavailable","missing_authority":"scenario_consumer_binding","executable_suite":"golden"}
   ]
 }

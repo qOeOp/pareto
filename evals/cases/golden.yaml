@@ -2007,6 +2007,30 @@
     observations: { capability: { id: ORC-09, scenario: positive, case_id: orc-09-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
   vars:
     prompt: >-
+      Use $run-bounded-mission. A Hub is waiting on one long exact-head review. Two other intra-Mission
+      decisions have frozen inputs: one bounded read-only question and one path-bounded writer with an
+      exact distinct cwd, worktree, index, and disjoint lease. Neither outcome must outlive Hub cancellation
+      or own a branch or PR. The native active set is empty. Return exactly the release decision below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        native_active_set: empty
+        native_task_needed_for_parallelism: false
+        waiting_slice: exact-head-review
+        read_only_lane: release
+        path_bounded_writer: release
+        writer_git_state: exact-distinct
+        native_active_set_membership_for_agent_lanes: forbidden
+        hub_parallelism: preserved
+        capability_evidence: unavailable
+
+- description: "[full] schedulable owner work forbids whole-Goal block"
+  metadata:
+    observations: { capability: { id: ORC-12, scenario: positive, case_id: orc-12-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_goal_state, native_task_state] }
+  vars:
+    prompt: >-
       Use $run-bounded-mission. One native writer node is frozen because its exact open candidate lacks a
       terminal Task receipt, and creating a replacement writer would duplicate custody. Three consecutive
       automatic Goal continuations observe the same predicate. The candidate head still admits frozen-input
@@ -2025,11 +2049,55 @@
         delivery_fact_read: release_read_only
         independent_investigation: release_read_only
         frozen_candidate_adoption_mutation_acceptance_or_merge: forbidden
-        native_active_set_membership_for_agent_lanes: forbidden
-        hub_parallelism: preserved
         repeated_continuations: recurrence_only
         whole_goal_impasse: unproved
         update_goal_blocked: forbidden
+        capability_evidence: unavailable
+
+- description: "[full] exhausted schedulability proof admits true whole-Goal block"
+  metadata:
+    observations: { capability: { id: ORC-12, scenario: negative, case_id: orc-12-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_goal_state, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. The same required authority is unavailable for three consecutive Goal turns.
+      A current schedulability proof covers every known node and owner: there is no running or runnable
+      operation, no admitted active-target wait, no candidate or PR fact read that can change a decision,
+      no custody recovery, and no independent DAG slice. Return exactly the blocked eligibility decision.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        consecutive_same_blocker_turns: three
+        current_schedulability_proof: complete
+        running_or_runnable_operation: none
+        admitted_active_target_wait: none
+        safe_owner_action: none
+        whole_goal_impasse: proved
+        update_goal_blocked: eligible
+        capability_evidence: unavailable
+
+- description: "[full] authenticated Resume recomputes blocked eligibility"
+  metadata:
+    observations: { capability: { id: ORC-12, scenario: recovery, case_id: orc-12-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_goal_state, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A whole Goal was blocked after a complete no-route proof. The user then issues
+      one authenticated Resume. Current reconciliation finds a newly admitted frozen-input review that can
+      change the candidate verdict. Return exactly the recovery decision without carrying the predecessor
+      no-route conclusion or repeated-turn count forward.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        authenticated_resume: consumed_once
+        predecessor_no_route_conclusion: invalidated
+        predecessor_repeated_turn_count: not_carried
+        current_schedulability: recomputed
+        newly_admitted_review: runnable
+        update_goal_blocked: forbidden
+        next: invoke_review_owner
         capability_evidence: unavailable
 
 - description: "[full] unavailable native create freezes only native nodes"
