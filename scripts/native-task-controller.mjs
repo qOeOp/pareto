@@ -16,6 +16,11 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 const approvalPolicies = new Set(["untrusted", "on-request", "never"]);
 const sandboxModes = new Set(["read-only", "workspace-write", "danger-full-access"]);
 const approvalDecisions = new Set(["accept", "decline", "cancel"]);
+const sandboxPolicyTypes = new Map([
+  ["read-only", "readOnly"],
+  ["workspace-write", "workspaceWrite"],
+  ["danger-full-access", "dangerFullAccess"],
+]);
 
 function fail(message) {
   throw new Error(message);
@@ -31,6 +36,26 @@ function canonical(value) {
     return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
   }
   return value;
+}
+
+function sameCanonical(left, right) {
+  return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
+}
+
+function authoritySubject(item) {
+  if (item.type === "commandExecution") {
+    if (typeof item.command !== "string" || !Array.isArray(item.commandActions) || typeof item.cwd !== "string") return null;
+    return canonical({
+      command: item.command,
+      commandActions: item.commandActions,
+      cwd: item.cwd,
+      pluginId: item.pluginId ?? null,
+      scriptPath: item.scriptPath ?? null,
+      source: item.source ?? "agent",
+    });
+  }
+  if (item.type === "fileChange") return Array.isArray(item.changes) ? canonical({ changes: item.changes }) : null;
+  return null;
 }
 
 async function materializeExecutable(executable, expectedSha256, expectedVersion) {
@@ -91,7 +116,7 @@ async function stopChild(child) {
   if (!stopped) fail("app-server process could not be stopped");
 }
 
-export async function runNativeTask({
+async function executeNativeTask({
   codexExecutable,
   expectedExecutableSha256,
   expectedServerVersion,
@@ -100,15 +125,14 @@ export async function runNativeTask({
   approvalPolicy,
   sandbox,
   approvalHandler = null,
-  approvalDecisionSource = "client_handler",
   model = null,
   timeoutMs = 7_200_000,
-}) {
+}, approvalDecisionSource) {
   if (typeof prompt !== "string" || prompt.length === 0 || Buffer.byteLength(prompt) > 1024 * 1024) fail("prompt must contain between 1 byte and 1 MiB");
   if (!approvalPolicies.has(approvalPolicy)) fail("approval policy is unsupported");
   if (!sandboxModes.has(sandbox)) fail("sandbox mode is unsupported");
   if (!(approvalHandler === null || typeof approvalHandler === "function")) fail("approval handler is invalid");
-  if (!new Set(["client_handler", "interactive_stdin_after_request"]).has(approvalDecisionSource)) fail("approval decision source is invalid");
+  if (!new Set(["client_handler", "interactive_stdin_after_request"]).has(approvalDecisionSource)) fail("internal approval decision source is invalid");
   if (!(model === null || (typeof model === "string" && model.length > 0 && model.length <= 200))) fail("model is invalid");
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 86_400_000) fail("timeout must be between 1000 and 86400000 ms");
 
@@ -138,6 +162,7 @@ export async function runNativeTask({
   let stdoutBytes = 0;
   let terminalTurn = null;
   let terminalReadback = false;
+  let serverConfiguration = null;
   let settled = false;
 
   const send = (message) => {
@@ -159,6 +184,7 @@ export async function runNativeTask({
       rejectDuplicateJsonObjectMembers(line, "app-server response");
       const message = JSON.parse(line);
       if (!message || Array.isArray(message) || typeof message !== "object") fail("app-server message is malformed");
+      if (terminalTurn && !(message.method === undefined && message.id === 3)) fail("app-server emitted an event after the terminal turn");
 
       if (message.method === undefined && message.id !== undefined) {
         const key = JSON.stringify(message.id);
@@ -186,6 +212,17 @@ export async function runNativeTask({
         if (message.id === 1) {
           const started = responseResult(message, 1, "thread/start");
           if (!uuidPattern.test(started.thread?.id ?? "")) fail("thread/start omitted an exact thread id");
+          if (started.approvalPolicy !== approvalPolicy || started.cwd !== taskCwd || typeof started.model !== "string" || started.model.length === 0) {
+            fail("thread/start did not confirm requested authority configuration");
+          }
+          if (model !== null && started.model !== model) fail("thread/start selected an unexpected model");
+          if (started.sandbox?.type !== sandboxPolicyTypes.get(sandbox)) fail("thread/start selected an unexpected sandbox policy");
+          serverConfiguration = canonical({
+            approval_policy: started.approvalPolicy,
+            cwd: started.cwd,
+            model: started.model,
+            sandbox: started.sandbox,
+          });
           threadId = started.thread.id;
           send({ method: "turn/start", id: 2, params: { input: [{ type: "text", text: prompt }], threadId } });
           return;
@@ -199,8 +236,14 @@ export async function runNativeTask({
         if (message.id === 3) {
           const readback = responseResult(message, 3, "thread/read");
           const matchingTurns = Array.isArray(readback.thread?.turns) ? readback.thread.turns.filter((turn) => turn?.id === turnId) : [];
-          if (readback.thread?.id !== threadId || matchingTurns.length !== 1 || matchingTurns[0].status !== terminalTurn?.status) {
+          if (readback.thread?.id !== threadId || readback.thread?.cwd !== serverConfiguration?.cwd || matchingTurns.length !== 1 || matchingTurns[0].status !== terminalTurn?.status) {
             fail("thread/read did not confirm the exact terminal turn");
+          }
+          const readbackFinals = Array.isArray(matchingTurns[0].items)
+            ? matchingTurns[0].items.filter((item) => item?.type === "agentMessage" && item?.phase === "final_answer")
+            : [];
+          if (terminalTurn.status === "completed" && (readbackFinals.length !== 1 || readbackFinals[0].text !== finalMessages[0])) {
+            fail("thread/read did not confirm the exact terminal answer");
           }
           terminalReadback = true;
           finish(resolve);
@@ -221,10 +264,19 @@ export async function runNativeTask({
         const key = JSON.stringify(message.id);
         if (approvals.has(key)) fail("app-server returned a duplicate approval request id");
         const expectedItemType = message.method === "item/commandExecution/requestApproval" ? "commandExecution" : "fileChange";
-        if (items.get(params.itemId)?.state !== "started" || items.get(params.itemId)?.type !== expectedItemType) {
+        const startedItem = items.get(params.itemId);
+        if (startedItem?.state !== "started" || startedItem?.type !== expectedItemType) {
           fail("approval request lacks its matching started item");
         }
-        const decision = await approvalHandler({ method: message.method, params: canonical(params) });
+        if (expectedItemType === "commandExecution") {
+          if (params.command !== null && params.command !== undefined && params.command !== startedItem.item.command) fail("approval command differs from its started item");
+          if (params.cwd !== null && params.cwd !== undefined && params.cwd !== startedItem.item.cwd) fail("approval cwd differs from its started item");
+          if (params.commandActions !== null && params.commandActions !== undefined && !sameCanonical(params.commandActions, startedItem.item.commandActions)) {
+            fail("approval command actions differ from its started item");
+          }
+        }
+        const authority = canonical({ method: message.method, params, started_item: startedItem.item });
+        const decision = await approvalHandler(authority);
         if (!approvalDecisions.has(decision)) fail("approval handler returned an unsupported decision");
         if ([...approvals.values()].some((approval) => approval.itemId === params.itemId)) fail("item has more than one approval request");
         approvals.set(key, {
@@ -232,7 +284,8 @@ export async function runNativeTask({
           decision_source: approvalDecisionSource,
           itemId: params.itemId,
           method: message.method,
-          request_sha256: digest(JSON.stringify(canonical({ method: message.method, params }))),
+          request_sha256: digest(JSON.stringify(authority)),
+          subject_sha256: digest(JSON.stringify(startedItem.subject)),
         });
         send({ id: message.id, result: { decision } });
         return;
@@ -247,12 +300,17 @@ export async function runNativeTask({
         const current = items.get(params.item.id);
         if (message.method === "item/started") {
           if (current) fail("item/started duplicated or reversed an item lifecycle");
-          items.set(params.item.id, { state: "started", type: params.item.type });
+          const item = canonical(params.item);
+          const subject = authoritySubject(item);
+          if (["commandExecution", "fileChange"].includes(item.type) && !subject) fail("authority item is malformed");
+          items.set(params.item.id, { item, state: "started", subject, type: params.item.type });
         } else {
           if (current?.state !== "started" || current.type !== params.item.type) fail("item/completed lacks its matching started item");
+          const completedSubject = authoritySubject(params.item);
+          if (current.subject !== null && !sameCanonical(completedSubject, current.subject)) fail("item/completed changed its authority subject");
           const approvalKey = [...approvals].find(([, approval]) => approval.itemId === params.item.id)?.[0];
           if (approvalKey !== undefined && !resolvedApprovals.has(approvalKey)) fail("item completed before its approval was resolved");
-          items.set(params.item.id, { state: "completed", type: params.item.type });
+          items.set(params.item.id, { ...current, item: canonical(params.item), state: "completed" });
         }
         if (message.method === "item/completed" && params.item.type === "agentMessage" && params.item.phase === "final_answer") {
           if (typeof params.item.text !== "string" || Buffer.byteLength(params.item.text) > 1024 * 1024) fail("terminal agent message is malformed or exceeds 1 MiB");
@@ -313,7 +371,8 @@ export async function runNativeTask({
   const finalText = finalMessages[0] ?? null;
   const payload = canonical({
     approvals: [...approvals.values()].map(canonical),
-    configuration: { approval_policy: approvalPolicy, cwd: taskCwd, model, sandbox },
+    requested_configuration: { approval_policy: approvalPolicy, cwd: taskCwd, model, sandbox },
+    server_configuration: serverConfiguration,
     executable,
     final: finalText === null ? null : { bytes: Buffer.byteLength(finalText), sha256: digest(finalText), text: finalText },
     items: { completed: [...items.values()].filter((item) => item.state === "completed").length },
@@ -327,6 +386,10 @@ export async function runNativeTask({
     },
   });
   return { content_sha256: digest(JSON.stringify(payload)), payload, schema: "rbm-native-task-terminal-envelope/v1" };
+}
+
+export async function runNativeTask(options) {
+  return executeNativeTask(options, "client_handler");
 }
 
 function parseArguments(argv) {
@@ -377,18 +440,17 @@ async function main() {
       decisionWaiter = null;
     }
   });
-  const approvalHandler = async ({ method, params }) => {
+  const approvalHandler = async ({ method, params, started_item }) => {
     if (unexpectedApprovalInput) throw unexpectedApprovalInput;
     if (decisionWaiter) fail("more than one approval request is awaiting a decision");
-    process.stderr.write(`${JSON.stringify({ approval_request: { availableDecisions: params.availableDecisions ?? null, command: params.command ?? null, cwd: params.cwd ?? null, itemId: params.itemId, method, reason: params.reason ?? null } })}\n`);
+    process.stderr.write(`${JSON.stringify({ approval_request: { method, params, started_item } })}\n`);
     process.stderr.write("approval decision (accept|decline|cancel): ");
     if (approvalInputClosed) fail("approval input closed before a decision");
     return new Promise((resolve, reject) => { decisionWaiter = { reject, resolve }; });
   };
   try {
-    const receipt = await runNativeTask({
+    const receipt = await executeNativeTask({
       approvalHandler,
-      approvalDecisionSource: "interactive_stdin_after_request",
       approvalPolicy: options["approval-policy"],
       codexExecutable: options["codex-executable"],
       cwd: options.cwd,
@@ -398,7 +460,7 @@ async function main() {
       prompt: await readPrompt(options["prompt-file"]),
       sandbox: options.sandbox,
       timeoutMs: options["timeout-ms"] === undefined ? undefined : Number(options["timeout-ms"]),
-    });
+    }, "interactive_stdin_after_request");
     if (unexpectedApprovalInput) throw unexpectedApprovalInput;
     process.stdout.write(`${JSON.stringify(receipt)}\n`);
     if (receipt.payload.turn.status !== "completed") process.exitCode = 1;

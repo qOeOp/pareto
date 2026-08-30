@@ -17,16 +17,21 @@ const digest = (value) => `sha256:${createHash("sha256").update(value).digest("h
 
 async function fixtureExecutable({
   approval = false,
+  approvalCommandMismatch = false,
   approvalWithoutStarted = false,
   completedWithoutStarted = false,
   duplicateInitialize = false,
   exitEarly = false,
+  fileApproval = false,
   omitResolved = false,
+  postTerminalItem = false,
+  readbackFinalMismatch = false,
+  serverConfigMismatch = false,
   terminalStatus = "completed",
   version = "0.148.0",
 } = {}) {
   const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalWithoutStarted, completedWithoutStarted, duplicateInitialize, executable, exitEarly, finalText, omitResolved, terminalStatus, threadId, turnId, version };
+  const fixture = { approval, approvalCommandMismatch, approvalWithoutStarted, completedWithoutStarted, duplicateInitialize, executable, exitEarly, fileApproval, finalText, omitResolved, postTerminalItem, readbackFinalMismatch, serverConfigMismatch, terminalStatus, threadId, turnId, version };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
@@ -43,12 +48,27 @@ rl.on("line", (line) => {
     if (fixture.duplicateInitialize) send({ id: 0, result: { userAgent: "fixture/" + fixture.version } });
   }
   if (message.method === "initialized" && fixture.exitEarly) process.exit(7);
-  if (message.method === "thread/start") send({ id: 1, result: { thread: { id: fixture.threadId } } });
+  if (message.method === "thread/start") {
+    const sandboxTypes = { "read-only": "readOnly", "workspace-write": "workspaceWrite", "danger-full-access": "dangerFullAccess" };
+    send({ id: 1, result: {
+      approvalPolicy: fixture.serverConfigMismatch ? "untrusted" : message.params.approvalPolicy,
+      cwd: message.params.cwd,
+      model: message.params.model || "fixture-model",
+      sandbox: { type: sandboxTypes[message.params.sandbox] },
+      thread: { cwd: message.params.cwd, id: fixture.threadId },
+    } });
+  }
   if (message.method === "turn/start") {
     send({ id: 2, result: { turn: { id: fixture.turnId, status: "inProgress", items: [] } } });
     if (fixture.approval) {
-      if (!fixture.approvalWithoutStarted) send({ method: "item/started", params: { item: { id: "command-1", type: "commandExecution" }, threadId: fixture.threadId, turnId: fixture.turnId } });
-      send({ id: "approval-1", method: "item/commandExecution/requestApproval", params: { itemId: "command-1", threadId: fixture.threadId, turnId: fixture.turnId } });
+      const item = fixture.fileApproval
+        ? { changes: [{ path: "/tmp/example", type: "update" }], id: "change-1", status: "inProgress", type: "fileChange" }
+        : { command: "pwd", commandActions: [], cwd: process.cwd(), id: "command-1", status: "inProgress", type: "commandExecution" };
+      if (!fixture.approvalWithoutStarted) send({ method: "item/started", params: { item, threadId: fixture.threadId, turnId: fixture.turnId } });
+      const params = fixture.fileApproval
+        ? { grantRoot: "/tmp/grant", itemId: "change-1", reason: "fixture", startedAtMs: 1, threadId: fixture.threadId, turnId: fixture.turnId }
+        : { command: fixture.approvalCommandMismatch ? "whoami" : "pwd", commandActions: [], cwd: process.cwd(), itemId: "command-1", startedAtMs: 1, threadId: fixture.threadId, turnId: fixture.turnId };
+      send({ id: "approval-1", method: fixture.fileApproval ? "item/fileChange/requestApproval" : "item/commandExecution/requestApproval", params });
     }
     else if (fixture.completedWithoutStarted) {
       send({ method: "item/completed", params: { item: { id: "command-1", type: "commandExecution", status: "completed" }, threadId: fixture.threadId, turnId: fixture.turnId } });
@@ -58,11 +78,15 @@ rl.on("line", (line) => {
   if (message.id === "approval-1") {
     if (message.result.decision !== "accept") process.exit(6);
     if (!fixture.omitResolved) send({ method: "serverRequest/resolved", params: { requestId: "approval-1", threadId: fixture.threadId } });
-    send({ method: "item/completed", params: { item: { id: "command-1", type: "commandExecution", status: "completed" }, threadId: fixture.threadId, turnId: fixture.turnId } });
+    const item = fixture.fileApproval
+      ? { changes: [{ path: "/tmp/example", type: "update" }], id: "change-1", status: "completed", type: "fileChange" }
+      : { command: "pwd", commandActions: [], cwd: process.cwd(), id: "command-1", status: "completed", type: "commandExecution" };
+    send({ method: "item/completed", params: { item, threadId: fixture.threadId, turnId: fixture.turnId } });
     finish();
   }
   if (message.method === "thread/read" && message.id === 3) {
-    send({ id: 3, result: { thread: { id: fixture.threadId, turns: [{ id: fixture.turnId, status: fixture.terminalStatus }] } } });
+    const readbackText = fixture.readbackFinalMismatch ? "different final" : fixture.finalText;
+    send({ id: 3, result: { thread: { cwd: process.cwd(), id: fixture.threadId, turns: [{ id: fixture.turnId, items: fixture.terminalStatus === "completed" ? [{ id: "agent-1", phase: "final_answer", text: readbackText, type: "agentMessage" }] : [], status: fixture.terminalStatus }] } } });
   }
 });
 function finish() {
@@ -71,6 +95,7 @@ function finish() {
     send({ method: "item/completed", params: { item: { id: "agent-1", type: "agentMessage", phase: "final_answer", text: fixture.finalText }, threadId: fixture.threadId, turnId: fixture.turnId } });
   }
   send({ method: "turn/completed", params: { threadId: fixture.threadId, turn: { id: fixture.turnId, status: fixture.terminalStatus, error: fixture.terminalStatus === "failed" ? { message: "fixture failed" } : null } } });
+  if (fixture.postTerminalItem) send({ method: "item/started", params: { item: { id: "late-1", type: "reasoning" }, threadId: fixture.threadId, turnId: fixture.turnId } });
 }
 `;
   await writeFile(executable, program);
@@ -103,11 +128,17 @@ try {
   assert.equal(receipt.payload.final.text, finalText);
   assert.equal(receipt.payload.final.sha256, digest(finalText));
   assert.equal(receipt.payload.prompt_sha256, digest(prompt));
-  assert.deepEqual(receipt.payload.configuration, {
+  assert.deepEqual(receipt.payload.requested_configuration, {
     approval_policy: "never",
     cwd: resolvedTemporaryRoot,
     model: null,
     sandbox: "read-only",
+  });
+  assert.deepEqual(receipt.payload.server_configuration, {
+    approval_policy: "never",
+    cwd: resolvedTemporaryRoot,
+    model: "fixture-model",
+    sandbox: { type: "readOnly" },
   });
   assert.equal(receipt.content_sha256, digest(JSON.stringify(receipt.payload)));
 
@@ -115,7 +146,22 @@ try {
   assert.equal(approved.payload.approvals[0].decision, "accept");
   assert.equal(approved.payload.approvals[0].decision_source, "client_handler");
   assert.match(approved.payload.approvals[0].request_sha256, /^sha256:[a-f0-9]{64}$/);
+  assert.match(approved.payload.approvals[0].subject_sha256, /^sha256:[a-f0-9]{64}$/);
   assert.equal(approved.payload.items.completed, 2);
+  const sourceCannotBeSpoofed = await run({ approval: true }, {
+    approvalDecisionSource: "interactive_stdin_after_request",
+    approvalHandler: async () => "accept",
+    approvalPolicy: "on-request",
+  });
+  assert.equal(sourceCannotBeSpoofed.payload.approvals[0].decision_source, "client_handler");
+  let fileAuthority = null;
+  const fileApproved = await run({ approval: true, fileApproval: true }, {
+    approvalHandler: async (authority) => { fileAuthority = authority; return "accept"; },
+    approvalPolicy: "on-request",
+  });
+  assert.equal(fileAuthority.params.grantRoot, "/tmp/grant");
+  assert.deepEqual(fileAuthority.started_item.changes, [{ path: "/tmp/example", type: "update" }]);
+  assert.match(fileApproved.payload.approvals[0].request_sha256, /^sha256:[a-f0-9]{64}$/);
 
   const cliFixture = await fixtureExecutable({ approval: true });
   const promptFile = path.join(temporaryRoot, "prompt.txt");
@@ -143,6 +189,8 @@ try {
   const [cliCode] = await once(cli, "exit");
   assert.equal(cliCode, 0);
   assert.match(cliStderr, /approval_request/);
+  assert.match(cliStderr, /started_item/);
+  assert.match(cliStderr, /commandActions/);
   assert.match(cliStderr, /approval decision/);
   assert.equal(JSON.parse(cliStdout).payload.approvals[0].decision, "accept");
   assert.equal(JSON.parse(cliStdout).payload.approvals[0].decision_source, "interactive_stdin_after_request");
@@ -175,7 +223,11 @@ try {
   await assert.rejects(() => run({ approval: true }, { approvalHandler: async () => "invalid", approvalPolicy: "on-request" }), /unsupported decision/);
   await assert.rejects(() => run({ approval: true, omitResolved: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /before its approval was resolved/);
   await assert.rejects(() => run({ approval: true, approvalWithoutStarted: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /approval request lacks its matching started item/);
+  await assert.rejects(() => run({ approval: true, approvalCommandMismatch: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /approval command differs from its started item/);
   await assert.rejects(() => run({ completedWithoutStarted: true }), /item\/completed lacks its matching started item/);
+  await assert.rejects(() => run({ postTerminalItem: true }), /event after the terminal turn/);
+  await assert.rejects(() => run({ readbackFinalMismatch: true }), /did not confirm the exact terminal answer/);
+  await assert.rejects(() => run({ serverConfigMismatch: true }), /did not confirm requested authority configuration/);
   await assert.rejects(() => run({ duplicateInitialize: true }), /duplicate response id/);
   await assert.rejects(() => run({ exitEarly: true }), /exited before terminal receipt/);
 
