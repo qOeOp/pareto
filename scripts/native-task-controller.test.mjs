@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { runNativeTask } from "./native-task-controller.mjs";
@@ -34,9 +34,12 @@ async function fixtureExecutable({
   exitEarly = false,
   fileApproval = false,
   finalCompletedMismatch = false,
+  finalForNonCompleted = false,
   fixtureFinalText = finalText,
+  hangAfterTurnStart = false,
   mutateProbe = false,
   omitResolved = false,
+  pidFile = null,
   itemStartedBeforeThreadResponse = false,
   itemStartedBeforeTurnResponse = false,
   incompleteUtf8AfterReadback = false,
@@ -50,14 +53,16 @@ async function fixtureExecutable({
   readbackPromptMismatch = false,
   serverConfigMismatch = false,
   splitUtf8Readback = false,
+  sameChunkEarlyThreadResponse = false,
   terminalStatus = "completed",
   turnStartStatus = "inProgress",
   unterminatedAfterReadback = false,
+  unsolicitedThreadResponse = false,
   unapprovedCommand = null,
   version = "0.148.0",
 } = {}) {
   const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalText: fixtureFinalText, incompleteUtf8AfterReadback, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, serverConfigMismatch, splitUtf8Readback, terminalStatus, threadId, turnId, turnStartStatus, unterminatedAfterReadback, unapprovedCommand, version };
+  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalForNonCompleted, finalText: fixtureFinalText, hangAfterTurnStart, incompleteUtf8AfterReadback, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, pidFile, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, sameChunkEarlyThreadResponse, serverConfigMismatch, splitUtf8Readback, terminalStatus, threadId, turnId, turnStartStatus, unterminatedAfterReadback, unsolicitedThreadResponse, unapprovedCommand, version };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
@@ -71,6 +76,7 @@ if (process.argv[2] === "--version") {
   process.exit(0);
 }
 if (process.argv[2] !== "app-server" || process.argv[3] !== "--stdio") process.exit(9);
+if (fixture.pidFile) require("node:fs").writeFileSync(fixture.pidFile, String(process.pid));
 const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
 let turnInput = [];
 const rl = readline.createInterface({ input: process.stdin });
@@ -78,6 +84,12 @@ rl.on("line", (line) => {
   const message = JSON.parse(line);
   if (message.id === 0) {
     if (message.params.capabilities !== undefined) process.exit(8);
+    const earlyThreadResponse = { id: 1, result: { approvalPolicy: "never", cwd: process.cwd(), model: "fixture-model", sandbox: { type: "readOnly" }, thread: { cwd: process.cwd(), id: fixture.threadId } } };
+    if (fixture.unsolicitedThreadResponse) { send(earlyThreadResponse); return; }
+    if (fixture.sameChunkEarlyThreadResponse) {
+      process.stdout.write(JSON.stringify({ id: 0, result: { userAgent: "fixture/" + fixture.version, platformFamily: "unix", platformOs: "fixture" } }) + "\\n" + JSON.stringify(earlyThreadResponse) + "\\n");
+      return;
+    }
     send({ id: 0, result: { userAgent: "fixture/" + fixture.version, platformFamily: "unix", platformOs: "fixture" } });
     if (fixture.duplicateInitialize) send({ id: 0, result: { userAgent: "fixture/" + fixture.version } });
   }
@@ -97,6 +109,7 @@ rl.on("line", (line) => {
     turnInput = message.params.input;
     if (fixture.itemStartedBeforeTurnResponse) send({ method: "item/started", params: { item: { command: "pwd", commandActions: [], cwd: process.cwd(), id: "early-command", status: "inProgress", type: "commandExecution" }, threadId: fixture.threadId, turnId: null } });
     send({ id: 2, result: { turn: { id: fixture.turnId, status: fixture.turnStartStatus, items: [] } } });
+    if (fixture.hangAfterTurnStart) return;
     if (fixture.approval) {
       const item = fixture.fileApproval
         ? { changes: [{ path: "/tmp/example", type: "update" }], id: "change-1", status: fixture.authorityStartedStatus, type: "fileChange" }
@@ -169,7 +182,7 @@ rl.on("line", (line) => {
   }
 });
 function finish() {
-  if (fixture.terminalStatus === "completed") {
+  if (fixture.terminalStatus === "completed" || fixture.finalForNonCompleted) {
     send({ method: "item/started", params: { item: { id: "agent-1", type: "agentMessage", phase: "final_answer", text: fixture.finalText }, threadId: fixture.threadId, turnId: fixture.turnId } });
     send({ method: "item/completed", params: { item: { id: "agent-1", type: "agentMessage", phase: "final_answer", text: fixture.finalCompletedMismatch ? "different completed final" : fixture.finalText }, threadId: fixture.threadId, turnId: fixture.turnId } });
   }
@@ -200,6 +213,15 @@ async function run(fixture = {}, overrides = {}) {
     timeoutMs: 2_000,
     ...overrides,
   });
+}
+
+async function waitForFile(file) {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const value = await readFile(file, "utf8").catch(() => null);
+    if (value !== null) return value;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`timed out waiting for fixture file: ${file}`);
 }
 
 try {
@@ -330,10 +352,39 @@ try {
   assert.notEqual(earlyCode, 0);
   assert.match(earlyStderr, /approval decision arrived before a displayed request/);
 
+  const runtimeRootsBeforeSignal = new Set((await readdir(os.tmpdir())).filter((name) => name.startsWith("native-task-controller-runtime-")));
+  const signalPidFile = path.join(temporaryRoot, "signal-child.pid");
+  const signalFixture = await fixtureExecutable({ hangAfterTurnStart: true, pidFile: signalPidFile });
+  const signalCli = spawn(process.execPath, [
+    path.resolve("scripts/native-task-controller.mjs"), "run",
+    "--codex-executable", signalFixture.executable,
+    "--expected-sha256", signalFixture.sha256,
+    "--expected-version", "0.148.0",
+    "--cwd", temporaryRoot,
+    "--prompt-file", promptFile,
+    "--approval-policy", "never",
+    "--sandbox", "read-only",
+    "--timeout-ms", "30000",
+  ], { stdio: ["pipe", "pipe", "pipe"] });
+  let signalStderr = "";
+  signalCli.stdout.resume();
+  signalCli.stderr.setEncoding("utf8").on("data", (chunk) => { signalStderr += chunk; });
+  const signalChildPid = Number(await waitForFile(signalPidFile));
+  signalCli.kill("SIGTERM");
+  const [signalCode, signalName] = await once(signalCli, "exit");
+  assert.notEqual(signalCode, 0);
+  assert.equal(signalName, null);
+  assert.match(signalStderr, /native task was aborted/);
+  assert.throws(() => process.kill(signalChildPid, 0), (error) => error?.code === "ESRCH");
+  const runtimeRootsAfterSignal = new Set((await readdir(os.tmpdir())).filter((name) => name.startsWith("native-task-controller-runtime-")));
+  assert.deepEqual([...runtimeRootsAfterSignal].filter((name) => !runtimeRootsBeforeSignal.has(name)), []);
+
   const failed = await run({ terminalStatus: "failed" });
   assert.equal(failed.payload.turn.status, "failed");
   assert.equal(failed.payload.final, null);
   assert.match(failed.payload.turn.error_sha256, /^sha256:[a-f0-9]{64}$/);
+  await assert.rejects(() => run({ finalForNonCompleted: true, terminalStatus: "failed" }), /non-completed turn emitted a terminal answer/);
+  await assert.rejects(() => run({ finalForNonCompleted: true, terminalStatus: "interrupted" }), /non-completed turn emitted a terminal answer/);
 
   await assert.rejects(() => run({ approval: true }), /conflicts with the confirmed never policy/);
   await assert.rejects(() => run({ approval: true, approvalMissingId: true }, { approvalPolicy: "on-request" }), /approval request id is malformed/);
@@ -374,6 +425,8 @@ try {
   await assert.rejects(() => run({ approval: true, authorityStartedStatus: "completed" }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /started outside inProgress/);
   await assert.rejects(() => run({ authorityCompletedStatus: "inProgress", unapprovedCommand: "pwd" }), /completed with a non-terminal status/);
   await assert.rejects(() => run({ serverConfigMismatch: true }), /did not confirm requested authority configuration/);
+  await assert.rejects(() => run({ unsolicitedThreadResponse: true }), /response arrived before its matching request was sent/);
+  await assert.rejects(() => run({ sameChunkEarlyThreadResponse: true }), /response arrived before its matching request was sent/);
   await assert.rejects(() => run({ duplicateInitialize: true }), /duplicate response id/);
   await assert.rejects(() => run({ duplicateReadback: true }), /duplicate response id/);
   await assert.rejects(() => run({ incompleteUtf8AfterReadback: true }), /unterminated frame/);

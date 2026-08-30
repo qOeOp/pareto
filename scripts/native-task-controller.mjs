@@ -145,6 +145,7 @@ async function executeNativeTask({
   sandbox,
   approvalHandler = null,
   model = null,
+  signal = null,
   timeoutMs = 7_200_000,
 }, approvalDecisionSource) {
   if (typeof prompt !== "string" || prompt.length === 0 || Buffer.byteLength(prompt) > 1024 * 1024) fail("prompt must contain between 1 byte and 1 MiB");
@@ -153,6 +154,7 @@ async function executeNativeTask({
   if (!(approvalHandler === null || typeof approvalHandler === "function")) fail("approval handler is invalid");
   if (!new Set(["client_handler", "interactive_stdin_after_request"]).has(approvalDecisionSource)) fail("internal approval decision source is invalid");
   if (!(model === null || (typeof model === "string" && model.length > 0 && model.length <= 200))) fail("model is invalid");
+  if (!(signal === null || (typeof signal === "object" && typeof signal.aborted === "boolean" && typeof signal.addEventListener === "function" && typeof signal.removeEventListener === "function"))) fail("abort signal is invalid");
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 86_400_000) fail("timeout must be between 1000 and 86400000 ms");
 
   const taskCwd = await directoryIdentity(cwd);
@@ -173,6 +175,7 @@ async function executeNativeTask({
   const responseIds = new Set();
   const items = new Map();
   const approvals = new Map();
+  const outstandingRequests = new Map();
   const resolvedApprovals = new Set();
   const completionOrder = [];
   const finalMessages = [];
@@ -193,17 +196,26 @@ async function executeNativeTask({
   const frameDecoder = new TextDecoder("utf-8", { fatal: true });
 
   const send = (message) => {
+    if (typeof message.method === "string" && message.id !== undefined) {
+      const key = JSON.stringify(message.id);
+      if (outstandingRequests.has(key) || responseIds.has(key)) fail("client request id is duplicate or already consumed");
+      outstandingRequests.set(key, { method: message.method, sentWireSequence: ++wireSequence });
+    }
     if (!child.stdin.write(`${JSON.stringify(message)}\n`)) child.stdin.once("drain", () => {});
   };
 
   const terminal = new Promise((resolve, reject) => {
     const timer = setTimeout(() => finish(reject, new Error("app-server task timed out")), timeoutMs);
+    const onAbort = () => finish(reject, new Error("native task was aborted"));
     const finish = (callback, value) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
       callback(value);
     };
+    if (signal?.aborted) queueMicrotask(onAbort);
+    else signal?.addEventListener("abort", onAbort, { once: true });
     const scheduleSuccessSeal = () => {
       if (successSealScheduled) return;
       successSealScheduled = true;
@@ -245,6 +257,9 @@ async function executeNativeTask({
       if (message.method === undefined && message.id !== undefined) {
         const key = JSON.stringify(message.id);
         if (responseIds.has(key)) fail("app-server returned a duplicate response id");
+        const request = outstandingRequests.get(key);
+        if (!request || request.sentWireSequence >= receiveWireSequence) fail("app-server response arrived before its matching request was sent");
+        outstandingRequests.delete(key);
         responseIds.add(key);
         if (message.error !== undefined) fail(`app-server request ${message.id} failed`);
         if (message.id === 0) {
@@ -454,6 +469,7 @@ async function executeNativeTask({
         if (approvals.size !== resolvedApprovals.size) fail("turn completed with unresolved approval requests");
         if ([...items.values()].some((item) => item.state !== "completed")) fail("turn completed with an incomplete item lifecycle");
         if (params.turn.status === "completed" && finalMessages.length !== 1) fail("completed turn lacks one terminal agent message");
+        if (params.turn.status !== "completed" && finalMessages.length !== 0) fail("non-completed turn emitted a terminal answer");
         if (params.turn.status === "completed" && items.get(completionOrder.at(-1))?.item?.phase !== "final_answer") fail("terminal answer is not the last completed item");
         terminalTurn = params.turn;
         send({ method: "thread/read", id: 3, params: { includeTurns: true, threadId } });
@@ -585,6 +601,10 @@ async function readPrompt(promptFile) {
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
+  const abortController = new AbortController();
+  const handledSignals = process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGHUP", "SIGINT", "SIGTERM"];
+  const abortForSignal = () => abortController.abort();
+  for (const name of handledSignals) process.once(name, abortForSignal);
   const approvalInput = readline.createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: process.stdin.isTTY });
   let decisionWaiter = null;
   let unexpectedApprovalInput = null;
@@ -625,12 +645,14 @@ async function main() {
       model: options.model ?? null,
       prompt: await readPrompt(options["prompt-file"]),
       sandbox: options.sandbox,
+      signal: abortController.signal,
       timeoutMs: options["timeout-ms"] === undefined ? undefined : Number(options["timeout-ms"]),
     }, "interactive_stdin_after_request");
     if (unexpectedApprovalInput) throw unexpectedApprovalInput;
     process.stdout.write(`${JSON.stringify(receipt)}\n`);
     if (receipt.payload.turn.status !== "completed") process.exitCode = 1;
   } finally {
+    for (const name of handledSignals) process.removeListener(name, abortForSignal);
     approvalInput.close();
   }
 }
