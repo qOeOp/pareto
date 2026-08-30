@@ -27,9 +27,11 @@ async function fixtureExecutable({
   completedWithoutStarted = false,
   duplicateInitialize = false,
   duplicateReadback = false,
+  exitAfterReadback = false,
   exitEarly = false,
   fileApproval = false,
   finalCompletedMismatch = false,
+  mutateProbe = false,
   omitResolved = false,
   postFinalAuthority = false,
   postTerminalItem = false,
@@ -45,12 +47,19 @@ async function fixtureExecutable({
   version = "0.148.0",
 } = {}) {
   const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completedWithError, completedWithoutStarted, duplicateInitialize, duplicateReadback, executable, exitEarly, fileApproval, finalCompletedMismatch, finalText, omitResolved, postFinalAuthority, postTerminalItem, readbackDuplicateItemId, readbackExtraTurn, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, serverConfigMismatch, terminalStatus, threadId, turnId, turnStartStatus, unapprovedCommand, version };
+  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completedWithError, completedWithoutStarted, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, fileApproval, finalCompletedMismatch, finalText, mutateProbe, omitResolved, postFinalAuthority, postTerminalItem, readbackDuplicateItemId, readbackExtraTurn, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, serverConfigMismatch, terminalStatus, threadId, turnId, turnStartStatus, unapprovedCommand, version };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
 if (process.argv[1] === fixture.executable) process.exit(5);
-if (process.argv[2] === "--version") { process.stdout.write("codex-cli " + fixture.version + "\\n"); process.exit(0); }
+if (process.argv[2] === "--version") {
+  if (fixture.mutateProbe) {
+    require("node:fs").chmodSync(process.argv[1], 0o700);
+    require("node:fs").writeFileSync(process.argv[1], "#!/usr/bin/env node\\nprocess.exit(19);\\n");
+  }
+  process.stdout.write("codex-cli " + fixture.version + "\\n");
+  process.exit(0);
+}
 if (process.argv[2] !== "app-server" || process.argv[3] !== "--stdio") process.exit(9);
 const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
 let turnInput = [];
@@ -123,6 +132,7 @@ rl.on("line", (line) => {
     if (fixture.readbackExtraTurn) turns.push({ error: null, id: "019fb8b4-ebd0-7c20-8ba1-041ed6836210", items: [], status: "completed" });
     const response = { id: 3, result: { thread: { cwd: process.cwd(), id: fixture.threadId, turns } } };
     if (fixture.duplicateReadback) process.stdout.write(JSON.stringify(response) + "\\n" + JSON.stringify(response) + "\\n");
+    else if (fixture.exitAfterReadback) process.stdout.write(JSON.stringify(response) + "\\n", () => process.exit(7));
     else send(response);
   }
 });
@@ -185,6 +195,7 @@ try {
     sandbox: { type: "readOnly" },
   });
   assert.equal(receipt.content_sha256, digest(JSON.stringify(receipt.payload)));
+  assert.equal((await run({ mutateProbe: true })).payload.turn.status, "completed");
 
   const approved = await run({ approval: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" });
   assert.equal(approved.payload.approvals[0].decision, "accept");
@@ -310,6 +321,7 @@ try {
   await assert.rejects(() => run({ duplicateInitialize: true }), /duplicate response id/);
   await assert.rejects(() => run({ duplicateReadback: true }), /duplicate response id/);
   await assert.rejects(() => run({ exitEarly: true }), /exited before terminal receipt/);
+  await assert.rejects(() => run({ exitAfterReadback: true }), /exited before terminal receipt/);
 
   const wrongHash = await fixtureExecutable();
   await assert.rejects(() => runNativeTask({

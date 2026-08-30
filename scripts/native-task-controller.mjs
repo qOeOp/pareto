@@ -72,28 +72,37 @@ async function materializeExecutable(executable, expectedSha256, expectedVersion
   if (!info?.isFile() || info.isSymbolicLink() || (process.platform !== "win32" && (info.mode & 0o111) === 0)) {
     fail("codex executable is missing or unsafe");
   }
-  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "native-task-controller-exec-"));
-  const runtimePath = path.join(temporaryRoot, process.platform === "win32" ? "codex.exe" : "codex");
+  const copyExecutable = async (prefix) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), prefix));
+    const copiedPath = path.join(root, process.platform === "win32" ? "codex.exe" : "codex");
+    try {
+      await copyFile(resolved, copiedPath);
+      if (process.platform !== "win32") await chmod(copiedPath, 0o500);
+      const copiedInfo = await lstat(copiedPath);
+      if (!copiedInfo.isFile() || copiedInfo.isSymbolicLink()) fail("materialized codex executable is unsafe");
+      const hash = createHash("sha256");
+      for await (const chunk of createReadStream(copiedPath)) hash.update(chunk);
+      const sha256 = `sha256:${hash.digest("hex")}`;
+      if (sha256 !== expectedSha256) fail("codex executable sha256 mismatch");
+      return { cleanup: () => rm(root, { force: true, recursive: true }), copiedPath, sha256 };
+    } catch (error) {
+      await rm(root, { force: true, recursive: true });
+      throw error;
+    }
+  };
+  const probe = await copyExecutable("native-task-controller-probe-");
   try {
-    await copyFile(resolved, runtimePath);
-    if (process.platform !== "win32") await chmod(runtimePath, 0o500);
-    const runtimeInfo = await lstat(runtimePath);
-    if (!runtimeInfo.isFile() || runtimeInfo.isSymbolicLink()) fail("materialized codex executable is unsafe");
-    const hash = createHash("sha256");
-    for await (const chunk of createReadStream(runtimePath)) hash.update(chunk);
-    const sha256 = `sha256:${hash.digest("hex")}`;
-    if (sha256 !== expectedSha256) fail("codex executable sha256 mismatch");
-    const { stdout } = await execFileAsync(runtimePath, ["--version"], { encoding: "utf8", timeout: 10_000 });
+    const { stdout } = await execFileAsync(probe.copiedPath, ["--version"], { encoding: "utf8", timeout: 10_000 });
     if (stdout.trim() !== `codex-cli ${expectedVersion}`) fail("codex executable version mismatch");
-    return {
-      identity: { path: resolved, sha256, version: expectedVersion },
-      runtimePath,
-      cleanup: () => rm(temporaryRoot, { force: true, recursive: true }),
-    };
-  } catch (error) {
-    await rm(temporaryRoot, { force: true, recursive: true });
-    throw error;
+  } finally {
+    await probe.cleanup();
   }
+  const runtime = await copyExecutable("native-task-controller-runtime-");
+  return {
+    identity: { path: resolved, sha256: runtime.sha256, version: expectedVersion },
+    runtimePath: runtime.copiedPath,
+    cleanup: runtime.cleanup,
+  };
 }
 
 async function directoryIdentity(cwd) {
@@ -197,8 +206,24 @@ async function executeNativeTask({
       successSealScheduled = true;
       const attempt = () => {
         if (settled) return;
-        if (pendingLines === 0) finish(resolve);
-        else setImmediate(attempt);
+        if (pendingLines !== 0) {
+          setImmediate(attempt);
+          return;
+        }
+        setImmediate(() => {
+          setTimeout(() => {
+            if (settled) return;
+            if (pendingLines !== 0) {
+              setImmediate(attempt);
+              return;
+            }
+            if (child.exitCode !== null || child.signalCode !== null) {
+              finish(reject, new Error(`app-server exited before terminal receipt: code=${child.exitCode} signal=${child.signalCode}`));
+              return;
+            }
+            finish(resolve);
+          }, 50);
+        });
       };
       setImmediate(attempt);
     };
@@ -425,7 +450,7 @@ async function executeNativeTask({
     });
     child.once("error", () => finish(reject, new Error("app-server process failed")));
     child.once("exit", (code, signal) => {
-      if (!terminalReadback) finish(reject, new Error(`app-server exited before terminal receipt: code=${code} signal=${signal}`));
+      if (!settled) finish(reject, new Error(`app-server exited before terminal receipt: code=${code} signal=${signal}`));
     });
   });
 
