@@ -1004,8 +1004,11 @@ try {
   await assert.rejects(() => run({ sameChunkEarlyThreadResponse: true }), /response arrived before its matching request was sent/);
   await assert.rejects(() => run({ duplicateInitialize: true }), /duplicate response id/);
   await assert.rejects(() => run({ duplicateReadback: true }), /duplicate response id/);
-  await assert.rejects(() => run({ delayedDuplicateReadback: true, ignoreSigterm: true }), /duplicate response id/);
-  await assert.rejects(() => run({ delayedFailureAfterReadback: true, ignoreSigterm: true }), /exited unexpectedly during receipt shutdown: code=7 signal=null/);
+  if (process.platform !== "win32") {
+    // These cases require a child that ignores SIGTERM; Windows TerminateProcess closes its kill-on-close Job instead.
+    await assert.rejects(() => run({ delayedDuplicateReadback: true, ignoreSigterm: true }), /duplicate response id/);
+    await assert.rejects(() => run({ delayedFailureAfterReadback: true, ignoreSigterm: true }), /exited unexpectedly during receipt shutdown: code=7 signal=null/);
+  }
   await assert.rejects(() => run({ incompleteUtf8AfterReadback: true }), /unterminated frame/);
   await assert.rejects(() => run({ unterminatedAfterReadback: true }), /unterminated frame/);
   await assert.rejects(() => run({ exitEarly: true }), /exited before terminal receipt/);
