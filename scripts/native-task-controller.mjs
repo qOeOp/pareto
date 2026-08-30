@@ -160,6 +160,7 @@ async function executeNativeTask({
   const items = new Map();
   const approvals = new Map();
   const resolvedApprovals = new Set();
+  const completionOrder = [];
   const finalMessages = [];
   let threadId = null;
   let turnId = null;
@@ -239,8 +240,9 @@ async function executeNativeTask({
         }
         if (message.id === 3) {
           const readback = responseResult(message, 3, "thread/read");
-          const matchingTurns = Array.isArray(readback.thread?.turns) ? readback.thread.turns.filter((turn) => turn?.id === turnId) : [];
-          if (readback.thread?.id !== threadId || readback.thread?.cwd !== serverConfiguration?.cwd || matchingTurns.length !== 1 || matchingTurns[0].status !== terminalTurn?.status) {
+          const readbackTurns = Array.isArray(readback.thread?.turns) ? readback.thread.turns : [];
+          const matchingTurns = readbackTurns.filter((turn) => turn?.id === turnId);
+          if (readback.thread?.id !== threadId || readback.thread?.cwd !== serverConfiguration?.cwd || readbackTurns.length !== 1 || matchingTurns.length !== 1 || matchingTurns[0].status !== terminalTurn?.status) {
             fail("thread/read did not confirm the exact terminal turn");
           }
           if (!sameCanonical(matchingTurns[0].error ?? null, terminalTurn.error ?? null)) fail("thread/read returned a different terminal error");
@@ -250,16 +252,17 @@ async function executeNativeTask({
             || userMessages[0].content[0]?.type !== "text" || userMessages[0].content[0]?.text !== prompt) {
             fail("thread/read did not confirm the exact prompt");
           }
-          const streamedAuthorityItems = [...items.values()].filter((item) => item.subject !== null);
+          const streamedAuthorityItems = completionOrder.map((id) => items.get(id)).filter((item) => item.subject !== null);
           const readbackAuthorityItems = readbackItems.filter((item) => ["commandExecution", "fileChange"].includes(item?.type));
-          if (readbackAuthorityItems.length !== streamedAuthorityItems.length || streamedAuthorityItems.some((streamed) => {
-            const matches = readbackAuthorityItems.filter((item) => item.id === streamed.item.id && item.type === streamed.type);
-            return matches.length !== 1 || !sameCanonical(authoritySubject(matches[0]), streamed.subject);
+          if (readbackAuthorityItems.length !== streamedAuthorityItems.length || streamedAuthorityItems.some((streamed, index) => {
+            const readbackItem = readbackAuthorityItems[index];
+            return readbackItem?.id !== streamed.item.id || readbackItem.type !== streamed.type || !sameCanonical(authoritySubject(readbackItem), streamed.subject);
           })) fail("thread/read did not confirm the exact authority items");
           const readbackFinals = readbackItems.filter((item) => item?.type === "agentMessage" && item?.phase === "final_answer");
           if (terminalTurn.status === "completed" && (readbackFinals.length !== 1 || readbackFinals[0].text !== finalMessages[0])) {
             fail("thread/read did not confirm the exact terminal answer");
           }
+          if (terminalTurn.status === "completed" && readbackItems.at(-1)?.id !== readbackFinals[0].id) fail("thread/read terminal answer is not the last item");
           terminalReadback = true;
           finish(resolve);
           return;
@@ -315,6 +318,7 @@ async function executeNativeTask({
       if (typeof message.method !== "string" || message.id !== undefined) fail("app-server notification is malformed");
       const params = message.params ?? {};
       if (message.method === "item/started" || message.method === "item/completed") {
+        if (finalMessages.length > 0) fail("app-server emitted an item event after the terminal answer");
         if (params.threadId !== threadId || params.turnId !== turnId || typeof params.item?.id !== "string" || typeof params.item?.type !== "string") {
           fail(`${message.method} identity is malformed`);
         }
@@ -332,6 +336,7 @@ async function executeNativeTask({
           const approvalKey = [...approvals].find(([, approval]) => approval.itemId === params.item.id)?.[0];
           if (approvalKey !== undefined && !resolvedApprovals.has(approvalKey)) fail("item completed before its approval was resolved");
           items.set(params.item.id, { ...current, item: canonical(params.item), state: "completed" });
+          completionOrder.push(params.item.id);
         }
         if (message.method === "item/completed" && params.item.type === "agentMessage" && params.item.phase === "final_answer") {
           if (typeof params.item.text !== "string" || Buffer.byteLength(params.item.text) > 1024 * 1024) fail("terminal agent message is malformed or exceeds 1 MiB");
@@ -356,6 +361,7 @@ async function executeNativeTask({
         if (approvals.size !== resolvedApprovals.size) fail("turn completed with unresolved approval requests");
         if ([...items.values()].some((item) => item.state !== "completed")) fail("turn completed with an incomplete item lifecycle");
         if (params.turn.status === "completed" && finalMessages.length !== 1) fail("completed turn lacks one terminal agent message");
+        if (params.turn.status === "completed" && items.get(completionOrder.at(-1))?.item?.phase !== "final_answer") fail("terminal answer is not the last completed item");
         terminalTurn = params.turn;
         send({ method: "thread/read", id: 3, params: { includeTurns: true, threadId } });
         return;
@@ -392,8 +398,14 @@ async function executeNativeTask({
   }
 
   const finalText = finalMessages[0] ?? null;
+  const authorityItems = completionOrder.map((id) => items.get(id)).filter((item) => item.subject !== null).map((item) => canonical({
+    id: item.item.id,
+    subject_sha256: digest(JSON.stringify(item.subject)),
+    type: item.type,
+  }));
   const payload = canonical({
     approvals: [...approvals.values()].map(canonical),
+    authority_items: authorityItems,
     requested_configuration: { approval_policy: approvalPolicy, cwd: taskCwd, model, sandbox },
     server_configuration: serverConfiguration,
     executable,

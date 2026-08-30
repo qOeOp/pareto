@@ -26,16 +26,19 @@ async function fixtureExecutable({
   exitEarly = false,
   fileApproval = false,
   omitResolved = false,
+  postFinalAuthority = false,
   postTerminalItem = false,
+  readbackExtraTurn = false,
   readbackFinalMismatch = false,
   readbackOmitAuthority = false,
   readbackPromptMismatch = false,
   serverConfigMismatch = false,
   terminalStatus = "completed",
+  unapprovedCommand = null,
   version = "0.148.0",
 } = {}) {
   const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalCommandMismatch, approvalWithoutStarted, availableDecisions, completedWithError, completedWithoutStarted, duplicateInitialize, executable, exitEarly, fileApproval, finalText, omitResolved, postTerminalItem, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, serverConfigMismatch, terminalStatus, threadId, turnId, version };
+  const fixture = { approval, approvalCommandMismatch, approvalWithoutStarted, availableDecisions, completedWithError, completedWithoutStarted, duplicateInitialize, executable, exitEarly, fileApproval, finalText, omitResolved, postFinalAuthority, postTerminalItem, readbackExtraTurn, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, serverConfigMismatch, terminalStatus, threadId, turnId, unapprovedCommand, version };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
@@ -80,6 +83,11 @@ rl.on("line", (line) => {
     else if (fixture.completedWithoutStarted) {
       send({ method: "item/completed", params: { item: { id: "command-1", type: "commandExecution", status: "completed" }, threadId: fixture.threadId, turnId: fixture.turnId } });
     }
+    else if (fixture.unapprovedCommand !== null) {
+      send({ method: "item/started", params: { item: { command: fixture.unapprovedCommand, commandActions: [], cwd: process.cwd(), id: "command-1", status: "inProgress", type: "commandExecution" }, threadId: fixture.threadId, turnId: fixture.turnId } });
+      send({ method: "item/completed", params: { item: { command: fixture.unapprovedCommand, commandActions: [], cwd: process.cwd(), id: "command-1", status: "completed", type: "commandExecution" }, threadId: fixture.threadId, turnId: fixture.turnId } });
+      finish();
+    }
     else finish();
   }
   if (message.id === "approval-1") {
@@ -94,18 +102,24 @@ rl.on("line", (line) => {
   if (message.method === "thread/read" && message.id === 3) {
     const readbackText = fixture.readbackFinalMismatch ? "different final" : fixture.finalText;
     const items = [{ content: fixture.readbackPromptMismatch ? [{ type: "text", text: "different prompt" }] : turnInput, id: "user-1", type: "userMessage" }];
-    if (fixture.approval && !fixture.readbackOmitAuthority) items.push(fixture.fileApproval
+    if ((fixture.approval || fixture.unapprovedCommand !== null) && !fixture.readbackOmitAuthority) items.push(fixture.fileApproval
       ? { changes: [{ path: "/tmp/example", type: "update" }], id: "change-1", status: "completed", type: "fileChange" }
-      : { command: "pwd", commandActions: [], cwd: process.cwd(), id: "command-1", status: "completed", type: "commandExecution" });
+      : { command: fixture.unapprovedCommand || "pwd", commandActions: [], cwd: process.cwd(), id: "command-1", status: "completed", type: "commandExecution" });
     if (fixture.terminalStatus === "completed") items.push({ id: "agent-1", phase: "final_answer", text: readbackText, type: "agentMessage" });
     const error = fixture.completedWithError || fixture.terminalStatus === "failed" ? { message: "fixture failed" } : null;
-    send({ id: 3, result: { thread: { cwd: process.cwd(), id: fixture.threadId, turns: [{ error, id: fixture.turnId, items, status: fixture.terminalStatus }] } } });
+    const turns = [{ error, id: fixture.turnId, items, status: fixture.terminalStatus }];
+    if (fixture.readbackExtraTurn) turns.push({ error: null, id: "019fb8b4-ebd0-7c20-8ba1-041ed6836210", items: [], status: "completed" });
+    send({ id: 3, result: { thread: { cwd: process.cwd(), id: fixture.threadId, turns } } });
   }
 });
 function finish() {
   if (fixture.terminalStatus === "completed") {
     send({ method: "item/started", params: { item: { id: "agent-1", type: "agentMessage", phase: "final_answer", text: fixture.finalText }, threadId: fixture.threadId, turnId: fixture.turnId } });
     send({ method: "item/completed", params: { item: { id: "agent-1", type: "agentMessage", phase: "final_answer", text: fixture.finalText }, threadId: fixture.threadId, turnId: fixture.turnId } });
+  }
+  if (fixture.postFinalAuthority) {
+    send({ method: "item/started", params: { item: { command: "pwd", commandActions: [], cwd: process.cwd(), id: "late-command", status: "inProgress", type: "commandExecution" }, threadId: fixture.threadId, turnId: fixture.turnId } });
+    send({ method: "item/completed", params: { item: { command: "pwd", commandActions: [], cwd: process.cwd(), id: "late-command", status: "completed", type: "commandExecution" }, threadId: fixture.threadId, turnId: fixture.turnId } });
   }
   const error = fixture.completedWithError || fixture.terminalStatus === "failed" ? { message: "fixture failed" } : null;
   send({ method: "turn/completed", params: { threadId: fixture.threadId, turn: { id: fixture.turnId, status: fixture.terminalStatus, error } } });
@@ -161,6 +175,11 @@ try {
   assert.equal(approved.payload.approvals[0].decision_source, "client_handler");
   assert.match(approved.payload.approvals[0].request_sha256, /^sha256:[a-f0-9]{64}$/);
   assert.match(approved.payload.approvals[0].subject_sha256, /^sha256:[a-f0-9]{64}$/);
+  assert.deepEqual(approved.payload.authority_items, [{
+    id: "command-1",
+    subject_sha256: approved.payload.approvals[0].subject_sha256,
+    type: "commandExecution",
+  }]);
   assert.equal(approved.payload.items.completed, 2);
   const sourceCannotBeSpoofed = await run({ approval: true }, {
     approvalDecisionSource: "interactive_stdin_after_request",
@@ -176,6 +195,11 @@ try {
   assert.equal(fileAuthority.params.grantRoot, "/tmp/grant");
   assert.deepEqual(fileAuthority.started_item.changes, [{ path: "/tmp/example", type: "update" }]);
   assert.match(fileApproved.payload.approvals[0].request_sha256, /^sha256:[a-f0-9]{64}$/);
+  const unapproved = await run({ unapprovedCommand: "pwd" });
+  assert.equal(unapproved.payload.approvals.length, 0);
+  assert.equal(unapproved.payload.authority_items.length, 1);
+  assert.equal(unapproved.payload.authority_items[0].type, "commandExecution");
+  assert.match(unapproved.payload.authority_items[0].subject_sha256, /^sha256:[a-f0-9]{64}$/);
 
   const cliFixture = await fixtureExecutable({ approval: true });
   const promptFile = path.join(temporaryRoot, "prompt.txt");
@@ -242,10 +266,12 @@ try {
   await assert.rejects(() => run({ approval: true, approvalCommandMismatch: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /approval command differs from its started item/);
   await assert.rejects(() => run({ completedWithoutStarted: true }), /item\/completed lacks its matching started item/);
   await assert.rejects(() => run({ postTerminalItem: true }), /event after the terminal turn/);
+  await assert.rejects(() => run({ postFinalAuthority: true }), /item event after the terminal answer/);
   await assert.rejects(() => run({ completedWithError: true }), /completed turn contains an error/);
   await assert.rejects(() => run({ readbackFinalMismatch: true }), /did not confirm the exact terminal answer/);
   await assert.rejects(() => run({ approval: true, readbackOmitAuthority: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /did not confirm the exact authority items/);
   await assert.rejects(() => run({ readbackPromptMismatch: true }), /did not confirm the exact prompt/);
+  await assert.rejects(() => run({ readbackExtraTurn: true }), /did not confirm the exact terminal turn/);
   await assert.rejects(() => run({ serverConfigMismatch: true }), /did not confirm requested authority configuration/);
   await assert.rejects(() => run({ duplicateInitialize: true }), /duplicate response id/);
   await assert.rejects(() => run({ exitEarly: true }), /exited before terminal receipt/);
