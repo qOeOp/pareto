@@ -5,7 +5,7 @@ import { EventEmitter, once } from "node:events";
 import { chmod, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { launchDetachedWorker, readLifecycleReceiptValues, runNativeTask } from "./native-task-controller.mjs";
+import { assertDetachedReceiptIsolation, launchDetachedWorker, readLifecycleReceiptValues, runNativeTask } from "./native-task-controller.mjs";
 
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "native-task-controller-test-"));
 const resolvedTemporaryRoot = await realpath(temporaryRoot);
@@ -40,6 +40,29 @@ for (const successorName of ["failure.json", "terminal.json"]) {
   assert.deepEqual(receiptValues.startValue, { marker: "start.json" });
   assert.deepEqual(receiptValues[successorName === "failure.json" ? "failureValue" : "terminalValue"], { marker: successorName });
 }
+
+const authorityReceipt = path.join(os.homedir(), ".codex", "native-task-receipts", "attempt");
+await assert.rejects(
+  () => assertDetachedReceiptIsolation(authorityReceipt, "/workspace", "danger-full-access"),
+  /forbid danger-full-access/,
+);
+await assert.rejects(
+  () => assertDetachedReceiptIsolation("/workspace/receipts/attempt", "/workspace", "workspace-write"),
+  /writable by the Task sandbox/,
+);
+await assert.rejects(
+  () => assertDetachedReceiptIsolation(path.join(os.tmpdir(), "attempt"), "/workspace", "workspace-write"),
+  /writable by the Task sandbox/,
+);
+await assert.rejects(
+  () => assertDetachedReceiptIsolation(authorityReceipt, "/workspace", "workspace-write", {
+    excludeSlashTmp: true, excludeTmpdirEnvVar: true, type: "workspaceWrite", writableRoots: [path.join(os.homedir(), ".codex")],
+  }),
+  /writable by the Task sandbox/,
+);
+await assertDetachedReceiptIsolation(authorityReceipt, "/workspace", "workspace-write", {
+  excludeSlashTmp: false, excludeTmpdirEnvVar: false, type: "workspaceWrite", writableRoots: [],
+});
 
 async function fixtureExecutable({
   approval = false,

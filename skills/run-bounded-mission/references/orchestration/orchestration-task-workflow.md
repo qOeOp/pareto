@@ -75,6 +75,11 @@ For a detached native Mission, use the installer-owned controller at
 `<codex-root>/native-task-controller/native-task-controller.mjs`. Invoke `dispatch` once with one new,
 absolute, Hub-owned receipt directory plus the exact Codex executable identity, cwd, prompt file,
 sandbox, model, and timeout. Detached execution is fixed to `approvalPolicy=never`. The controller
+rejects `danger-full-access`. For `workspace-write`, use a child of the installer-owned
+`<codex-root>/native-task-receipts/` directory and never a Task cwd, `/tmp`, `$TMPDIR`, or another
+server-reported writable root; dispatch and start readback both fail closed if the receipt directory
+is writable by the Task sandbox. `read-only` may use any absolute Hub-owned directory that the Task
+cannot write. The installer creates the default receipt root with owner-only permissions. The controller
 creates the receipt directory as the consumed attempt lease, starts one app-server Task, atomically
 writes `start.json` only after exact `thread/start` and `turn/start`, and writes `terminal.json` only
 after exact terminal `thread/read`. A returned `starting` attempt is consumed but not identity-admitted;
