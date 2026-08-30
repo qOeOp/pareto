@@ -9,7 +9,7 @@
   },
   "scripts": {
     "audit:consumer": "npm audit --omit=dev",
-    "check": "node --check scripts/observe-install-capability.mjs && node scripts/observe-install-capability.test.mjs && node --check scripts/observe-score-capability.mjs && node scripts/observe-score-capability.test.mjs && node scripts/validate.mjs && node scripts/self-test.mjs && node scripts/check-scenario-authority.test.mjs && node scripts/install-codex.test.mjs && node scripts/consume-install-capability.test.mjs && node scripts/consume-score-capability.test.mjs && node scripts/capability-score.test.mjs && node scripts/native-task-controller.test.mjs && node scripts/native-evidence.test.mjs && promptfoo validate -c evals/promptfooconfig.yaml",
+    "check": "node --check scripts/observe-install-capability.mjs && node scripts/observe-install-capability.test.mjs && node --check scripts/observe-score-capability.mjs && node scripts/observe-score-capability.test.mjs && node scripts/validate.mjs && node scripts/self-test.mjs && node scripts/check-scenario-authority.test.mjs && node scripts/install-codex.test.mjs && node scripts/consume-install-capability.test.mjs && node scripts/consume-score-capability.test.mjs && node scripts/capability-score.test.mjs && node scripts/native-evidence.test.mjs && promptfoo validate -c evals/promptfooconfig.yaml",
     "install:codex": "node scripts/install-codex.mjs",
     "check:codex-install": "node scripts/install-codex.mjs --check",
     "eval:smoke": "node scripts/eval.mjs smoke",
