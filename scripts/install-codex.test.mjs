@@ -501,6 +501,20 @@ const origin = join(root, "qOeOp", "skills.git");
     /Apply the orchestration\s+wait\s+and empty-active-set transitions from the checkpointed transport-failure key\/count/);
   assert.match(installedLifecycleQa,
     /Admit one finite Goal-unbound session/);
+  assert.match(installedLifecycleQa,
+    /continuity receipt:[\s\S]+targets\/cursors[\s\S]+transport-failure[\s\S]+signal plus owner\/effect receipt/);
+  assert.match(installedLifecycleQa,
+    /Retain a signal only with authorized same-relationship closure observation/);
+  assert.match(installedLifecycleQa,
+    /clear on terminal,[\s\S]+cancellation, drift, unavailability, authority loss, or closure/);
+  assert.match(installedLifecycleQa,
+    /never a QA\/history\/telemetry\/recurrence ledger or\s+scheduler/);
+  assert.match(installedLifecycleQa,
+    /peer Tasks form the native set[\s\S]+agentThreadId[\s\S]+lane evidence/);
+  assert.match(installedLifecycleQa,
+    /runnable, nonconflicting,[\s\S]+undispatched lane to the orchestrator/);
+  assert.match(installedLifecycleQa,
+    /separate normal RBM Mission[\s\S]+deduplicated by[\s\S]+existing task\/effect receipt/);
   assert.doesNotMatch(installedLifecycleQa, /task-table read/);
   assert.match(installedTaskWorkflow, /Unavailable Goal capability freezes only Goal effects/);
   assert.match(installedTaskWorkflow, /Never serialize Hub state or build a Skill-local clock/);
@@ -513,6 +527,12 @@ const origin = join(root, "qOeOp", "skills.git");
     /A \*\*native Task\*\* is a peer user Task[\s\S]+explicit user[\s\S]+native-only need/);
   assert.match(installedTaskWorkflow,
     /Main owns\s+Frame, Plan[\s\S]+Intra-Mission writable\s+lanes instead mutate only Main's leased paths/);
+  assert.match(installedTaskWorkflow,
+    /native active set is peer-Task custody, not a lane gate/);
+  assert.match(installedTaskWorkflow,
+    /serialize lanes\s+on native unavailability/);
+  assert.match(installedTaskWorkflow,
+    /create a Task merely for parallelism/);
   assert.doesNotMatch(installedTaskWorkflow, /owns primitive selection|Choose the execution primitive|outcome may need a user-owned Task/);
   assert.match(installedTaskWorkflow,
     /After a wait-handler capability failure, retain cursor and end the window\s+without retry/);
@@ -691,6 +711,10 @@ const origin = join(root, "qOeOp", "skills.git");
     /Only changing an already complete candidate, neutral\s+control, or lens after replan creates a new review identity/);
   assert.match(installedAgentRoutingOwner,
     /Reviewer identity and succession are owned only\s+by reviewer handoff/);
+  assert.match(installedAgentRoutingOwner,
+    /Native custody never gates lanes/);
+  assert.match(installedAgentRoutingOwner,
+    /release every admissible\s+nonconflicting lane/);
   assert.doesNotMatch(installedAgentRoutingOwner,
     /changed question or frozen\s+candidate\/control\/lens binding creates one/);
   const installedEvaluatorProfile = await readFile(join(codexRoot, "agents", "mission-evaluator.toml"), "utf8");

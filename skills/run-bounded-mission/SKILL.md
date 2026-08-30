@@ -103,6 +103,8 @@ Choose session mode from execution custody, not outcome count:
   for a user-requested peer outcome that must outlive Hub cancellation and needs a durable worktree,
   branch/PR, effect custody, direct control, or asynchronous lifecycle.
 
+Native Task and agent-lane admission are independent and non-substitutable.
+
 Bind a Goal only while it has an admitted next operation or its continuation can carry one exact
 checkpointed non-empty active-target wait.
 

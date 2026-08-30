@@ -32,10 +32,17 @@ read. Never busy-read, start an unadmitted session, demand a callback, or messag
 An unchanged or no-signal window silently yields. One candidate signal binds peer/Skill identities,
 failed relationship, native owner, immutable locator, consumer consequence, competing causes, and a
 falsifier. Identity drift or unavailable observation freezes only attribution with a finite Stop.
-Stop at target terminal, cancellation, drift, unavailability, or one signal handoff. Then retain only
-decision-relevant observed cost or `unavailable`: waits/reads, communications, loaded context,
-compaction recovery, elapsed/tokens, correction, and recheck. Counts alone prove nothing; repeated
-cost or no-decision reload routes to Optimization without a telemetry ledger.
+Stop at terminal, cancellation, drift, unavailability, or a handoff lacking closure-observation authority.
+Retain only cost or `unavailable`: waits/reads, context recovery, elapsed/tokens, and
+recheck. Repeated no-decision cost routes to Optimization without a ledger.
+
+Monitor may replace a continuity receipt: targets/cursors, transport-failure key/count,
+signal plus owner/effect receipt. It is dedupe state, never a QA/history/telemetry/recurrence ledger or
+scheduler. Retain a signal only with authorized same-relationship closure observation; clear on terminal,
+cancellation, drift, unavailability, authority loss, or closure.
+
+For a Hub, peer Tasks form the native set; `agentThreadId`/`subAgentActivity` are lane evidence. Route an
+evidenced runnable, nonconflicting, undispatched lane to the orchestrator; empty slots alone are no-signal.
 
 ## Classify one signal
 
@@ -69,6 +76,9 @@ Route by root authority, not symptom location:
 QA owns only the wait/read rules above, never Hub custody or repair. The native owner repairs through
 its lifecycle. Closure reruns the producing scenario against the same relationship. No-signal or
 unavailable evidence creates no recurrence claim or record.
+
+After routing, explicit repair authority may admit a separate normal RBM Mission, deduplicated by the
+signal and existing task/effect receipt; QA evidence alone authorizes nothing.
 
 ## Critical floor
 

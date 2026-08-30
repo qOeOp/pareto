@@ -1962,6 +1962,187 @@
         disposition: transport_unavailable
         live_host_hard_realtime_cancellation: unproved
 
+- description: "[full] Hub releases agent lanes independently of native Task custody"
+  metadata:
+    observations: { capability: { id: ORC-09, scenario: positive, case_id: orc-09-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A Hub is waiting on one long exact-head review. Two other intra-Mission
+      decisions have frozen inputs: one bounded read-only question and one path-bounded writer with an
+      exact distinct cwd, worktree, index, and disjoint lease. Neither outcome must outlive Hub cancellation
+      or own a branch or PR. The native active set is empty. Return exactly the release decision below.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        native_active_set: empty
+        native_task_needed_for_parallelism: false
+        waiting_slice: exact-head-review
+        read_only_lane: release
+        path_bounded_writer: release
+        writer_git_state: exact-distinct
+        native_active_set_membership_for_agent_lanes: forbidden
+        hub_parallelism: preserved
+        capability_evidence: unavailable
+
+- description: "[full] unavailable native create freezes only native nodes"
+  metadata:
+    observations: { capability: { id: ORC-09, scenario: recovery, case_id: orc-09-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Native create/list is unavailable for one native-only DAG node. The same Hub
+      also has a frozen-input read-only lane and a disjoint path-bounded writer that are intra-Mission and do
+      not depend on that node. Return exactly the bounded recovery disposition.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        native_handler: unavailable
+        native_node: frozen
+        retry_or_replacement_task: forbidden
+        independent_read_only_lane: continue
+        independent_path_bounded_writer: continue
+        whole_hub_serialized: false
+        native_active_set_inference_for_lanes: forbidden
+        capability_evidence: unavailable
+
+- description: "[full] recurring monitor carries compact same-relationship continuity"
+  metadata:
+    observations: { capability: { id: QUA-03, scenario: positive, case_id: qua-03-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A user-authorized recurring monitor watches one exact Hub. Across due windows,
+      exact cursor-continuous revisions show the Hub repeatedly waiting while a named frozen-input,
+      nonconflicting lane remains runnable and undispatched. The monitor has one compact continuity receipt,
+      and no prior repair effect receipt. Return exactly the process disposition without doing the repair.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        target_set: exact-same-hub
+        cursor_continuity: proven
+        producing_relationship: runnable-lane-release
+        native_active_set_and_agent_lanes: disjoint-projections
+        failed_relationship: nonconflicting-runnable-lane-not-released
+        qa_outcome: route
+        native_owner: orchestrator
+        continuity_receipt: replace-one
+        cross_mission_recurrence_ledger: forbidden
+        qa_repairs: false
+        next: separately-admit-deduplicated-repair-if-authorized
+
+- description: "[full] empty lane slots without runnable work are no QA signal"
+  metadata:
+    observations: { capability: { id: QUA-03, scenario: negative, case_id: qua-03-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A recurring monitor sees an empty native active set and two free agent slots,
+      but no frozen-input nonconflicting decision-changing lane is runnable. Return exactly the QA disposition.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        native_active_set: empty
+        free_agent_slots: observed
+        runnable_lane: unproved
+        failed_release_relationship: none
+        empty_slots_alone: insufficient
+        qa_outcome: no-signal
+        repair_or_task_effect: none
+
+- description: "[full] recurring monitor clears transport and process state independently"
+  metadata:
+    observations: { capability: { id: QUA-04, scenario: recovery, case_id: qua-04-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. One exact recurring monitor continuity receipt holds a saturated wait-handler
+      failure key and one unresolved routed process-signal fingerprint with its repair receipt. A later due
+      window has explicit same-relationship closure-observation authority and completes one cursor-bound wait
+      successfully, but the producing relationship has not yet been rerun. Return exactly which state clears.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        continuity_receipt: exact
+        closure_observation_authority: explicit-same-relationship
+        successful_cursor_bound_wait: true
+        transport_failure_key: clear
+        unresolved_signal_fingerprint: retain
+        repair_receipt: retain-for-dedupe
+        process_closure: pending
+        closure_clear_condition: rerun-same-producing-relationship
+        history_scan_or_retry: none
+
+- description: "[full] authorized same-relationship closure may retain one signal"
+  metadata:
+    observations: { capability: { id: QUA-04, scenario: positive, case_id: qua-04-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A recurring monitor routed one exact signal and has explicit authority to
+      observe closure of that same producing relationship. Target identity and cursor remain continuous;
+      no terminal, cancellation, drift, unavailability, or authority loss occurred. Return exactly whether
+      the compact signal receipt may survive this quiet window.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        producing_relationship: exact-same
+        closure_observation_authority: explicit
+        invalidator: none
+        signal_receipt: retain
+        receipt_cardinality: one-replaceable
+        repair_authority_from_receipt: false
+        history_or_recurrence_ledger: none
+
+- description: "[full] continuity invalidators clear monitor-owned signal state"
+  metadata:
+    observations: { capability: { id: QUA-05, scenario: negative, case_id: qua-05-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. Evaluate terminal, cancellation, identity drift, observation unavailability,
+      and closure-authority loss independently after a recurring monitor routed a signal. In each case the
+      same producing relationship can no longer be lawfully observed. Return exactly the disposition.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        terminal: clear-signal-receipt
+        cancellation: clear-signal-receipt
+        identity_drift: clear-signal-receipt
+        observation_unavailable: clear-signal-receipt
+        closure_authority_loss: clear-signal-receipt
+        recurrence_claim: forbidden
+        replacement_wait_or_history_read: none
+        external_owner_receipt_mutation: forbidden
+
+- description: "[full] missing closure authority stops QA continuity without losing owner custody"
+  metadata:
+    observations: { capability: { id: QUA-03, scenario: recovery, case_id: qua-03-recovery }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. A signal was handed to its native owner with a valid repair receipt, but the
+      recurring monitor lacks authority to observe closure. Return exactly how QA stops without deleting,
+      retrying, or adopting the native owner's receipt.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        closure_observation_authority: unavailable
+        qa_signal_receipt: clear
+        qa_wait: stop
+        native_owner_repair_receipt: external-preserved
+        retry_or_replacement_effect: none
+        closure_claim: unavailable
+        resume: new-explicit-closure-observation-authority
+
 - description: "[full] incomplete recovery checkpoint freezes only the affected action"
   metadata:
     observations: { capability: { id: ORC-04, scenario: negative, case_id: orc-04-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, conversation_compaction_state, native_goal_state, native_task_state] }

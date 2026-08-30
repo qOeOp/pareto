@@ -12,6 +12,9 @@ Frame, Plan, integration, acceptance, and effects; each native Task Main owns it
 Classify custody by receipt, never names or locators. Missing capability freezes the node; a new user
 outcome or wider effect still requires alignment.
 
+The native active set is peer-Task custody, not a lane gate. Never add `agentThreadId`, serialize lanes
+on native unavailability, or create a Task merely for parallelism.
+
 Before a Goal effect, reconcile the matching Goal and apply the kernel binding rule. It stores overall
 outcome and completion, not work cadence; absent capability or a nonmatching Goal freezes only that
 effect. An asynchronous Hub may bind it only while a runnable operation or the checkpointed active-task
