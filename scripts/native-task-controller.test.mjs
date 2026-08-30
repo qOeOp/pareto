@@ -43,11 +43,14 @@ async function fixtureExecutable({
   itemStartedBeforeThreadResponse = false,
   itemStartedBeforeTurnResponse = false,
   incompleteUtf8AfterReadback = false,
+  ignoreSigterm = false,
+  invocationFile = null,
   postFinalAuthority = false,
   postTerminalItem = false,
   readbackExtraTurn = false,
   readbackDuplicateItemId = false,
   readbackFinalMismatch = false,
+  readbackFinalForNonCompleted = false,
   readbackOmitAuthority = false,
   readbackAuthorityBeforePrompt = false,
   readbackPromptMismatch = false,
@@ -60,22 +63,26 @@ async function fixtureExecutable({
   unsolicitedThreadResponse = false,
   unapprovedCommand = null,
   version = "0.148.0",
+  versionDelayMs = 0,
 } = {}) {
   const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalForNonCompleted, finalText: fixtureFinalText, hangAfterTurnStart, incompleteUtf8AfterReadback, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, pidFile, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, sameChunkEarlyThreadResponse, serverConfigMismatch, splitUtf8Readback, terminalStatus, threadId, turnId, turnStartStatus, unterminatedAfterReadback, unsolicitedThreadResponse, unapprovedCommand, version };
+  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalForNonCompleted, finalText: fixtureFinalText, hangAfterTurnStart, ignoreSigterm, incompleteUtf8AfterReadback, invocationFile, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, pidFile, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalForNonCompleted, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, sameChunkEarlyThreadResponse, serverConfigMismatch, splitUtf8Readback, terminalStatus, threadId, turnId, turnStartStatus, unterminatedAfterReadback, unsolicitedThreadResponse, unapprovedCommand, version, versionDelayMs };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
+if (fixture.invocationFile) require("node:fs").appendFileSync(fixture.invocationFile, String(process.argv[2]) + "\\n");
 if (process.argv[1] === fixture.executable) process.exit(5);
 if (process.argv[2] === "--version") {
   if (fixture.mutateProbe) {
     require("node:fs").chmodSync(process.argv[1], 0o700);
     require("node:fs").writeFileSync(process.argv[1], "#!/usr/bin/env node\\nprocess.exit(19);\\n");
   }
-  process.stdout.write("codex-cli " + fixture.version + "\\n");
-  process.exit(0);
+  const finishVersion = () => { process.stdout.write("codex-cli " + fixture.version + "\\n"); process.exit(0); };
+  if (fixture.versionDelayMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, fixture.versionDelayMs);
+  finishVersion();
 }
 if (process.argv[2] !== "app-server" || process.argv[3] !== "--stdio") process.exit(9);
+if (fixture.ignoreSigterm) { process.on("SIGTERM", () => {}); setInterval(() => {}, 1_000); }
 if (fixture.pidFile) require("node:fs").writeFileSync(fixture.pidFile, String(process.pid));
 const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
 let turnInput = [];
@@ -163,7 +170,7 @@ rl.on("line", (line) => {
       : { command: fixture.unapprovedCommand || "pwd", commandActions: [], cwd: process.cwd(), id: "command-1", status: fixture.authorityCompletedStatus, type: "commandExecution" }) : null;
     const items = fixture.readbackAuthorityBeforePrompt && authorityItem ? [authorityItem, promptItem] : [promptItem];
     if (authorityItem && !fixture.readbackAuthorityBeforePrompt) items.push(authorityItem);
-    if (fixture.terminalStatus === "completed") items.push({ id: "agent-1", phase: "final_answer", text: readbackText, type: "agentMessage" });
+    if (fixture.terminalStatus === "completed" || fixture.readbackFinalForNonCompleted) items.push({ id: "agent-1", phase: "final_answer", text: readbackText, type: "agentMessage" });
     if (fixture.readbackDuplicateItemId) items.push({ id: "agent-1", type: "reasoning" });
     const error = fixture.completedWithError || fixture.terminalStatus === "failed" ? { message: "fixture failed" } : null;
     const turns = [{ error, id: fixture.turnId, items, status: fixture.terminalStatus }];
@@ -354,7 +361,7 @@ try {
 
   const runtimeRootsBeforeSignal = new Set((await readdir(os.tmpdir())).filter((name) => name.startsWith("native-task-controller-runtime-")));
   const signalPidFile = path.join(temporaryRoot, "signal-child.pid");
-  const signalFixture = await fixtureExecutable({ hangAfterTurnStart: true, pidFile: signalPidFile });
+  const signalFixture = await fixtureExecutable({ hangAfterTurnStart: true, ignoreSigterm: true, pidFile: signalPidFile });
   const signalCli = spawn(process.execPath, [
     path.resolve("scripts/native-task-controller.mjs"), "run",
     "--codex-executable", signalFixture.executable,
@@ -371,6 +378,7 @@ try {
   signalCli.stderr.setEncoding("utf8").on("data", (chunk) => { signalStderr += chunk; });
   const signalChildPid = Number(await waitForFile(signalPidFile));
   signalCli.kill("SIGTERM");
+  setTimeout(() => signalCli.kill("SIGTERM"), 20);
   const [signalCode, signalName] = await once(signalCli, "exit");
   assert.notEqual(signalCode, 0);
   assert.equal(signalName, null);
@@ -385,6 +393,22 @@ try {
   assert.match(failed.payload.turn.error_sha256, /^sha256:[a-f0-9]{64}$/);
   await assert.rejects(() => run({ finalForNonCompleted: true, terminalStatus: "failed" }), /non-completed turn emitted a terminal answer/);
   await assert.rejects(() => run({ finalForNonCompleted: true, terminalStatus: "interrupted" }), /non-completed turn emitted a terminal answer/);
+  await assert.rejects(() => run({ readbackFinalForNonCompleted: true, terminalStatus: "failed" }), /non-completed readback contains a terminal answer/);
+  await assert.rejects(() => run({ readbackFinalForNonCompleted: true, terminalStatus: "interrupted" }), /non-completed readback contains a terminal answer/);
+
+  const preAbortedController = new AbortController();
+  preAbortedController.abort();
+  const preAbortedInvocations = path.join(temporaryRoot, "pre-aborted-invocations.txt");
+  await assert.rejects(() => run({ invocationFile: preAbortedInvocations }, { signal: preAbortedController.signal }), /native task was aborted/);
+  assert.equal(await readFile(preAbortedInvocations, "utf8").catch(() => null), null);
+
+  const probeAbortController = new AbortController();
+  const probeAbortInvocations = path.join(temporaryRoot, "probe-abort-invocations.txt");
+  const probeAbortRun = run({ invocationFile: probeAbortInvocations, versionDelayMs: 5_000 }, { signal: probeAbortController.signal });
+  await waitForFile(probeAbortInvocations);
+  probeAbortController.abort();
+  await assert.rejects(probeAbortRun, /native task was aborted/);
+  assert.deepEqual((await readFile(probeAbortInvocations, "utf8")).trim().split("\n"), ["--version"]);
 
   await assert.rejects(() => run({ approval: true }), /conflicts with the confirmed never policy/);
   await assert.rejects(() => run({ approval: true, approvalMissingId: true }, { approvalPolicy: "on-request" }), /approval request id is malformed/);

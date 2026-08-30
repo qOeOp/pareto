@@ -27,6 +27,10 @@ function fail(message) {
   throw new Error(message);
 }
 
+function failIfAborted(signal) {
+  if (signal?.aborted) fail("native task was aborted");
+}
+
 function digest(value) {
   return `sha256:${createHash("sha256").update(value).digest("hex")}`;
 }
@@ -64,25 +68,36 @@ function terminalAnswerSubject(item) {
   return canonical({ phase: item.phase, type: item.type });
 }
 
-async function materializeExecutable(executable, expectedSha256, expectedVersion) {
+async function materializeExecutable(executable, expectedSha256, expectedVersion, signal) {
+  failIfAborted(signal);
   if (!path.isAbsolute(executable)) fail("codex executable must be one absolute path");
   if (!shaPattern.test(expectedSha256)) fail("expected executable sha256 is invalid");
   if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(expectedVersion)) fail("expected server version is invalid");
   const resolved = await realpath(executable).catch(() => "");
+  failIfAborted(signal);
   const info = resolved ? await lstat(resolved).catch(() => null) : null;
+  failIfAborted(signal);
   if (!info?.isFile() || info.isSymbolicLink() || (process.platform !== "win32" && (info.mode & 0o111) === 0)) {
     fail("codex executable is missing or unsafe");
   }
   const copyExecutable = async (prefix) => {
+    failIfAborted(signal);
     const root = await mkdtemp(path.join(os.tmpdir(), prefix));
     const copiedPath = path.join(root, process.platform === "win32" ? "codex.exe" : "codex");
     try {
       await copyFile(resolved, copiedPath);
+      failIfAborted(signal);
       if (process.platform !== "win32") await chmod(copiedPath, 0o500);
+      failIfAborted(signal);
       const copiedInfo = await lstat(copiedPath);
+      failIfAborted(signal);
       if (!copiedInfo.isFile() || copiedInfo.isSymbolicLink()) fail("materialized codex executable is unsafe");
       const hash = createHash("sha256");
-      for await (const chunk of createReadStream(copiedPath)) hash.update(chunk);
+      for await (const chunk of createReadStream(copiedPath)) {
+        failIfAborted(signal);
+        hash.update(chunk);
+      }
+      failIfAborted(signal);
       const sha256 = `sha256:${hash.digest("hex")}`;
       if (sha256 !== expectedSha256) fail("codex executable sha256 mismatch");
       return { cleanup: () => rm(root, { force: true, recursive: true }), copiedPath, sha256 };
@@ -93,17 +108,31 @@ async function materializeExecutable(executable, expectedSha256, expectedVersion
   };
   const probe = await copyExecutable("native-task-controller-probe-");
   try {
-    const { stdout } = await execFileAsync(probe.copiedPath, ["--version"], { encoding: "utf8", timeout: 10_000 });
+    let stdout;
+    try {
+      ({ stdout } = await execFileAsync(probe.copiedPath, ["--version"], { encoding: "utf8", signal: signal ?? undefined, timeout: 10_000 }));
+    } catch (error) {
+      failIfAborted(signal);
+      throw error;
+    }
+    failIfAborted(signal);
     if (stdout.trim() !== `codex-cli ${expectedVersion}`) fail("codex executable version mismatch");
   } finally {
     await probe.cleanup();
   }
+  failIfAborted(signal);
   const runtime = await copyExecutable("native-task-controller-runtime-");
-  return {
-    identity: { path: resolved, sha256: runtime.sha256, version: expectedVersion },
-    runtimePath: runtime.copiedPath,
-    cleanup: runtime.cleanup,
-  };
+  try {
+    failIfAborted(signal);
+    return {
+      identity: { path: resolved, sha256: runtime.sha256, version: expectedVersion },
+      runtimePath: runtime.copiedPath,
+      cleanup: runtime.cleanup,
+    };
+  } catch (error) {
+    await runtime.cleanup();
+    throw error;
+  }
 }
 
 async function directoryIdentity(cwd) {
@@ -157,11 +186,14 @@ async function executeNativeTask({
   if (!(signal === null || (typeof signal === "object" && typeof signal.aborted === "boolean" && typeof signal.addEventListener === "function" && typeof signal.removeEventListener === "function"))) fail("abort signal is invalid");
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 86_400_000) fail("timeout must be between 1000 and 86400000 ms");
 
+  failIfAborted(signal);
   const taskCwd = await directoryIdentity(cwd);
-  const materialized = await materializeExecutable(codexExecutable, expectedExecutableSha256, expectedServerVersion);
+  failIfAborted(signal);
+  const materialized = await materializeExecutable(codexExecutable, expectedExecutableSha256, expectedServerVersion, signal);
   const executable = materialized.identity;
   let child;
   try {
+    failIfAborted(signal);
     child = spawn(materialized.runtimePath, ["app-server", "--stdio"], { cwd: taskCwd, stdio: ["pipe", "pipe", "pipe"] });
   } catch (error) {
     await materialized.cleanup();
@@ -214,7 +246,7 @@ async function executeNativeTask({
       signal?.removeEventListener("abort", onAbort);
       callback(value);
     };
-    if (signal?.aborted) queueMicrotask(onAbort);
+    if (signal?.aborted) onAbort();
     else signal?.addEventListener("abort", onAbort, { once: true });
     const scheduleSuccessSeal = () => {
       if (successSealScheduled) return;
@@ -346,6 +378,7 @@ async function executeNativeTask({
           if (terminalTurn.status === "completed" && readbackItems.indexOf(readbackFinals[0]) < promptIndex) {
             fail("thread/read returned the terminal answer before the exact prompt");
           }
+          if (terminalTurn.status !== "completed" && readbackFinals.length !== 0) fail("non-completed readback contains a terminal answer");
           if (terminalTurn.status === "completed" && readbackItems.at(-1) !== readbackFinals[0]) fail("thread/read terminal answer is not the last item");
           readbackFinalItemId = readbackFinals[0]?.id ?? null;
           terminalReadback = true;
@@ -515,11 +548,13 @@ async function executeNativeTask({
     });
   });
 
-  send({
-    method: "initialize",
-    id: 0,
-    params: { clientInfo: { name: "qoeop_pareto_native_task_controller", title: "Pareto Native Task Controller", version: "1.0.0" } },
-  });
+  if (!settled) {
+    send({
+      method: "initialize",
+      id: 0,
+      params: { clientInfo: { name: "qoeop_pareto_native_task_controller", title: "Pareto Native Task Controller", version: "1.0.0" } },
+    });
+  }
 
   try {
     await terminal;
@@ -604,7 +639,7 @@ async function main() {
   const abortController = new AbortController();
   const handledSignals = process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGHUP", "SIGINT", "SIGTERM"];
   const abortForSignal = () => abortController.abort();
-  for (const name of handledSignals) process.once(name, abortForSignal);
+  for (const name of handledSignals) process.on(name, abortForSignal);
   const approvalInput = readline.createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: process.stdin.isTTY });
   let decisionWaiter = null;
   let unexpectedApprovalInput = null;
