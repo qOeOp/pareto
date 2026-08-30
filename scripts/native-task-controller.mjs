@@ -22,7 +22,7 @@ const sandboxPolicyTypes = new Map([
   ["danger-full-access", "dangerFullAccess"],
 ]);
 
-const windowsJobWrapperSource = `using System;
+const windowsJobWrapperSource = String.raw`using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
