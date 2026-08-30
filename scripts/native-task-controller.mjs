@@ -188,6 +188,7 @@ async function executeNativeTask({
   let settled = false;
   let pendingLines = 0;
   let successSealScheduled = false;
+  let wireSequence = 0;
 
   const send = (message) => {
     if (!child.stdin.write(`${JSON.stringify(message)}\n`)) child.stdin.once("drain", () => {});
@@ -228,7 +229,7 @@ async function executeNativeTask({
       setImmediate(attempt);
     };
 
-    const handle = async (line) => {
+    const handle = async (line, receiveWireSequence) => {
       if (settled) return;
       stdoutBytes += Buffer.byteLength(line) + 1;
       if (stdoutBytes > 16 * 1024 * 1024) fail("app-server response exceeded 16 MiB");
@@ -302,6 +303,7 @@ async function executeNativeTask({
             || userMessages[0].content[0]?.type !== "text" || userMessages[0].content[0]?.text !== prompt) {
             fail("thread/read did not confirm the exact prompt");
           }
+          const promptIndex = readbackItems.indexOf(userMessages[0]);
           const streamedAuthorityItems = completionOrder.map((id) => items.get(id)).filter((item) => item.subject !== null);
           const readbackAuthorityItems = readbackItems.filter((item) => ["commandExecution", "fileChange"].includes(item?.type));
           if (readbackAuthorityItems.length !== streamedAuthorityItems.length || streamedAuthorityItems.some((streamed, index) => {
@@ -309,6 +311,9 @@ async function executeNativeTask({
             return readbackItem?.type !== streamed.type || readbackItem.status !== streamed.item.status
               || !sameCanonical(authoritySubject(readbackItem), streamed.subject);
           })) fail("thread/read did not confirm the exact authority items");
+          if (readbackAuthorityItems.some((item) => readbackItems.indexOf(item) < promptIndex)) {
+            fail("thread/read returned an authority item before the exact prompt");
+          }
           readbackAuthorityItemsReceipt = readbackAuthorityItems.map((item) => canonical({
             readback_item_id: item.id,
             status: item.status,
@@ -318,6 +323,9 @@ async function executeNativeTask({
           const readbackFinals = readbackItems.filter((item) => item?.type === "agentMessage" && item?.phase === "final_answer");
           if (terminalTurn.status === "completed" && (readbackFinals.length !== 1 || readbackFinals[0].text !== finalMessages[0])) {
             fail("thread/read did not confirm the exact terminal answer");
+          }
+          if (terminalTurn.status === "completed" && readbackItems.indexOf(readbackFinals[0]) < promptIndex) {
+            fail("thread/read returned the terminal answer before the exact prompt");
           }
           if (terminalTurn.status === "completed" && readbackItems.at(-1) !== readbackFinals[0]) fail("thread/read terminal answer is not the last item");
           readbackFinalItemId = readbackFinals[0]?.id ?? null;
@@ -361,13 +369,18 @@ async function executeNativeTask({
           && (!Array.isArray(params.availableDecisions) || !params.availableDecisions.every((value) => approvalDecisions.has(value)) || !params.availableDecisions.includes(decision))) {
           fail("approval decision is not allowed by the request");
         }
+        if (wireSequence !== receiveWireSequence) fail("app-server emitted a message before the approval decision was sent");
         if ([...approvals.values()].some((approval) => approval.itemId === params.itemId)) fail("item has more than one approval request");
+        const decisionWireSequence = ++wireSequence;
         approvals.set(key, {
           decision,
+          decision_wire_sequence: decisionWireSequence,
           decision_source: approvalDecisionSource,
           itemId: params.itemId,
           method: message.method,
+          request_wire_sequence: receiveWireSequence,
           request_sha256: digest(JSON.stringify(authority)),
+          resolved_wire_sequence: null,
           subject_sha256: digest(JSON.stringify(startedItem.subject)),
         });
         send({ id: message.id, result: { decision } });
@@ -397,7 +410,7 @@ async function executeNativeTask({
           }
           if (item.type === "agentMessage" && item.phase === "final_answer" && terminalSubject === null) fail("terminal answer started with malformed content");
           if (terminalSubject !== null) terminalAnswerItemId = item.id;
-          items.set(params.item.id, { item, state: "started", subject, terminalSubject, type: params.item.type });
+          items.set(params.item.id, { item, startedWireSequence: receiveWireSequence, state: "started", subject, terminalSubject, type: params.item.type });
         } else {
           if (current?.state !== "started" || current.type !== params.item.type) fail("item/completed lacks its matching started item");
           const completedSubject = authoritySubject(params.item);
@@ -406,7 +419,12 @@ async function executeNativeTask({
           if (current.subject !== null && !["completed", "failed", "declined"].includes(params.item.status)) fail("authority item completed with a non-terminal status");
           const approvalKey = [...approvals].find(([, approval]) => approval.itemId === params.item.id)?.[0];
           if (approvalKey !== undefined && !resolvedApprovals.has(approvalKey)) fail("item completed before its approval was resolved");
-          items.set(params.item.id, { ...current, item: canonical(params.item), state: "completed" });
+          if (approvalKey !== undefined) {
+            const decision = approvals.get(approvalKey).decision;
+            const permittedStatuses = decision === "accept" ? new Set(["completed", "failed"]) : new Set(["declined"]);
+            if (!permittedStatuses.has(params.item.status)) fail("authority item status is incompatible with its approval decision");
+          }
+          items.set(params.item.id, { ...current, completedWireSequence: receiveWireSequence, item: canonical(params.item), state: "completed" });
           completionOrder.push(params.item.id);
         }
         if (message.method === "item/completed" && params.item.type === "agentMessage" && params.item.phase === "final_answer") {
@@ -419,6 +437,7 @@ async function executeNativeTask({
         if (params.threadId !== threadId || params.requestId === undefined) fail("resolved approval identity is malformed");
         const key = JSON.stringify(params.requestId);
         if (!approvals.has(key) || resolvedApprovals.has(key)) fail("resolved approval is unknown or duplicate");
+        approvals.get(key).resolved_wire_sequence = receiveWireSequence;
         resolvedApprovals.add(key);
         return;
       }
@@ -442,8 +461,9 @@ async function executeNativeTask({
 
     let chain = Promise.resolve();
     lines.on("line", (line) => {
+      const receiveWireSequence = ++wireSequence;
       pendingLines += 1;
-      chain = chain.then(() => handle(line)).then(
+      chain = chain.then(() => handle(line, receiveWireSequence)).then(
         () => { pendingLines -= 1; },
         (error) => { pendingLines -= 1; finish(reject, error); },
       );
@@ -474,7 +494,9 @@ async function executeNativeTask({
 
   const finalText = finalMessages[0] ?? null;
   const authorityItems = completionOrder.map((id) => items.get(id)).filter((item) => item.subject !== null).map((item) => canonical({
+    completed_wire_sequence: item.completedWireSequence,
     event_item_id: item.item.id,
+    started_wire_sequence: item.startedWireSequence,
     status: item.item.status,
     subject_sha256: digest(JSON.stringify(item.subject)),
     type: item.type,
@@ -488,9 +510,11 @@ async function executeNativeTask({
     executable,
     final: finalText === null ? null : {
       bytes: Buffer.byteLength(finalText),
+      completed_wire_sequence: items.get(terminalAnswerItemId)?.completedWireSequence,
       event_item_id: terminalAnswerItemId,
       readback_item_id: readbackFinalItemId,
       sha256: digest(finalText),
+      started_wire_sequence: items.get(terminalAnswerItemId)?.startedWireSequence,
       text: finalText,
     },
     items: { completed: [...items.values()].filter((item) => item.state === "completed").length },

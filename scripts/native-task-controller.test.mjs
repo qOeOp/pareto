@@ -20,6 +20,8 @@ async function fixtureExecutable({
   approvalAfterFinal = false,
   approvalCommandMismatch = false,
   approvalWithoutStarted = false,
+  completeBeforeApprovalResponse = false,
+  expectedApprovalDecision = "accept",
   availableDecisions = null,
   authorityCompletedStatus = "completed",
   authorityStartedStatus = "inProgress",
@@ -39,6 +41,7 @@ async function fixtureExecutable({
   readbackDuplicateItemId = false,
   readbackFinalMismatch = false,
   readbackOmitAuthority = false,
+  readbackAuthorityBeforePrompt = false,
   readbackPromptMismatch = false,
   serverConfigMismatch = false,
   terminalStatus = "completed",
@@ -47,7 +50,7 @@ async function fixtureExecutable({
   version = "0.148.0",
 } = {}) {
   const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completedWithError, completedWithoutStarted, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, fileApproval, finalCompletedMismatch, finalText, mutateProbe, omitResolved, postFinalAuthority, postTerminalItem, readbackDuplicateItemId, readbackExtraTurn, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, serverConfigMismatch, terminalStatus, threadId, turnId, turnStartStatus, unapprovedCommand, version };
+  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalText, mutateProbe, omitResolved, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, serverConfigMismatch, terminalStatus, threadId, turnId, turnStartStatus, unapprovedCommand, version };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
@@ -99,6 +102,14 @@ rl.on("line", (line) => {
         : { command: fixture.approvalCommandMismatch ? "whoami" : "pwd", commandActions: [], cwd: process.cwd(), itemId: "command-1", startedAtMs: 1, threadId: fixture.threadId, turnId: fixture.turnId };
       if (fixture.availableDecisions !== null) params.availableDecisions = fixture.availableDecisions;
       send({ id: "approval-1", method: fixture.fileApproval ? "item/fileChange/requestApproval" : "item/commandExecution/requestApproval", params });
+      if (fixture.completeBeforeApprovalResponse) {
+        if (!fixture.omitResolved) send({ method: "serverRequest/resolved", params: { requestId: "approval-1", threadId: fixture.threadId } });
+        const completedItem = fixture.fileApproval
+          ? { changes: [{ path: "/tmp/example", type: "update" }], id: "change-1", status: fixture.authorityCompletedStatus, type: "fileChange" }
+          : { command: "pwd", commandActions: [], cwd: process.cwd(), id: "command-1", status: fixture.authorityCompletedStatus, type: "commandExecution" };
+        send({ method: "item/completed", params: { item: completedItem, threadId: fixture.threadId, turnId: fixture.turnId } });
+        finish();
+      }
     }
     else if (fixture.completedWithoutStarted) {
       send({ method: "item/completed", params: { item: { id: "command-1", type: "commandExecution", status: "completed" }, threadId: fixture.threadId, turnId: fixture.turnId } });
@@ -111,7 +122,8 @@ rl.on("line", (line) => {
     else finish();
   }
   if (message.id === "approval-1") {
-    if (message.result.decision !== "accept") process.exit(6);
+    if (message.result.decision !== fixture.expectedApprovalDecision) process.exit(6);
+    if (fixture.completeBeforeApprovalResponse) return;
     if (!fixture.omitResolved) send({ method: "serverRequest/resolved", params: { requestId: "approval-1", threadId: fixture.threadId } });
     const item = fixture.fileApproval
       ? { changes: [{ path: "/tmp/example", type: "update" }], id: "change-1", status: fixture.authorityCompletedStatus, type: "fileChange" }
@@ -121,10 +133,12 @@ rl.on("line", (line) => {
   }
   if (message.method === "thread/read" && message.id === 3) {
     const readbackText = fixture.readbackFinalMismatch ? "different final" : fixture.finalText;
-    const items = [{ content: fixture.readbackPromptMismatch ? [{ type: "text", text: "different prompt" }] : turnInput, id: "user-1", type: "userMessage" }];
-    if ((fixture.approval || fixture.unapprovedCommand !== null) && !fixture.readbackOmitAuthority) items.push(fixture.fileApproval
+    const promptItem = { content: fixture.readbackPromptMismatch ? [{ type: "text", text: "different prompt" }] : turnInput, id: "user-1", type: "userMessage" };
+    const authorityItem = (fixture.approval || fixture.unapprovedCommand !== null) && !fixture.readbackOmitAuthority ? (fixture.fileApproval
       ? { changes: [{ path: "/tmp/example", type: "update" }], id: "change-1", status: fixture.authorityCompletedStatus, type: "fileChange" }
-      : { command: fixture.unapprovedCommand || "pwd", commandActions: [], cwd: process.cwd(), id: "command-1", status: fixture.authorityCompletedStatus, type: "commandExecution" });
+      : { command: fixture.unapprovedCommand || "pwd", commandActions: [], cwd: process.cwd(), id: "command-1", status: fixture.authorityCompletedStatus, type: "commandExecution" }) : null;
+    const items = fixture.readbackAuthorityBeforePrompt && authorityItem ? [authorityItem, promptItem] : [promptItem];
+    if (authorityItem && !fixture.readbackAuthorityBeforePrompt) items.push(authorityItem);
     if (fixture.terminalStatus === "completed") items.push({ id: "agent-1", phase: "final_answer", text: readbackText, type: "agentMessage" });
     if (fixture.readbackDuplicateItemId) items.push({ id: "agent-1", type: "reasoning" });
     const error = fixture.completedWithError || fixture.terminalStatus === "failed" ? { message: "fixture failed" } : null;
@@ -202,12 +216,17 @@ try {
   assert.equal(approved.payload.approvals[0].decision_source, "client_handler");
   assert.match(approved.payload.approvals[0].request_sha256, /^sha256:[a-f0-9]{64}$/);
   assert.match(approved.payload.approvals[0].subject_sha256, /^sha256:[a-f0-9]{64}$/);
-  assert.deepEqual(approved.payload.authority_items, [{
+  assert.ok(approved.payload.approvals[0].request_wire_sequence < approved.payload.approvals[0].decision_wire_sequence);
+  assert.ok(approved.payload.approvals[0].decision_wire_sequence < approved.payload.approvals[0].resolved_wire_sequence);
+  const { completed_wire_sequence: completedWireSequence, started_wire_sequence: startedWireSequence, ...authorityItem } = approved.payload.authority_items[0];
+  assert.deepEqual(authorityItem, {
     event_item_id: "command-1",
     status: "completed",
     subject_sha256: approved.payload.approvals[0].subject_sha256,
     type: "commandExecution",
-  }]);
+  });
+  assert.ok(startedWireSequence < approved.payload.approvals[0].request_wire_sequence);
+  assert.ok(approved.payload.approvals[0].resolved_wire_sequence < completedWireSequence);
   assert.deepEqual(approved.payload.readback_authority_items, [{
     readback_item_id: "command-1",
     status: "completed",
@@ -215,6 +234,12 @@ try {
     type: "commandExecution",
   }]);
   assert.equal(approved.payload.items.completed, 2);
+  const declined = await run({ approval: true, authorityCompletedStatus: "declined", expectedApprovalDecision: "decline" }, {
+    approvalHandler: async () => "decline",
+    approvalPolicy: "on-request",
+  });
+  assert.equal(declined.payload.approvals[0].decision, "decline");
+  assert.equal(declined.payload.authority_items[0].status, "declined");
   const sourceCannotBeSpoofed = await run({ approval: true }, {
     approvalDecisionSource: "interactive_stdin_after_request",
     approvalHandler: async () => "accept",
@@ -298,6 +323,13 @@ try {
   await assert.rejects(() => run({ approval: true, omitResolved: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /before its approval was resolved/);
   await assert.rejects(() => run({ approval: true, approvalWithoutStarted: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /approval request lacks its matching started item/);
   await assert.rejects(() => run({ approval: true, approvalCommandMismatch: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /approval command differs from its started item/);
+  await assert.rejects(() => run({ approval: true, expectedApprovalDecision: "decline" }, { approvalHandler: async () => "decline", approvalPolicy: "on-request" }), /status is incompatible with its approval decision/);
+  await assert.rejects(() => run({ approval: true, expectedApprovalDecision: "cancel" }, { approvalHandler: async () => "cancel", approvalPolicy: "on-request" }), /status is incompatible with its approval decision/);
+  await assert.rejects(() => run({ approval: true, authorityCompletedStatus: "declined" }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /status is incompatible with its approval decision/);
+  await assert.rejects(() => run({ approval: true, completeBeforeApprovalResponse: true }, {
+    approvalHandler: async () => { await new Promise((resolve) => setImmediate(resolve)); return "accept"; },
+    approvalPolicy: "on-request",
+  }), /message before the approval decision was sent/);
   await assert.rejects(() => run({ completedWithoutStarted: true }), /item\/completed lacks its matching started item/);
   await assert.rejects(() => run({ postTerminalItem: true }), /event after the terminal turn/);
   await assert.rejects(() => run({ postFinalAuthority: true }), /item event after the terminal answer/);
@@ -312,6 +344,7 @@ try {
   await assert.rejects(() => run({ readbackFinalMismatch: true }), /did not confirm the exact terminal answer/);
   await assert.rejects(() => run({ approval: true, readbackOmitAuthority: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /did not confirm the exact authority items/);
   await assert.rejects(() => run({ readbackPromptMismatch: true }), /did not confirm the exact prompt/);
+  await assert.rejects(() => run({ readbackAuthorityBeforePrompt: true, unapprovedCommand: "pwd" }), /authority item before the exact prompt/);
   await assert.rejects(() => run({ readbackExtraTurn: true }), /did not confirm the exact terminal turn/);
   await assert.rejects(() => run({ readbackDuplicateItemId: true }), /duplicate item ids/);
   await assert.rejects(() => run({ turnStartStatus: "completed" }), /exact in-progress turn/);
