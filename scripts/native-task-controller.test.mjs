@@ -10,6 +10,10 @@ import { assertDetachedReceiptIsolation, launchDetachedWorker, readLifecycleRece
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "native-task-controller-test-"));
 const resolvedTemporaryRoot = await realpath(temporaryRoot);
 const detachedAuthorityRoot = await mkdtemp(path.join(os.homedir(), ".native-task-controller-test-"));
+const windowsFixturePidRoot = process.platform === "win32"
+  ? await mkdtemp(path.join(os.tmpdir(), "native-task-controller-fixture-pids-"))
+  : null;
+if (windowsFixturePidRoot !== null) process.env.NATIVE_TASK_CONTROLLER_FIXTURE_PID_ROOT = windowsFixturePidRoot;
 const threadId = "019fb8b4-ebd0-7c20-8ba1-041ed6836204";
 const turnId = "019fb8b4-ebd0-7c20-8ba1-041ed6836207";
 const prompt = "Return exactly: controller fixture passed";
@@ -31,9 +35,58 @@ async function windowsFixtureLauncher() {
       const nodeExecutable = process.execPath.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
       const source = `using System;
 using System.Diagnostics;
+using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
 
 public static class NativeTaskFixtureLauncher {
+  [StructLayout(LayoutKind.Sequential)]
+  private struct BasicLimits {
+    public long PerProcessUserTimeLimit;
+    public long PerJobUserTimeLimit;
+    public uint LimitFlags;
+    public UIntPtr MinimumWorkingSetSize;
+    public UIntPtr MaximumWorkingSetSize;
+    public uint ActiveProcessLimit;
+    public UIntPtr Affinity;
+    public uint PriorityClass;
+    public uint SchedulingClass;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct IoCounters {
+    public ulong ReadOperationCount;
+    public ulong WriteOperationCount;
+    public ulong OtherOperationCount;
+    public ulong ReadTransferCount;
+    public ulong WriteTransferCount;
+    public ulong OtherTransferCount;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct ExtendedLimits {
+    public BasicLimits BasicLimitInformation;
+    public IoCounters IoInfo;
+    public UIntPtr ProcessMemoryLimit;
+    public UIntPtr JobMemoryLimit;
+    public UIntPtr PeakProcessMemoryUsed;
+    public UIntPtr PeakJobMemoryUsed;
+  }
+
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+  private static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+
+  [DllImport("kernel32.dll")]
+  private static extern bool SetInformationJobObject(IntPtr job, int informationClass, IntPtr information, uint length);
+
+  [DllImport("kernel32.dll")]
+  private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+  [DllImport("kernel32.dll")]
+  private static extern bool CloseHandle(IntPtr handle);
+
+  private const uint KillOnJobClose = 0x00002000;
+
   private static string Quote(string value) {
     if (value.Length > 0 && value.IndexOfAny(new[] { ' ', '\\t', '\\n', '\\v', '"' }) < 0) return value;
     var result = new StringBuilder("\\\"");
@@ -49,13 +102,33 @@ public static class NativeTaskFixtureLauncher {
 
   public static int Main(string[] arguments) {
     var program = Environment.GetEnvironmentVariable("NATIVE_TASK_CONTROLLER_FIXTURE_PROGRAM");
-    if (String.IsNullOrEmpty(program)) return 97;
+    var pidRoot = Environment.GetEnvironmentVariable("NATIVE_TASK_CONTROLLER_FIXTURE_PID_ROOT");
+    if (String.IsNullOrEmpty(program) || String.IsNullOrEmpty(pidRoot)) return 97;
+    File.WriteAllText(Path.Combine(pidRoot, Process.GetCurrentProcess().Id + ".launcher"), "");
     var command = new StringBuilder(Quote(program));
     foreach (var argument in arguments) command.Append(' ').Append(Quote(argument));
     var start = new ProcessStartInfo("${nodeExecutable}", command.ToString());
     start.UseShellExecute = false;
     start.EnvironmentVariables["NATIVE_TASK_CONTROLLER_FIXTURE_EXECUTABLE"] = Process.GetCurrentProcess().MainModule.FileName;
-    using (var child = Process.Start(start)) { child.WaitForExit(); return child.ExitCode; }
+    var job = CreateJobObject(IntPtr.Zero, null);
+    if (job == IntPtr.Zero) return 98;
+    var limits = new ExtendedLimits();
+    limits.BasicLimitInformation.LimitFlags = KillOnJobClose;
+    var size = Marshal.SizeOf(typeof(ExtendedLimits));
+    var information = Marshal.AllocHGlobal(size);
+    try {
+      Marshal.StructureToPtr(limits, information, false);
+      if (!SetInformationJobObject(job, 9, information, (uint)size)) return 99;
+      using (var child = Process.Start(start)) {
+        File.WriteAllText(Path.Combine(pidRoot, child.Id + ".child"), "");
+        if (!AssignProcessToJobObject(job, child.Handle)) { child.Kill(); child.WaitForExit(); return 100; }
+        child.WaitForExit();
+        return child.ExitCode;
+      }
+    } finally {
+      Marshal.FreeHGlobal(information);
+      CloseHandle(job);
+    }
   }
 }`;
       const encodedSource = Buffer.from(source).toString("base64");
@@ -382,6 +455,49 @@ async function waitForFile(file) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`timed out waiting for fixture file: ${file}`);
+}
+
+function processExists(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+async function assertWindowsFixtureProcessesStopped() {
+  if (windowsFixturePidRoot === null) return;
+  const pids = [...new Set((await readdir(windowsFixturePidRoot)).map((name) => Number.parseInt(name, 10)))]
+    .filter(Number.isSafeInteger);
+  const deadline = Date.now() + 2_000;
+  while (true) {
+    const livePids = pids.filter(processExists);
+    if (livePids.length === 0) return;
+    if (Date.now() >= deadline) throw new Error(`Windows fixture processes remained alive: ${livePids.join(",")}`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+async function removeTemporaryRoot() {
+  if (process.platform !== "win32") {
+    await rm(temporaryRoot, { recursive: true, force: true });
+    return;
+  }
+  await assertWindowsFixtureProcessesStopped();
+  const deadline = Date.now() + 2_000;
+  while (true) {
+    try {
+      await rm(temporaryRoot, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!["EBUSY", "ENOTEMPTY", "EPERM"].includes(error?.code) || Date.now() >= deadline) throw error;
+      // Windows may release a closed executable or cwd handle just after its owning process disappears.
+      await assertWindowsFixtureProcessesStopped();
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
 }
 
 async function cliJson(arguments_) {
@@ -927,6 +1043,7 @@ try {
 
   console.log("native task controller tests passed");
 } finally {
-  await rm(temporaryRoot, { recursive: true, force: true });
+  await removeTemporaryRoot();
   await rm(detachedAuthorityRoot, { recursive: true, force: true });
+  if (windowsFixturePidRoot !== null) await rm(windowsFixturePidRoot, { recursive: true, force: true });
 }
