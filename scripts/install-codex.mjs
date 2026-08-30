@@ -448,7 +448,7 @@ async function ensureReceiptRoot(receiptRoot, check) {
     stat = await lstat(receiptRoot);
   }
   if (!stat?.isDirectory() || stat.isSymbolicLink()) throw new Error("Codex native task receipt root is missing or unsafe");
-  if ((stat.mode & 0o777) !== 0o700) {
+  if (process.platform !== "win32" && (stat.mode & 0o777) !== 0o700) {
     if (check) throw new Error("Codex native task receipt root permissions mismatch");
     await chmod(receiptRoot, 0o700);
   }
