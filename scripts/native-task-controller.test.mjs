@@ -9,6 +9,7 @@ import { assertDetachedReceiptIsolation, launchDetachedWorker, readLifecycleRece
 
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "native-task-controller-test-"));
 const resolvedTemporaryRoot = await realpath(temporaryRoot);
+const detachedAuthorityRoot = await mkdtemp(path.join(os.homedir(), ".native-task-controller-test-"));
 const threadId = "019fb8b4-ebd0-7c20-8ba1-041ed6836204";
 const turnId = "019fb8b4-ebd0-7c20-8ba1-041ed6836207";
 const prompt = "Return exactly: controller fixture passed";
@@ -111,6 +112,9 @@ async function fixtureExecutable({
   serverWritableRoots = [],
   splitUtf8Readback = false,
   sameChunkEarlyThreadResponse = false,
+  taskReadFile = null,
+  taskWriteFile = null,
+  taskWriteText = null,
   terminalStatus = "completed",
   turnStartFile = null,
   turnStartStatus = "inProgress",
@@ -121,8 +125,10 @@ async function fixtureExecutable({
   versionDelayMs = 0,
   versionPidFile = null,
 } = {}) {
-  const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, delayedDuplicateReadback, delayedFailureAfterReadback, delayedInheritedVersionStdout, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalForNonCompleted, finalText: fixtureFinalText, hangAfterTurnStart, ignoreSigterm, ignoreVersionSigterm, incompleteUtf8AfterReadback, invocationFile, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, pidFile, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalForNonCompleted, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, sameChunkEarlyThreadResponse, serverConfigMismatch, serverWritableRoots, splitUtf8Readback, terminalStatus, threadId, turnId, turnStartFile, turnStartStatus, unterminatedAfterReadback, unsolicitedThreadResponse, unapprovedCommand, version, versionDelayMs, versionPidFile };
+  const fixtureRoot = await mkdtemp(path.join(temporaryRoot, "codex-fixture-"));
+  const executable = path.join(fixtureRoot, process.platform === "win32" ? "codex.exe" : "codex");
+  const sidecar = path.join(fixtureRoot, process.platform === "win32" ? "codex-code-mode-host.exe" : "codex-code-mode-host");
+  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, delayedDuplicateReadback, delayedFailureAfterReadback, delayedInheritedVersionStdout, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalForNonCompleted, finalText: fixtureFinalText, hangAfterTurnStart, ignoreSigterm, ignoreVersionSigterm, incompleteUtf8AfterReadback, invocationFile, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, pidFile, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalForNonCompleted, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, sameChunkEarlyThreadResponse, serverConfigMismatch, serverWritableRoots, splitUtf8Readback, taskReadFile, taskWriteFile, taskWriteText, terminalStatus, threadId, turnId, turnStartFile, turnStartStatus, unterminatedAfterReadback, unsolicitedThreadResponse, unapprovedCommand, version, versionDelayMs, versionPidFile };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
@@ -179,6 +185,8 @@ rl.on("line", (line) => {
   }
   if (message.method === "turn/start") {
     if (fixture.turnStartFile) require("node:fs").writeFileSync(fixture.turnStartFile, "turn started\\n");
+    if (fixture.taskReadFile) require("node:fs").readFileSync(fixture.taskReadFile, "utf8");
+    if (fixture.taskWriteFile) require("node:fs").writeFileSync(fixture.taskWriteFile, fixture.taskWriteText);
     turnInput = message.params.input;
     if (fixture.itemStartedBeforeTurnResponse) send({ method: "item/started", params: { item: { command: "pwd", commandActions: [], cwd: process.cwd(), id: "early-command", status: "inProgress", type: "commandExecution" }, threadId: fixture.threadId, turnId: null } });
     send({ id: 2, result: { turn: { id: fixture.turnId, status: fixture.turnStartStatus, items: [] } } });
@@ -279,7 +287,9 @@ function finish() {
 `;
   await writeFile(executable, program);
   await chmod(executable, 0o755);
-  return { executable, sha256: digest(await readFile(executable)) };
+  await writeFile(sidecar, "#!/usr/bin/env node\nprocess.exit(0);\n");
+  await chmod(sidecar, 0o755);
+  return { executable, sha256: digest(await readFile(executable)), sidecar, sidecarSha256: digest(await readFile(sidecar)) };
 }
 
 async function run(fixture = {}, overrides = {}) {
@@ -289,6 +299,7 @@ async function run(fixture = {}, overrides = {}) {
     codexExecutable: identity.executable,
     cwd: resolvedTemporaryRoot,
     expectedExecutableSha256: identity.sha256,
+    expectedSidecarSha256: identity.sidecarSha256,
     expectedServerVersion: fixture.version ?? "0.148.0",
     prompt,
     sandbox: "read-only",
@@ -366,6 +377,8 @@ try {
   assert.equal(receipt.payload.final.readback_item_id, "agent-1");
   assert.equal(receipt.payload.final.sha256, digest(finalText));
   assert.equal(receipt.payload.prompt_sha256, digest(prompt));
+  assert.match(receipt.payload.sidecar.path, /codex-code-mode-host(?:\.exe)?$/);
+  assert.match(receipt.payload.sidecar.sha256, /^sha256:[a-f0-9]{64}$/);
   assert.deepEqual(receipt.payload.requested_configuration, {
     approval_policy: "never",
     cwd: resolvedTemporaryRoot,
@@ -434,10 +447,26 @@ try {
   const cliFixture = await fixtureExecutable({ approval: true });
   const promptFile = path.join(temporaryRoot, "prompt.txt");
   await writeFile(promptFile, prompt);
+  const missingSidecarIdentityCli = spawn(process.execPath, [
+    path.resolve("scripts/native-task-controller.mjs"), "run",
+    "--codex-executable", cliFixture.executable,
+    "--expected-sha256", cliFixture.sha256,
+    "--expected-version", "0.148.0",
+    "--cwd", temporaryRoot,
+    "--prompt-file", promptFile,
+    "--approval-policy", "never",
+    "--sandbox", "read-only",
+  ], { stdio: ["ignore", "ignore", "pipe"] });
+  let missingSidecarIdentityStderr = "";
+  missingSidecarIdentityCli.stderr.setEncoding("utf8").on("data", (chunk) => { missingSidecarIdentityStderr += chunk; });
+  const [missingSidecarIdentityCode] = await once(missingSidecarIdentityCli, "exit");
+  assert.notEqual(missingSidecarIdentityCode, 0);
+  assert.match(missingSidecarIdentityStderr, /missing argument: --expected-sidecar-sha256/);
   const cli = spawn(process.execPath, [
     path.resolve("scripts/native-task-controller.mjs"), "run",
     "--codex-executable", cliFixture.executable,
     "--expected-sha256", cliFixture.sha256,
+    "--expected-sidecar-sha256", cliFixture.sidecarSha256,
     "--expected-version", "0.148.0",
     "--cwd", temporaryRoot,
     "--prompt-file", promptFile,
@@ -470,6 +499,7 @@ try {
     "dispatch",
     "--codex-executable", detachedFixture.executable,
     "--expected-sha256", detachedFixture.sha256,
+    "--expected-sidecar-sha256", detachedFixture.sidecarSha256,
     "--expected-version", "0.148.0",
     "--cwd", temporaryRoot,
     "--prompt-file", promptFile,
@@ -482,11 +512,63 @@ try {
   assert.ok(["running", "terminal"].includes(dispatched.payload.state));
   assert.equal(dispatched.payload.attempt.request.prompt_sha256, digest(prompt));
   assert.equal(dispatched.payload.attempt.request.sandbox, "read-only");
+  assert.equal(dispatched.payload.attempt.request.expected_sidecar_sha256, detachedFixture.sidecarSha256);
   await waitForFile(path.join(detachedReceiptDir, "terminal.json"));
   const inspected = await cliJson(["inspect", "--receipt-dir", detachedReceiptDir]);
   assert.equal(inspected.payload.state, "terminal");
   assert.equal(inspected.payload.terminal.payload.terminal.payload.turn.id, turnId);
   assert.equal(inspected.payload.terminal.payload.terminal.payload.final.text, finalText);
+  assert.deepEqual(
+    inspected.payload.terminal.payload.terminal.payload.sidecar,
+    inspected.payload.start.payload.start.sidecar,
+  );
+
+  const workspaceInput = path.join(temporaryRoot, "workspace-input.txt");
+  const workspaceOutput = path.join(temporaryRoot, "workspace-output.txt");
+  await writeFile(workspaceInput, "one task read\n");
+  const receiptSentinel = path.join(detachedAuthorityRoot, "receipt-sentinel.txt");
+  await writeFile(receiptSentinel, "hub receipt authority\n");
+  const sentinelSha256 = digest(await readFile(receiptSentinel));
+  const workspaceFixture = await fixtureExecutable({
+    serverWritableRoots: [resolvedTemporaryRoot],
+    taskReadFile: workspaceInput,
+    taskWriteFile: workspaceOutput,
+    taskWriteText: "one task-cwd-only write\n",
+  });
+  const workspaceReceiptDir = path.join(detachedAuthorityRoot, "workspace-receipt");
+  const workspaceDispatch = await cliJson([
+    "dispatch", "--codex-executable", workspaceFixture.executable,
+    "--expected-sha256", workspaceFixture.sha256,
+    "--expected-sidecar-sha256", workspaceFixture.sidecarSha256,
+    "--expected-version", "0.148.0", "--cwd", temporaryRoot,
+    "--prompt-file", promptFile, "--sandbox", "workspace-write",
+    "--receipt-dir", workspaceReceiptDir, "--timeout-ms", "2000", "--start-timeout-ms", "2000",
+  ]);
+  assert.ok(["running", "terminal"].includes(workspaceDispatch.payload.state));
+  const workspaceAttemptSource = await readFile(path.join(workspaceReceiptDir, "attempt.json"), "utf8");
+  await waitForFile(path.join(workspaceReceiptDir, "terminal.json"));
+  const workspaceInspection = await cliJson(["inspect", "--receipt-dir", workspaceReceiptDir]);
+  assert.equal(workspaceInspection.payload.state, "terminal");
+  assert.equal(await readFile(workspaceOutput, "utf8"), "one task-cwd-only write\n");
+  assert.equal(digest(await readFile(receiptSentinel)), sentinelSha256);
+  assert.equal(await readFile(path.join(workspaceReceiptDir, "attempt.json"), "utf8"), workspaceAttemptSource);
+  assert.equal(
+    workspaceInspection.payload.attempt.content_sha256,
+    digest(JSON.stringify(canonical({
+      attempt_id: workspaceInspection.payload.attempt.attempt_id,
+      request: workspaceInspection.payload.attempt.request,
+      schema: workspaceInspection.payload.attempt.schema,
+    }))),
+  );
+  assert.equal(
+    workspaceInspection.payload.terminal.content_sha256,
+    digest(JSON.stringify(canonical(workspaceInspection.payload.terminal.payload))),
+  );
+  assert.equal(
+    workspaceInspection.payload.start.payload.start.server_configuration.sandbox.writableRoots[0],
+    resolvedTemporaryRoot,
+  );
+  assert.equal(path.relative(resolvedTemporaryRoot, workspaceReceiptDir).startsWith(".."), true);
   const invocationsBeforeRetry = await readFile(detachedInvocations, "utf8");
   const retried = await cliJson(dispatchArguments);
   assert.equal(retried.payload.state, "terminal");
@@ -533,7 +615,8 @@ try {
   const failedReceiptDir = path.join(temporaryRoot, "failed-detached-receipt");
   const failedDispatch = await cliJson([
     "dispatch", "--codex-executable", failedDetachedFixture.executable,
-    "--expected-sha256", failedDetachedFixture.sha256, "--expected-version", "0.148.0",
+    "--expected-sha256", failedDetachedFixture.sha256,
+    "--expected-sidecar-sha256", failedDetachedFixture.sidecarSha256, "--expected-version", "0.148.0",
     "--cwd", temporaryRoot, "--prompt-file", promptFile, "--sandbox", "read-only",
     "--receipt-dir", failedReceiptDir, "--timeout-ms", "2000", "--start-timeout-ms", "2000",
   ]);
@@ -553,7 +636,8 @@ try {
   const postStartFailureDir = path.join(temporaryRoot, "post-start-failure-receipt");
   const postStartFailureArguments = [
     "dispatch", "--codex-executable", postStartFailureFixture.executable,
-    "--expected-sha256", postStartFailureFixture.sha256, "--expected-version", "0.148.0",
+    "--expected-sha256", postStartFailureFixture.sha256,
+    "--expected-sidecar-sha256", postStartFailureFixture.sidecarSha256, "--expected-version", "0.148.0",
     "--cwd", temporaryRoot, "--prompt-file", promptFile, "--sandbox", "read-only",
     "--receipt-dir", postStartFailureDir, "--timeout-ms", "2000", "--start-timeout-ms", "2000",
   ];
@@ -605,6 +689,7 @@ try {
     path.resolve("scripts/native-task-controller.mjs"), "run",
     "--codex-executable", earlyFixture.executable,
     "--expected-sha256", earlyFixture.sha256,
+    "--expected-sidecar-sha256", earlyFixture.sidecarSha256,
     "--expected-version", "0.148.0",
     "--cwd", temporaryRoot,
     "--prompt-file", promptFile,
@@ -626,6 +711,7 @@ try {
     path.resolve("scripts/native-task-controller.mjs"), "run",
     "--codex-executable", signalFixture.executable,
     "--expected-sha256", signalFixture.sha256,
+    "--expected-sidecar-sha256", signalFixture.sidecarSha256,
     "--expected-version", "0.148.0",
     "--cwd", temporaryRoot,
     "--prompt-file", promptFile,
@@ -731,10 +817,38 @@ try {
     codexExecutable: wrongHash.executable,
     cwd: temporaryRoot,
     expectedExecutableSha256: `sha256:${"0".repeat(64)}`,
+    expectedSidecarSha256: wrongHash.sidecarSha256,
     expectedServerVersion: "0.148.0",
     prompt,
     sandbox: "read-only",
   }), /sha256 mismatch/);
+  const missingSidecarTurnStart = path.join(temporaryRoot, "missing-sidecar-turn-start.txt");
+  const missingSidecar = await fixtureExecutable({ turnStartFile: missingSidecarTurnStart });
+  await rm(missingSidecar.sidecar);
+  await assert.rejects(() => runNativeTask({
+    approvalPolicy: "never",
+    codexExecutable: missingSidecar.executable,
+    cwd: temporaryRoot,
+    expectedExecutableSha256: missingSidecar.sha256,
+    expectedSidecarSha256: missingSidecar.sidecarSha256,
+    expectedServerVersion: "0.148.0",
+    prompt,
+    sandbox: "read-only",
+  }), /sidecar is missing or unsafe/);
+  assert.equal(await readFile(missingSidecarTurnStart, "utf8").catch(() => null), null);
+  const wrongSidecarTurnStart = path.join(temporaryRoot, "wrong-sidecar-turn-start.txt");
+  const wrongSidecar = await fixtureExecutable({ turnStartFile: wrongSidecarTurnStart });
+  await assert.rejects(() => runNativeTask({
+    approvalPolicy: "never",
+    codexExecutable: wrongSidecar.executable,
+    cwd: temporaryRoot,
+    expectedExecutableSha256: wrongSidecar.sha256,
+    expectedSidecarSha256: `sha256:${"0".repeat(64)}`,
+    expectedServerVersion: "0.148.0",
+    prompt,
+    sandbox: "read-only",
+  }), /sidecar sha256 mismatch/);
+  assert.equal(await readFile(wrongSidecarTurnStart, "utf8").catch(() => null), null);
   await assert.rejects(() => run({}, { expectedServerVersion: "0.149.0" }), /version mismatch/);
   await assert.rejects(() => run({ delayedInheritedVersionStdout: true }), /version mismatch/);
   await assert.rejects(() => run({}, { approvalPolicy: "invalid" }), /approval policy is unsupported/);
@@ -743,4 +857,5 @@ try {
   console.log("native task controller tests passed");
 } finally {
   await rm(temporaryRoot, { recursive: true, force: true });
+  await rm(detachedAuthorityRoot, { recursive: true, force: true });
 }

@@ -152,39 +152,58 @@ async function readVersionProbe(executable, signal) {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-async function materializeExecutable(executable, expectedSha256, expectedVersion, signal) {
+async function executableIdentity(executable, label, signal) {
   failIfAborted(signal);
-  if (!path.isAbsolute(executable)) fail("codex executable must be one absolute path");
-  if (!shaPattern.test(expectedSha256)) fail("expected executable sha256 is invalid");
-  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(expectedVersion)) fail("expected server version is invalid");
   const resolved = await realpath(executable).catch(() => "");
   failIfAborted(signal);
   const info = resolved ? await lstat(resolved).catch(() => null) : null;
   failIfAborted(signal);
   if (!info?.isFile() || info.isSymbolicLink() || (process.platform !== "win32" && (info.mode & 0o111) === 0)) {
-    fail("codex executable is missing or unsafe");
+    fail(`${label} is missing or unsafe`);
   }
+  return resolved;
+}
+
+async function fileSha256(pathname, signal) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(pathname)) {
+    failIfAborted(signal);
+    hash.update(chunk);
+  }
+  failIfAborted(signal);
+  return `sha256:${hash.digest("hex")}`;
+}
+
+async function materializeExecutableBundle(executable, expectedSha256, expectedSidecarSha256, expectedVersion, signal) {
+  failIfAborted(signal);
+  if (!path.isAbsolute(executable)) fail("codex executable must be one absolute path");
+  if (!shaPattern.test(expectedSha256)) fail("expected executable sha256 is invalid");
+  if (!shaPattern.test(expectedSidecarSha256)) fail("expected sidecar sha256 is invalid");
+  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(expectedVersion)) fail("expected server version is invalid");
+  const resolved = await executableIdentity(executable, "codex executable", signal);
+  const sidecarName = process.platform === "win32" ? "codex-code-mode-host.exe" : "codex-code-mode-host";
+  const resolvedSidecar = await executableIdentity(path.join(path.dirname(resolved), sidecarName), "codex code-mode sidecar", signal);
   const copyExecutable = async (prefix) => {
     failIfAborted(signal);
     const root = await mkdtemp(path.join(os.tmpdir(), prefix));
     const copiedPath = path.join(root, process.platform === "win32" ? "codex.exe" : "codex");
+    const copiedSidecarPath = path.join(root, sidecarName);
     try {
       await copyFile(resolved, copiedPath);
+      await copyFile(resolvedSidecar, copiedSidecarPath);
       failIfAborted(signal);
-      if (process.platform !== "win32") await chmod(copiedPath, 0o500);
+      if (process.platform !== "win32") await Promise.all([chmod(copiedPath, 0o500), chmod(copiedSidecarPath, 0o500)]);
       failIfAborted(signal);
-      const copiedInfo = await lstat(copiedPath);
+      const [copiedInfo, copiedSidecarInfo] = await Promise.all([lstat(copiedPath), lstat(copiedSidecarPath)]);
       failIfAborted(signal);
-      if (!copiedInfo.isFile() || copiedInfo.isSymbolicLink()) fail("materialized codex executable is unsafe");
-      const hash = createHash("sha256");
-      for await (const chunk of createReadStream(copiedPath)) {
-        failIfAborted(signal);
-        hash.update(chunk);
+      if (!copiedInfo.isFile() || copiedInfo.isSymbolicLink() || !copiedSidecarInfo.isFile() || copiedSidecarInfo.isSymbolicLink()) {
+        fail("materialized codex executable bundle is unsafe");
       }
-      failIfAborted(signal);
-      const sha256 = `sha256:${hash.digest("hex")}`;
+      const sha256 = await fileSha256(copiedPath, signal);
+      const sidecarSha256 = await fileSha256(copiedSidecarPath, signal);
       if (sha256 !== expectedSha256) fail("codex executable sha256 mismatch");
-      return { cleanup: () => rm(root, { force: true, recursive: true }), copiedPath, sha256 };
+      if (sidecarSha256 !== expectedSidecarSha256) fail("codex code-mode sidecar sha256 mismatch");
+      return { cleanup: () => rm(root, { force: true, recursive: true }), copiedPath, sha256, sidecarSha256 };
     } catch (error) {
       await rm(root, { force: true, recursive: true });
       throw error;
@@ -204,6 +223,7 @@ async function materializeExecutable(executable, expectedSha256, expectedVersion
     failIfAborted(signal);
     return {
       identity: { path: resolved, sha256: runtime.sha256, version: expectedVersion },
+      sidecarIdentity: { path: resolvedSidecar, sha256: runtime.sidecarSha256 },
       runtimePath: runtime.copiedPath,
       cleanup: runtime.cleanup,
     };
@@ -247,6 +267,7 @@ async function stopChild(child) {
 async function executeNativeTask({
   codexExecutable,
   expectedExecutableSha256,
+  expectedSidecarSha256,
   expectedServerVersion,
   cwd,
   prompt,
@@ -273,8 +294,9 @@ async function executeNativeTask({
   failIfAborted(signal);
   const taskCwd = await directoryIdentity(cwd);
   failIfAborted(signal);
-  const materialized = await materializeExecutable(codexExecutable, expectedExecutableSha256, expectedServerVersion, signal);
+  const materialized = await materializeExecutableBundle(codexExecutable, expectedExecutableSha256, expectedSidecarSha256, expectedServerVersion, signal);
   const executable = materialized.identity;
+  const sidecar = materialized.sidecarIdentity;
   let child;
   try {
     failIfAborted(signal);
@@ -445,6 +467,7 @@ async function executeNativeTask({
           turnId = started.turn.id;
           if (onStarted) await onStarted(canonical({
             executable,
+            sidecar,
             prompt_sha256: digest(prompt),
             requested_configuration: { approval_policy: approvalPolicy, cwd: taskCwd, model, sandbox },
             schema: "rbm-native-task-start/v1",
@@ -701,6 +724,7 @@ async function executeNativeTask({
     requested_configuration: { approval_policy: approvalPolicy, cwd: taskCwd, model, sandbox },
     server_configuration: serverConfiguration,
     executable,
+    sidecar,
     final: finalText === null ? null : {
       bytes: Buffer.byteLength(finalText),
       completed_wire_sequence: items.get(terminalAnswerItemId)?.completedWireSequence,
@@ -765,7 +789,7 @@ function parsePairs(argv, required, allowed) {
 
 function parseArguments(argv) {
   const command = argv[0];
-  const common = ["codex-executable", "expected-sha256", "expected-version", "cwd", "prompt-file", "sandbox"];
+  const common = ["codex-executable", "expected-sha256", "expected-sidecar-sha256", "expected-version", "cwd", "prompt-file", "sandbox"];
   if (command === "run") return { command, options: parsePairs(argv.slice(1), [...common, "approval-policy"], new Set([...common, "approval-policy", "model", "timeout-ms"])) };
   if (command === "dispatch") return { command, options: parsePairs(argv.slice(1), [...common, "receipt-dir"], new Set([...common, "receipt-dir", "model", "timeout-ms", "start-timeout-ms"])) };
   if (command === "inspect") return { command, options: parsePairs(argv.slice(1), ["receipt-dir"], new Set(["receipt-dir"])) };
@@ -825,6 +849,8 @@ async function inspectReceipt(receiptDir) {
   if (!rootStat?.isDirectory() || rootStat.isSymbolicLink()) fail("native task receipt directory is missing or unsafe");
   const attempt = await readJson(path.join(root, "attempt.json"));
   if (!attempt || attempt.schema !== "rbm-native-task-attempt/v1" || !uuidPattern.test(attempt.attempt_id ?? "")
+    || !shaPattern.test(attempt.request?.expected_sha256 ?? "")
+    || !shaPattern.test(attempt.request?.expected_sidecar_sha256 ?? "")
     || attempt.content_sha256 !== digest(JSON.stringify(canonical({ attempt_id: attempt.attempt_id, request: attempt.request, schema: attempt.schema })))) {
     fail("native task attempt receipt is missing, malformed, or has invalid content identity");
   }
@@ -843,6 +869,7 @@ async function inspectReceipt(receiptDir) {
       || !sameCanonical(startPayload.requested_configuration, expectedRequestedConfiguration)
       || startPayload.executable?.sha256 !== attempt.request.expected_sha256
       || startPayload.executable?.version !== attempt.request.expected_version
+      || startPayload.sidecar?.sha256 !== attempt.request.expected_sidecar_sha256
       || !uuidPattern.test(startPayload.thread?.id ?? "")
       || !uuidPattern.test(startPayload.turn?.id ?? "")
       || startPayload.turn.status !== "inProgress"
@@ -868,9 +895,11 @@ async function inspectReceipt(receiptDir) {
       || !sameCanonical(startPayload.requested_configuration, expectedRequestedConfiguration)
       || startPayload.executable?.sha256 !== attempt.request.expected_sha256
       || startPayload.executable?.version !== attempt.request.expected_version
+      || startPayload.sidecar?.sha256 !== attempt.request.expected_sidecar_sha256
       || terminalPayload.prompt_sha256 !== attempt.request.prompt_sha256
       || !sameCanonical(terminalPayload.requested_configuration, expectedRequestedConfiguration)
       || !sameCanonical(terminalPayload.executable, startPayload.executable)
+      || !sameCanonical(terminalPayload.sidecar, startPayload.sidecar)
       || !sameCanonical(terminalPayload.server_configuration, startPayload.server_configuration)
       || terminalPayload.thread?.id !== startPayload.thread?.id
       || terminalPayload.turn?.id !== startPayload.turn?.id
@@ -909,6 +938,7 @@ async function main() {
       codex_executable: options["codex-executable"],
       cwd: taskCwd,
       expected_sha256: options["expected-sha256"],
+      expected_sidecar_sha256: options["expected-sidecar-sha256"],
       expected_version: options["expected-version"],
       model: options.model ?? null,
       prompt_sha256: digest(prompt),
@@ -936,6 +966,7 @@ async function main() {
     const workerArguments = [path.resolve(process.argv[1]), "worker"];
     for (const [name, value] of [
       ["codex-executable", options["codex-executable"]], ["expected-sha256", options["expected-sha256"]],
+      ["expected-sidecar-sha256", options["expected-sidecar-sha256"]],
       ["expected-version", options["expected-version"]], ["cwd", taskCwd], ["prompt-file", materializedPrompt],
       ["sandbox", options.sandbox], ["receipt-dir", root], ["attempt-id", attemptId], ["model", options.model],
       ["timeout-ms", options["timeout-ms"]],
@@ -1004,7 +1035,8 @@ async function main() {
     if (root) {
       const workerRequest = canonical({
         codex_executable: options["codex-executable"], cwd: options.cwd,
-        expected_sha256: options["expected-sha256"], expected_version: options["expected-version"],
+        expected_sha256: options["expected-sha256"], expected_sidecar_sha256: options["expected-sidecar-sha256"],
+        expected_version: options["expected-version"],
         model: options.model ?? null, prompt_sha256: digest(prompt), sandbox: options.sandbox,
         timeout_ms: options["timeout-ms"] === undefined ? 7_200_000 : Number(options["timeout-ms"]),
       });
@@ -1016,6 +1048,7 @@ async function main() {
       codexExecutable: options["codex-executable"],
       cwd: options.cwd,
       expectedExecutableSha256: options["expected-sha256"],
+      expectedSidecarSha256: options["expected-sidecar-sha256"],
       expectedServerVersion: options["expected-version"],
       model: options.model ?? null,
       prompt,
