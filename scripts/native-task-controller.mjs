@@ -129,12 +129,21 @@ public static class NativeTaskControllerJobWrapper {
   private static extern IntPtr GetStdHandle(int standardHandle);
 
   [DllImport("kernel32.dll")]
+  private static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+
+  [DllImport("kernel32.dll")]
   private static extern bool CloseHandle(IntPtr handle);
 
   private const uint KillOnJobClose = 0x00002000;
   private const uint CreateSuspended = 0x00000004;
   private const int UseStdHandles = 0x00000100;
+  private const uint HandleFlagInherit = 0x00000001;
   private const uint Infinite = 0xffffffff;
+
+  private static bool MakeInheritable(IntPtr handle) {
+    return handle != IntPtr.Zero && handle != new IntPtr(-1)
+      && SetHandleInformation(handle, HandleFlagInherit, HandleFlagInherit);
+  }
 
   private static string Quote(string value) {
     if (value.Length > 0 && value.IndexOfAny(new[] { ' ', '\t', '\n', '\v', '"' }) < 0) return value;
@@ -170,6 +179,7 @@ public static class NativeTaskControllerJobWrapper {
       startup.hStdInput = GetStdHandle(-10);
       startup.hStdOutput = GetStdHandle(-11);
       startup.hStdError = GetStdHandle(-12);
+      if (!MakeInheritable(startup.hStdInput) || !MakeInheritable(startup.hStdOutput) || !MakeInheritable(startup.hStdError)) return 71;
       if (!CreateProcess(application, commandLine, IntPtr.Zero, IntPtr.Zero, true, CreateSuspended, IntPtr.Zero, null, ref startup, out process)) return 67;
       if (!AssignProcessToJobObject(job, process.hProcess)) {
         TerminateProcess(process.hProcess, 68);
