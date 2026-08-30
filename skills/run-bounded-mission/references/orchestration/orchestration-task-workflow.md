@@ -151,6 +151,16 @@ from a known Task returns that node to one exact runnable recovery; a repeated e
 only that node. Release every independent runnable node in the same turn; with no recovery, release, or
 wait, apply the kernel inherited-Goal transition.
 
+Before that transition can enter blocked audit, close one current schedulability proof over every known
+node and owner. A duplicate-writer prohibition freezes only that writer effect. A frozen native node or
+unavailable terminal receipt does not freeze exact candidate or PR reconciliation, frozen-input review,
+verification and delivery fact reads, custody reconciliation, or an independent read-only investigation;
+those operations may inspect but never adopt, mutate, accept, or merge the frozen candidate. Release each
+admitted operation through its native owner. Repeated identical automatic continuations establish only
+that a predicate recurred; they do not prove that these routes are absent. Whole-Goal blocked is eligible
+only after the proof records no running or runnable operation, no admitted active-target wait, and no
+safe owner action that can change the decision.
+
 For each continued target require cursor continuity, target/host identity, and non-regressing
 revision. An early wake may omit a target; retain its prior facts but do not call it unchanged.
 `turnCompleted` proves an endpoint only when the wake turn and its exact terminal payload are present.
