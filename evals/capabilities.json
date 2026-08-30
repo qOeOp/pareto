@@ -66,8 +66,6 @@
     { "id": "QUA-04", "domain": "quality-assurance", "name": "bounded peer Mission observation and signal binding", "owner": "quality-assurance-lifecycle-policy.md", "consumer": "QUA-03 signal classification", "weight": 1, "critical": false, "atomicity": "unreviewed", "split_from": "QUA-01" },
     { "id": "QUA-05", "domain": "quality-assurance", "name": "same-relationship repair closure verification", "owner": "quality-assurance-lifecycle-policy.md", "consumer": "current lifecycle closure decision", "weight": 1, "critical": false, "atomicity": "unreviewed", "split_from": "QUA-01" },
     { "id": "ORC-10", "domain": "orchestration", "name": "support-lane role and model-effort routing", "owner": "orchestration-agent-routing.md", "consumer": "support-lane dispatch", "weight": 1, "critical": false, "atomicity": "unreviewed", "split_from": "ORC-05" },
-    { "id": "ORC-11", "domain": "orchestration", "name": "parallel writable-lane Git-state isolation", "owner": "orchestration-agent-routing.md", "consumer": "support-lane dispatch", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": "ORC-05" },
-    { "id": "ORC-12", "domain": "orchestration", "name": "whole-Goal schedulability and blocked eligibility", "owner": "orchestration-task-workflow.md", "consumer": "Goal blocked transition", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": "ORC-01" },
-    { "id": "ORC-13", "domain": "orchestration", "name": "authenticated Resume and blocked-audit re-admission", "owner": "orchestration-context-recovery.md", "consumer": "resumed Goal next action", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": "ORC-01" }
+    { "id": "ORC-11", "domain": "orchestration", "name": "parallel writable-lane Git-state isolation", "owner": "orchestration-agent-routing.md", "consumer": "support-lane dispatch", "weight": 1, "critical": true, "atomicity": "unreviewed", "split_from": "ORC-05" }
   ]
 }
