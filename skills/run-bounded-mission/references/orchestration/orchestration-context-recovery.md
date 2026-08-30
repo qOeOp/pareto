@@ -61,6 +61,11 @@ targets may carry its exact wait. Otherwise freeze dependent effects; do not loa
 Once authenticated, consume the Goal and its next
 action once; only a new exact pause can arm another.
 
+An authenticated Resume invalidates the predecessor's no-route conclusion. Recompute current
+schedulability from owners, candidates, effects, and independent DAG slices before any new blocked audit;
+the predecessor's repeated-turn count or duplicate-writer prohibition cannot be carried forward as
+whole-Mission impasse.
+
 When a release predicate changed, invoke its recorded next owner before unrelated work. When evidence
 is malformed, unknown, or unavailable, freeze only its consumers and name the earliest observation
 that can change the decision. Ordinary friction is not blocked, and elapsed time never releases work.
