@@ -107,9 +107,11 @@ public static class NativeTaskFixtureLauncher {
     File.WriteAllText(Path.Combine(pidRoot, Process.GetCurrentProcess().Id + ".launcher"), "");
     var command = new StringBuilder(Quote(program));
     foreach (var argument in arguments) command.Append(' ').Append(Quote(argument));
+    var releaseMarker = Path.Combine(pidRoot, Process.GetCurrentProcess().Id + "-" + Guid.NewGuid().ToString("N") + ".release");
     var start = new ProcessStartInfo("${nodeExecutable}", command.ToString());
     start.UseShellExecute = false;
     start.EnvironmentVariables["NATIVE_TASK_CONTROLLER_FIXTURE_EXECUTABLE"] = Process.GetCurrentProcess().MainModule.FileName;
+    start.EnvironmentVariables["NATIVE_TASK_CONTROLLER_FIXTURE_RELEASE"] = releaseMarker;
     var job = CreateJobObject(IntPtr.Zero, null);
     if (job == IntPtr.Zero) return 98;
     var limits = new ExtendedLimits();
@@ -122,10 +124,12 @@ public static class NativeTaskFixtureLauncher {
       using (var child = Process.Start(start)) {
         File.WriteAllText(Path.Combine(pidRoot, child.Id + ".child"), "");
         if (!AssignProcessToJobObject(job, child.Handle)) { child.Kill(); child.WaitForExit(); return 100; }
+        File.WriteAllText(releaseMarker, "");
         child.WaitForExit();
         return child.ExitCode;
       }
     } finally {
+      if (File.Exists(releaseMarker)) File.Delete(releaseMarker);
       Marshal.FreeHGlobal(information);
       CloseHandle(job);
     }
@@ -261,6 +265,15 @@ const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
 const invokedExecutable = process.env.NATIVE_TASK_CONTROLLER_FIXTURE_EXECUTABLE || process.argv[1];
+if (process.platform === "win32") {
+  const releaseMarker = process.env.NATIVE_TASK_CONTROLLER_FIXTURE_RELEASE;
+  const deadline = Date.now() + 10_000;
+  while (!releaseMarker || !require("node:fs").existsSync(releaseMarker)) {
+    if (Date.now() >= deadline) process.exit(96);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+  }
+  require("node:fs").unlinkSync(releaseMarker);
+}
 if (fixture.invocationFile) require("node:fs").appendFileSync(fixture.invocationFile, String(process.argv[2]) + "\\n");
 if (invokedExecutable === fixture.executable) process.exit(5);
 if (process.argv[2] === "--version") {
