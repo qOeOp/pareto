@@ -1053,7 +1053,10 @@ try {
   }), /sidecar sha256 mismatch/);
   assert.equal(await readFile(wrongSidecarTurnStart, "utf8").catch(() => null), null);
   await assert.rejects(() => run({}, { expectedServerVersion: "0.149.0" }), /version mismatch/);
-  await assert.rejects(() => run({ delayedInheritedVersionStdout: true }), /version mismatch/);
+  if (process.platform !== "win32") {
+    // Windows kill-on-close Jobs terminate the grandchild that would otherwise retain inherited stdout.
+    await assert.rejects(() => run({ delayedInheritedVersionStdout: true }), /version mismatch/);
+  }
   await assert.rejects(() => run({}, { approvalPolicy: "invalid" }), /approval policy is unsupported/);
   await assert.rejects(() => run({}, { sandbox: "invalid" }), /sandbox mode is unsupported/);
 
