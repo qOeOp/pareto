@@ -769,6 +769,13 @@ function verifyEnvelope(value, schema, label) {
   return value;
 }
 
+export async function readLifecycleReceiptValues(root, readReceipt = readJson) {
+  const failureValue = await readReceipt(path.join(root, "failure.json"));
+  const terminalValue = await readReceipt(path.join(root, "terminal.json"));
+  const startValue = await readReceipt(path.join(root, "start.json"));
+  return { failureValue, startValue, terminalValue };
+}
+
 async function inspectReceipt(receiptDir) {
   const root = await receiptDirectory(receiptDir);
   const rootStat = await lstat(root).catch(() => null);
@@ -778,11 +785,9 @@ async function inspectReceipt(receiptDir) {
     || attempt.content_sha256 !== digest(JSON.stringify(canonical({ attempt_id: attempt.attempt_id, request: attempt.request, schema: attempt.schema })))) {
     fail("native task attempt receipt is missing, malformed, or has invalid content identity");
   }
-  const startValue = await readJson(path.join(root, "start.json"));
+  const { failureValue, startValue, terminalValue } = await readLifecycleReceiptValues(root);
   const start = startValue ? verifyEnvelope(startValue, "rbm-native-task-start-envelope/v1", "start") : null;
-  const failureValue = await readJson(path.join(root, "failure.json"));
   const failure = failureValue ? verifyEnvelope(failureValue, "rbm-native-task-failure-envelope/v1", "failure") : null;
-  const terminalValue = await readJson(path.join(root, "terminal.json"));
   const terminal = terminalValue ? verifyEnvelope(terminalValue, "rbm-native-task-detached-terminal-envelope/v1", "terminal") : null;
   const expectedRequestedConfiguration = canonical({
     approval_policy: "never", cwd: attempt.request.cwd, model: attempt.request.model, sandbox: attempt.request.sandbox,

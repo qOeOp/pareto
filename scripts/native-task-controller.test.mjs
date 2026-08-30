@@ -5,7 +5,7 @@ import { EventEmitter, once } from "node:events";
 import { chmod, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { launchDetachedWorker, runNativeTask } from "./native-task-controller.mjs";
+import { launchDetachedWorker, readLifecycleReceiptValues, runNativeTask } from "./native-task-controller.mjs";
 
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "native-task-controller-test-"));
 const resolvedTemporaryRoot = await realpath(temporaryRoot);
@@ -19,6 +19,27 @@ const canonical = (value) => Array.isArray(value)
   : value && typeof value === "object"
     ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
     : value;
+
+for (const successorName of ["failure.json", "terminal.json"]) {
+  const reads = [];
+  let predecessorPublished = false;
+  const receiptValues = await readLifecycleReceiptValues("/receipt", async (pathname) => {
+    const basename = path.basename(pathname);
+    reads.push(basename);
+    if (basename === successorName) {
+      predecessorPublished = true;
+      return { marker: basename };
+    }
+    if (basename === "start.json") {
+      assert.equal(predecessorPublished, true);
+      return { marker: basename };
+    }
+    return null;
+  });
+  assert.deepEqual(reads, ["failure.json", "terminal.json", "start.json"]);
+  assert.deepEqual(receiptValues.startValue, { marker: "start.json" });
+  assert.deepEqual(receiptValues[successorName === "failure.json" ? "failureValue" : "terminalValue"], { marker: successorName });
+}
 
 async function fixtureExecutable({
   approval = false,
