@@ -214,6 +214,8 @@ const origin = join(root, "qOeOp", "skills.git");
   await mkdir(join(repositoryRoot, "codex"), { recursive: true });
   await mkdir(join(root, "qOeOp"), { recursive: true });
   await cp("scripts/install-codex.mjs", join(repositoryRoot, "scripts", "install-codex.mjs"));
+  await cp("scripts/json.mjs", join(repositoryRoot, "scripts", "json.mjs"));
+  await cp("scripts/native-task-controller.mjs", join(repositoryRoot, "scripts", "native-task-controller.mjs"));
   await cp("skills/run-bounded-mission", join(repositoryRoot, "skills", "run-bounded-mission"), { recursive: true });
   await cp("codex/agents", join(repositoryRoot, "codex", "agents"), { recursive: true });
   await cp("codex/hooks", join(repositoryRoot, "codex", "hooks"), { recursive: true });
@@ -272,6 +274,19 @@ const origin = join(root, "qOeOp", "skills.git");
   result = spawnSync(process.execPath, lockedArgv, { encoding: "utf8", env: poisonedGitEnvironment });
   assert.equal(result.status, 0, result.stderr);
   result = spawnSync(process.execPath, [...lockedArgv, "--check"], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const installedController = join(codexRoot, "native-task-controller", "native-task-controller.mjs");
+  assert.equal(await readFile(installedController, "utf8"), await readFile(join(repositoryRoot, "scripts", "native-task-controller.mjs"), "utf8"));
+  const installedReceiptRoot = join(codexRoot, "native-task-receipts");
+  const installedReceiptRootStat = await lstat(installedReceiptRoot);
+  assert.equal(installedReceiptRootStat.isDirectory(), true);
+  assert.equal(installedReceiptRootStat.isSymbolicLink(), false);
+  if (process.platform !== "win32") assert.equal(installedReceiptRootStat.mode & 0o777, 0o700);
+  await writeFile(installedController, "drifted controller\n");
+  result = spawnSync(process.execPath, [...lockedArgv, "--check"], { encoding: "utf8" });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /controller:native-task-controller\.mjs/);
+  result = spawnSync(process.execPath, lockedArgv, { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
 
   if (process.platform !== "win32") {

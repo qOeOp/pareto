@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { createReadStream } from "node:fs";
-import { chmod, copyFile, lstat, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import { chmod, copyFile, link, lstat, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
@@ -44,6 +44,46 @@ function canonical(value) {
 
 function sameCanonical(left, right) {
   return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
+}
+
+function containsPath(root, candidate) {
+  const relative = path.relative(root, candidate);
+  return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
+async function resolvedPath(value) {
+  let current = path.resolve(value);
+  const suffix = [];
+  while (true) {
+    const resolved = await realpath(current).catch(() => null);
+    if (resolved !== null) return path.join(resolved, ...suffix.reverse());
+    const parent = path.dirname(current);
+    if (parent === current) return path.resolve(value);
+    suffix.push(path.basename(current));
+    current = parent;
+  }
+}
+
+export async function assertDetachedReceiptIsolation(receiptRoot, taskCwd, sandbox, serverSandbox = null) {
+  if (sandbox === "danger-full-access") fail("detached native tasks forbid danger-full-access because receipts must remain outside Task authority");
+  if (sandbox === "read-only") return;
+  if (sandbox !== "workspace-write") fail("detached native task sandbox is invalid");
+  const writableRoots = [taskCwd];
+  if (serverSandbox === null || serverSandbox.excludeSlashTmp !== true) writableRoots.push("/tmp");
+  if (serverSandbox === null || serverSandbox.excludeTmpdirEnvVar !== true) writableRoots.push(os.tmpdir());
+  if (serverSandbox !== null) {
+    if (serverSandbox.type !== "workspaceWrite" || !Array.isArray(serverSandbox.writableRoots)
+      || serverSandbox.writableRoots.some((root) => typeof root !== "string" || !path.isAbsolute(root))) {
+      fail("workspace-write server sandbox omitted exact writable roots");
+    }
+    writableRoots.push(...serverSandbox.writableRoots);
+  }
+  const resolvedReceipt = await resolvedPath(receiptRoot);
+  for (const writableRoot of new Set(await Promise.all(writableRoots.map(resolvedPath)))) {
+    if (containsPath(writableRoot, resolvedReceipt)) {
+      fail("detached native task receipt directory is writable by the Task sandbox");
+    }
+  }
 }
 
 function authoritySubject(item) {
@@ -216,6 +256,8 @@ async function executeNativeTask({
   model = null,
   signal = null,
   timeoutMs = 7_200_000,
+  onConfigured = null,
+  onStarted = null,
 }, approvalDecisionSource) {
   if (typeof prompt !== "string" || prompt.length === 0 || Buffer.byteLength(prompt) > 1024 * 1024) fail("prompt must contain between 1 byte and 1 MiB");
   if (!approvalPolicies.has(approvalPolicy)) fail("approval policy is unsupported");
@@ -224,6 +266,8 @@ async function executeNativeTask({
   if (!new Set(["client_handler", "interactive_stdin_after_request"]).has(approvalDecisionSource)) fail("internal approval decision source is invalid");
   if (!(model === null || (typeof model === "string" && model.length > 0 && model.length <= 200))) fail("model is invalid");
   if (!(signal === null || (typeof signal === "object" && typeof signal.aborted === "boolean" && typeof signal.addEventListener === "function" && typeof signal.removeEventListener === "function"))) fail("abort signal is invalid");
+  if (!(onConfigured === null || typeof onConfigured === "function")) fail("server configuration handler is invalid");
+  if (!(onStarted === null || typeof onStarted === "function")) fail("start receipt handler is invalid");
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 86_400_000) fail("timeout must be between 1000 and 86400000 ms");
 
   failIfAborted(signal);
@@ -390,6 +434,7 @@ async function executeNativeTask({
             model: started.model,
             sandbox: started.sandbox,
           });
+          if (onConfigured) await onConfigured(serverConfiguration);
           threadId = started.thread.id;
           send({ method: "turn/start", id: 2, params: { input: [{ type: "text", text: prompt }], threadId } });
           return;
@@ -398,6 +443,15 @@ async function executeNativeTask({
           const started = responseResult(message, 2, "turn/start");
           if (!threadId || !uuidPattern.test(started.turn?.id ?? "") || started.turn?.status !== "inProgress") fail("turn/start omitted an exact in-progress turn");
           turnId = started.turn.id;
+          if (onStarted) await onStarted(canonical({
+            executable,
+            prompt_sha256: digest(prompt),
+            requested_configuration: { approval_policy: approvalPolicy, cwd: taskCwd, model, sandbox },
+            schema: "rbm-native-task-start/v1",
+            server_configuration: serverConfiguration,
+            thread: { id: threadId },
+            turn: { id: turnId, status: started.turn.status },
+          }));
           return;
         }
         if (message.id === 3) {
@@ -673,10 +727,30 @@ export async function runNativeTask(options) {
   return executeNativeTask(options, "client_handler");
 }
 
-function parseArguments(argv) {
-  if (argv[0] !== "run") fail("usage: native-task-controller.mjs run --codex-executable <absolute> --expected-sha256 <sha256:digest> --expected-version <version> --cwd <absolute> --prompt-file <absolute> --approval-policy <policy> --sandbox <mode> [--model <model>] [--timeout-ms <ms>]");
+export async function launchDetachedWorker(workerArguments, spawnProcess = spawn) {
+  let worker;
+  try {
+    worker = spawnProcess(process.execPath, workerArguments, { detached: true, stdio: "ignore" });
+  } catch (error) {
+    return { error };
+  }
+  const outcome = await new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    worker.once("error", (error) => finish({ error }));
+    worker.once("spawn", () => finish({ worker }));
+  });
+  if (outcome.worker) outcome.worker.unref();
+  return outcome;
+}
+
+function parsePairs(argv, required, allowed) {
   const options = {};
-  for (let index = 1; index < argv.length; index += 2) {
+  for (let index = 0; index < argv.length; index += 2) {
     const name = argv[index];
     const value = argv[index + 1];
     if (!name?.startsWith("--") || value === undefined) fail("command arguments must be exact name/value pairs");
@@ -684,11 +758,129 @@ function parseArguments(argv) {
     if (options[key] !== undefined) fail(`duplicate argument: ${name}`);
     options[key] = value;
   }
-  const required = ["codex-executable", "expected-sha256", "expected-version", "cwd", "prompt-file", "approval-policy", "sandbox"];
   for (const name of required) if (options[name] === undefined) fail(`missing argument: --${name}`);
-  const allowed = new Set([...required, "model", "timeout-ms"]);
   for (const name of Object.keys(options)) if (!allowed.has(name)) fail(`unknown argument: --${name}`);
   return options;
+}
+
+function parseArguments(argv) {
+  const command = argv[0];
+  const common = ["codex-executable", "expected-sha256", "expected-version", "cwd", "prompt-file", "sandbox"];
+  if (command === "run") return { command, options: parsePairs(argv.slice(1), [...common, "approval-policy"], new Set([...common, "approval-policy", "model", "timeout-ms"])) };
+  if (command === "dispatch") return { command, options: parsePairs(argv.slice(1), [...common, "receipt-dir"], new Set([...common, "receipt-dir", "model", "timeout-ms", "start-timeout-ms"])) };
+  if (command === "inspect") return { command, options: parsePairs(argv.slice(1), ["receipt-dir"], new Set(["receipt-dir"])) };
+  if (command === "worker") return { command, options: parsePairs(argv.slice(1), [...common, "receipt-dir", "attempt-id"], new Set([...common, "receipt-dir", "attempt-id", "model", "timeout-ms"])) };
+  fail("usage: native-task-controller.mjs <run|dispatch|inspect|worker> ...");
+}
+
+async function atomicJson(pathname, value) {
+  const temporary = `${pathname}.tmp-${process.pid}-${randomUUID()}`;
+  await writeFile(temporary, `${JSON.stringify(value)}\n`, { flag: "wx", mode: 0o600 });
+  try {
+    await link(temporary, pathname);
+    await rm(temporary);
+  } catch (error) {
+    await rm(temporary, { force: true });
+    throw error;
+  }
+}
+
+async function readJson(pathname) {
+  const stat = await lstat(pathname).catch(() => null);
+  if (!stat) return null;
+  if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 2 || stat.size > 4 * 1024 * 1024) fail(`receipt is unsafe: ${pathname}`);
+  const source = await readFile(pathname, "utf8");
+  rejectDuplicateJsonObjectMembers(source, "native task receipt");
+  return JSON.parse(source);
+}
+
+async function receiptDirectory(pathname) {
+  if (!path.isAbsolute(pathname)) fail("receipt directory must be one absolute path");
+  const resolvedParent = await realpath(path.dirname(pathname)).catch(() => "");
+  if (!resolvedParent) fail("receipt directory parent is missing");
+  return path.join(resolvedParent, path.basename(pathname));
+}
+
+function sealed(payload, schema) {
+  return { content_sha256: digest(JSON.stringify(canonical(payload))), payload: canonical(payload), schema };
+}
+
+function verifyEnvelope(value, schema, label) {
+  if (!value || value.schema !== schema || !value.payload || value.content_sha256 !== digest(JSON.stringify(canonical(value.payload)))) {
+    fail(`${label} receipt is malformed or has invalid content identity`);
+  }
+  return value;
+}
+
+export async function readLifecycleReceiptValues(root, readReceipt = readJson) {
+  const failureValue = await readReceipt(path.join(root, "failure.json"));
+  const terminalValue = await readReceipt(path.join(root, "terminal.json"));
+  const startValue = await readReceipt(path.join(root, "start.json"));
+  return { failureValue, startValue, terminalValue };
+}
+
+async function inspectReceipt(receiptDir) {
+  const root = await receiptDirectory(receiptDir);
+  const rootStat = await lstat(root).catch(() => null);
+  if (!rootStat?.isDirectory() || rootStat.isSymbolicLink()) fail("native task receipt directory is missing or unsafe");
+  const attempt = await readJson(path.join(root, "attempt.json"));
+  if (!attempt || attempt.schema !== "rbm-native-task-attempt/v1" || !uuidPattern.test(attempt.attempt_id ?? "")
+    || attempt.content_sha256 !== digest(JSON.stringify(canonical({ attempt_id: attempt.attempt_id, request: attempt.request, schema: attempt.schema })))) {
+    fail("native task attempt receipt is missing, malformed, or has invalid content identity");
+  }
+  await assertDetachedReceiptIsolation(root, attempt.request.cwd, attempt.request.sandbox);
+  const { failureValue, startValue, terminalValue } = await readLifecycleReceiptValues(root);
+  const start = startValue ? verifyEnvelope(startValue, "rbm-native-task-start-envelope/v1", "start") : null;
+  const failure = failureValue ? verifyEnvelope(failureValue, "rbm-native-task-failure-envelope/v1", "failure") : null;
+  const terminal = terminalValue ? verifyEnvelope(terminalValue, "rbm-native-task-detached-terminal-envelope/v1", "terminal") : null;
+  const expectedRequestedConfiguration = canonical({
+    approval_policy: "never", cwd: attempt.request.cwd, model: attempt.request.model, sandbox: attempt.request.sandbox,
+  });
+  if (start) {
+    const startPayload = start.payload.start;
+    if (start.payload.attempt_id !== attempt.attempt_id || startPayload?.schema !== "rbm-native-task-start/v1"
+      || startPayload.prompt_sha256 !== attempt.request.prompt_sha256
+      || !sameCanonical(startPayload.requested_configuration, expectedRequestedConfiguration)
+      || startPayload.executable?.sha256 !== attempt.request.expected_sha256
+      || startPayload.executable?.version !== attempt.request.expected_version
+      || !uuidPattern.test(startPayload.thread?.id ?? "")
+      || !uuidPattern.test(startPayload.turn?.id ?? "")
+      || startPayload.turn.status !== "inProgress"
+      || startPayload.server_configuration?.approval_policy !== "never"
+      || startPayload.server_configuration?.cwd !== attempt.request.cwd
+      || (attempt.request.model !== null && startPayload.server_configuration?.model !== attempt.request.model)
+      || startPayload.server_configuration?.sandbox?.type !== sandboxPolicyTypes.get(attempt.request.sandbox)) {
+      fail("start receipt differs from its exact attempt");
+    }
+    await assertDetachedReceiptIsolation(root, attempt.request.cwd, attempt.request.sandbox, startPayload.server_configuration.sandbox);
+  }
+  if (failure && (failure.payload.attempt_id !== attempt.attempt_id
+    || failure.payload.start_content_sha256 !== (start?.content_sha256 ?? null))) {
+    fail("failure receipt differs from its exact attempt or start receipt");
+  }
+  if (terminal) {
+    if (failure) fail("terminal and failure receipts conflict");
+    if (!start || terminal.payload.attempt_id !== attempt.attempt_id) fail("terminal receipt lacks its exact start attempt");
+    const inner = verifyEnvelope(terminal.payload.terminal, "rbm-native-task-terminal-envelope/v1", "nested terminal");
+    const startPayload = start.payload.start;
+    const terminalPayload = inner.payload;
+    if (startPayload.prompt_sha256 !== attempt.request.prompt_sha256
+      || !sameCanonical(startPayload.requested_configuration, expectedRequestedConfiguration)
+      || startPayload.executable?.sha256 !== attempt.request.expected_sha256
+      || startPayload.executable?.version !== attempt.request.expected_version
+      || terminalPayload.prompt_sha256 !== attempt.request.prompt_sha256
+      || !sameCanonical(terminalPayload.requested_configuration, expectedRequestedConfiguration)
+      || !sameCanonical(terminalPayload.executable, startPayload.executable)
+      || !sameCanonical(terminalPayload.server_configuration, startPayload.server_configuration)
+      || terminalPayload.thread?.id !== startPayload.thread?.id
+      || terminalPayload.turn?.id !== startPayload.turn?.id
+      || !["completed", "failed", "interrupted"].includes(terminalPayload.turn?.status)) {
+      fail("terminal receipt differs from its exact attempt or start receipt");
+    }
+    return sealed({ attempt, start, state: "terminal", terminal }, "rbm-native-task-inspection-envelope/v1");
+  }
+  if (failure) return sealed({ attempt, failure, start, state: "needs_attention" }, "rbm-native-task-inspection-envelope/v1");
+  return sealed({ attempt, start, state: start ? "running" : "starting" }, "rbm-native-task-inspection-envelope/v1");
 }
 
 async function readPrompt(promptFile) {
@@ -699,16 +891,86 @@ async function readPrompt(promptFile) {
 }
 
 async function main() {
-  const options = parseArguments(process.argv.slice(2));
+  const { command, options } = parseArguments(process.argv.slice(2));
+  if (command === "inspect") {
+    process.stdout.write(`${JSON.stringify(await inspectReceipt(options["receipt-dir"]))}\n`);
+    return;
+  }
+  if (command === "dispatch") {
+    const root = await receiptDirectory(options["receipt-dir"]);
+    const prompt = await readPrompt(options["prompt-file"]);
+    const taskCwd = await directoryIdentity(options.cwd);
+    await assertDetachedReceiptIsolation(root, taskCwd, options.sandbox);
+    const taskTimeoutMs = options["timeout-ms"] === undefined ? 7_200_000 : Number(options["timeout-ms"]);
+    if (!Number.isSafeInteger(taskTimeoutMs) || taskTimeoutMs < 1_000 || taskTimeoutMs > 86_400_000) fail("timeout must be between 1000 and 86400000 ms");
+    const startTimeoutMs = options["start-timeout-ms"] === undefined ? 15_000 : Number(options["start-timeout-ms"]);
+    if (!Number.isSafeInteger(startTimeoutMs) || startTimeoutMs < 0 || startTimeoutMs > 60_000) fail("start timeout must be between 0 and 60000 ms");
+    const request = canonical({
+      codex_executable: options["codex-executable"],
+      cwd: taskCwd,
+      expected_sha256: options["expected-sha256"],
+      expected_version: options["expected-version"],
+      model: options.model ?? null,
+      prompt_sha256: digest(prompt),
+      sandbox: options.sandbox,
+      timeout_ms: taskTimeoutMs,
+    });
+    let created = false;
+    try {
+      await mkdir(root, { mode: 0o700 });
+      created = true;
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+    }
+    if (!created) {
+      const existing = await readJson(path.join(root, "attempt.json"));
+      if (!existing || !sameCanonical(existing.request, request)) fail("receipt directory belongs to a different or incomplete attempt");
+      process.stdout.write(`${JSON.stringify(await inspectReceipt(root))}\n`);
+      return;
+    }
+    const attemptId = randomUUID();
+    const attemptPayload = canonical({ attempt_id: attemptId, request, schema: "rbm-native-task-attempt/v1" });
+    await atomicJson(path.join(root, "attempt.json"), { ...attemptPayload, content_sha256: digest(JSON.stringify(attemptPayload)) });
+    const materializedPrompt = path.join(root, "prompt.txt");
+    await writeFile(materializedPrompt, prompt, { flag: "wx", mode: 0o600 });
+    const workerArguments = [path.resolve(process.argv[1]), "worker"];
+    for (const [name, value] of [
+      ["codex-executable", options["codex-executable"]], ["expected-sha256", options["expected-sha256"]],
+      ["expected-version", options["expected-version"]], ["cwd", taskCwd], ["prompt-file", materializedPrompt],
+      ["sandbox", options.sandbox], ["receipt-dir", root], ["attempt-id", attemptId], ["model", options.model],
+      ["timeout-ms", options["timeout-ms"]],
+    ]) if (value !== undefined) workerArguments.push(`--${name}`, value);
+    const launch = await launchDetachedWorker(workerArguments);
+    if (launch.error) {
+      await atomicJson(path.join(root, "failure.json"), sealed({
+        attempt_id: attemptId, error: launch.error.message, start_content_sha256: null,
+      }, "rbm-native-task-failure-envelope/v1"));
+      process.stdout.write(`${JSON.stringify(await inspectReceipt(root))}\n`);
+      return;
+    }
+    await atomicJson(path.join(root, "launch.json"), canonical({ attempt_id: attemptId, pid: launch.worker.pid, schema: "rbm-native-task-launch/v1" }));
+    const deadline = Date.now() + startTimeoutMs;
+    let inspection;
+    do {
+      inspection = await inspectReceipt(root);
+      if (inspection.payload.state !== "starting") break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    } while (Date.now() < deadline);
+    process.stdout.write(`${JSON.stringify(inspection)}\n`);
+    return;
+  }
+
   const abortController = new AbortController();
   const handledSignals = process.platform === "win32" ? ["SIGINT", "SIGTERM"] : ["SIGHUP", "SIGINT", "SIGTERM"];
   const abortForSignal = () => abortController.abort();
   for (const name of handledSignals) process.on(name, abortForSignal);
-  const approvalInput = readline.createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: process.stdin.isTTY });
+  const approvalInput = command === "run"
+    ? readline.createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: process.stdin.isTTY })
+    : null;
   let decisionWaiter = null;
   let unexpectedApprovalInput = null;
   let approvalInputClosed = false;
-  approvalInput.on("line", (line) => {
+  approvalInput?.on("line", (line) => {
     const decision = line.trim();
     if (decisionWaiter) {
       const waiter = decisionWaiter;
@@ -718,7 +980,7 @@ async function main() {
       unexpectedApprovalInput = new Error("approval decision arrived before a displayed request");
     }
   });
-  approvalInput.on("close", () => {
+  approvalInput?.on("close", () => {
     approvalInputClosed = true;
     if (decisionWaiter) {
       decisionWaiter.reject(new Error("approval input closed before a decision"));
@@ -734,25 +996,54 @@ async function main() {
     return new Promise((resolve, reject) => { decisionWaiter = { reject, resolve }; });
   };
   try {
+    const root = command === "worker" ? await receiptDirectory(options["receipt-dir"]) : null;
+    const prompt = await readPrompt(options["prompt-file"]);
+    const initialInspection = root ? await inspectReceipt(root) : null;
+    const attempt = initialInspection?.payload.attempt ?? null;
+    if (root && (initialInspection.payload.state !== "starting" || attempt?.attempt_id !== options["attempt-id"])) fail("worker attempt identity or lifecycle mismatch");
+    if (root) {
+      const workerRequest = canonical({
+        codex_executable: options["codex-executable"], cwd: options.cwd,
+        expected_sha256: options["expected-sha256"], expected_version: options["expected-version"],
+        model: options.model ?? null, prompt_sha256: digest(prompt), sandbox: options.sandbox,
+        timeout_ms: options["timeout-ms"] === undefined ? 7_200_000 : Number(options["timeout-ms"]),
+      });
+      if (!sameCanonical(workerRequest, attempt.request)) fail("worker request differs from its exact attempt");
+    }
     const receipt = await executeNativeTask({
-      approvalHandler,
-      approvalPolicy: options["approval-policy"],
+      approvalHandler: command === "run" ? approvalHandler : null,
+      approvalPolicy: command === "run" ? options["approval-policy"] : "never",
       codexExecutable: options["codex-executable"],
       cwd: options.cwd,
       expectedExecutableSha256: options["expected-sha256"],
       expectedServerVersion: options["expected-version"],
       model: options.model ?? null,
-      prompt: await readPrompt(options["prompt-file"]),
+      prompt,
       sandbox: options.sandbox,
       signal: abortController.signal,
       timeoutMs: options["timeout-ms"] === undefined ? undefined : Number(options["timeout-ms"]),
-    }, "interactive_stdin_after_request");
+      onConfigured: root ? async (configuration) => assertDetachedReceiptIsolation(root, options.cwd, options.sandbox, configuration.sandbox) : null,
+      onStarted: root ? async (payload) => atomicJson(path.join(root, "start.json"), sealed({ attempt_id: options["attempt-id"], start: payload }, "rbm-native-task-start-envelope/v1")) : null,
+    }, command === "run" ? "interactive_stdin_after_request" : "client_handler");
     if (unexpectedApprovalInput) throw unexpectedApprovalInput;
-    process.stdout.write(`${JSON.stringify(receipt)}\n`);
-    if (receipt.payload.turn.status !== "completed") process.exitCode = 1;
+    if (root) await atomicJson(path.join(root, "terminal.json"), sealed({ attempt_id: options["attempt-id"], terminal: receipt }, "rbm-native-task-detached-terminal-envelope/v1"));
+    else {
+      process.stdout.write(`${JSON.stringify(receipt)}\n`);
+      if (receipt.payload.turn.status !== "completed") process.exitCode = 1;
+    }
+  } catch (error) {
+    if (command === "worker") {
+      const root = await receiptDirectory(options["receipt-dir"]);
+      const start = await readJson(path.join(root, "start.json")).catch(() => null);
+      await atomicJson(path.join(root, "failure.json"), sealed({
+        attempt_id: options["attempt-id"], error: error.message, start_content_sha256: start?.content_sha256 ?? null,
+      }, "rbm-native-task-failure-envelope/v1")).catch(() => {});
+      return;
+    }
+    throw error;
   } finally {
     for (const name of handledSignals) process.removeListener(name, abortForSignal);
-    approvalInput.close();
+    approvalInput?.close();
   }
 }
 

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { once } from "node:events";
-import { chmod, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { EventEmitter, once } from "node:events";
+import { chmod, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { runNativeTask } from "./native-task-controller.mjs";
+import { assertDetachedReceiptIsolation, launchDetachedWorker, readLifecycleReceiptValues, runNativeTask } from "./native-task-controller.mjs";
 
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "native-task-controller-test-"));
 const resolvedTemporaryRoot = await realpath(temporaryRoot);
@@ -14,6 +14,55 @@ const turnId = "019fb8b4-ebd0-7c20-8ba1-041ed6836207";
 const prompt = "Return exactly: controller fixture passed";
 const finalText = "controller fixture passed";
 const digest = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
+const canonical = (value) => Array.isArray(value)
+  ? value.map(canonical)
+  : value && typeof value === "object"
+    ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+    : value;
+
+for (const successorName of ["failure.json", "terminal.json"]) {
+  const reads = [];
+  let predecessorPublished = false;
+  const receiptValues = await readLifecycleReceiptValues("/receipt", async (pathname) => {
+    const basename = path.basename(pathname);
+    reads.push(basename);
+    if (basename === successorName) {
+      predecessorPublished = true;
+      return { marker: basename };
+    }
+    if (basename === "start.json") {
+      assert.equal(predecessorPublished, true);
+      return { marker: basename };
+    }
+    return null;
+  });
+  assert.deepEqual(reads, ["failure.json", "terminal.json", "start.json"]);
+  assert.deepEqual(receiptValues.startValue, { marker: "start.json" });
+  assert.deepEqual(receiptValues[successorName === "failure.json" ? "failureValue" : "terminalValue"], { marker: successorName });
+}
+
+const authorityReceipt = path.join(os.homedir(), ".codex", "native-task-receipts", "attempt");
+await assert.rejects(
+  () => assertDetachedReceiptIsolation(authorityReceipt, "/workspace", "danger-full-access"),
+  /forbid danger-full-access/,
+);
+await assert.rejects(
+  () => assertDetachedReceiptIsolation("/workspace/receipts/attempt", "/workspace", "workspace-write"),
+  /writable by the Task sandbox/,
+);
+await assert.rejects(
+  () => assertDetachedReceiptIsolation(path.join(os.tmpdir(), "attempt"), "/workspace", "workspace-write"),
+  /writable by the Task sandbox/,
+);
+await assert.rejects(
+  () => assertDetachedReceiptIsolation(authorityReceipt, "/workspace", "workspace-write", {
+    excludeSlashTmp: true, excludeTmpdirEnvVar: true, type: "workspaceWrite", writableRoots: [path.join(os.homedir(), ".codex")],
+  }),
+  /writable by the Task sandbox/,
+);
+await assertDetachedReceiptIsolation(authorityReceipt, "/workspace", "workspace-write", {
+  excludeSlashTmp: false, excludeTmpdirEnvVar: false, type: "workspaceWrite", writableRoots: [],
+});
 
 async function fixtureExecutable({
   approval = false,
@@ -59,9 +108,11 @@ async function fixtureExecutable({
   readbackAuthorityBeforePrompt = false,
   readbackPromptMismatch = false,
   serverConfigMismatch = false,
+  serverWritableRoots = [],
   splitUtf8Readback = false,
   sameChunkEarlyThreadResponse = false,
   terminalStatus = "completed",
+  turnStartFile = null,
   turnStartStatus = "inProgress",
   unterminatedAfterReadback = false,
   unsolicitedThreadResponse = false,
@@ -71,7 +122,7 @@ async function fixtureExecutable({
   versionPidFile = null,
 } = {}) {
   const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, delayedDuplicateReadback, delayedFailureAfterReadback, delayedInheritedVersionStdout, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalForNonCompleted, finalText: fixtureFinalText, hangAfterTurnStart, ignoreSigterm, ignoreVersionSigterm, incompleteUtf8AfterReadback, invocationFile, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, pidFile, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalForNonCompleted, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, sameChunkEarlyThreadResponse, serverConfigMismatch, splitUtf8Readback, terminalStatus, threadId, turnId, turnStartStatus, unterminatedAfterReadback, unsolicitedThreadResponse, unapprovedCommand, version, versionDelayMs, versionPidFile };
+  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, delayedDuplicateReadback, delayedFailureAfterReadback, delayedInheritedVersionStdout, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalForNonCompleted, finalText: fixtureFinalText, hangAfterTurnStart, ignoreSigterm, ignoreVersionSigterm, incompleteUtf8AfterReadback, invocationFile, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, pidFile, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalForNonCompleted, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, sameChunkEarlyThreadResponse, serverConfigMismatch, serverWritableRoots, splitUtf8Readback, terminalStatus, threadId, turnId, turnStartFile, turnStartStatus, unterminatedAfterReadback, unsolicitedThreadResponse, unapprovedCommand, version, versionDelayMs, versionPidFile };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
@@ -120,11 +171,14 @@ rl.on("line", (line) => {
       approvalPolicy: fixture.serverConfigMismatch ? "untrusted" : message.params.approvalPolicy,
       cwd: message.params.cwd,
       model: message.params.model || "fixture-model",
-      sandbox: { type: sandboxTypes[message.params.sandbox] },
+      sandbox: message.params.sandbox === "workspace-write"
+        ? { excludeSlashTmp: false, excludeTmpdirEnvVar: false, type: "workspaceWrite", writableRoots: fixture.serverWritableRoots }
+        : { type: sandboxTypes[message.params.sandbox] },
       thread: { cwd: message.params.cwd, id: fixture.threadId },
     } });
   }
   if (message.method === "turn/start") {
+    if (fixture.turnStartFile) require("node:fs").writeFileSync(fixture.turnStartFile, "turn started\\n");
     turnInput = message.params.input;
     if (fixture.itemStartedBeforeTurnResponse) send({ method: "item/started", params: { item: { command: "pwd", commandActions: [], cwd: process.cwd(), id: "early-command", status: "inProgress", type: "commandExecution" }, threadId: fixture.threadId, turnId: null } });
     send({ id: 2, result: { turn: { id: fixture.turnId, status: fixture.turnStartStatus, items: [] } } });
@@ -252,7 +306,55 @@ async function waitForFile(file) {
   throw new Error(`timed out waiting for fixture file: ${file}`);
 }
 
+async function cliJson(arguments_) {
+  const child = spawn(process.execPath, [path.resolve("scripts/native-task-controller.mjs"), ...arguments_], { stdio: ["ignore", "pipe", "pipe"] });
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+  child.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+  const [code] = await once(child, "exit");
+  assert.equal(code, 0, stderr);
+  return JSON.parse(stdout);
+}
+
 try {
+  const forbiddenTurnStart = path.join(temporaryRoot, "forbidden-turn-start.txt");
+  await assert.rejects(
+    () => run({
+      serverWritableRoots: [path.join(os.homedir(), ".codex")],
+      turnStartFile: forbiddenTurnStart,
+    }, {
+      sandbox: "workspace-write",
+      onConfigured: async (configuration) => assertDetachedReceiptIsolation(
+        authorityReceipt, resolvedTemporaryRoot, "workspace-write", configuration.sandbox,
+      ),
+    }),
+    /writable by the Task sandbox/,
+  );
+  assert.equal(await readFile(forbiddenTurnStart, "utf8").catch(() => null), null);
+
+  let asynchronousFailureUnref = false;
+  const asynchronousFailure = await launchDetachedWorker(["worker"], () => {
+    const child = new EventEmitter();
+    child.pid = 42;
+    child.unref = () => { asynchronousFailureUnref = true; };
+    queueMicrotask(() => child.emit("error", new Error("fixture asynchronous spawn failure")));
+    return child;
+  });
+  assert.match(asynchronousFailure.error.message, /asynchronous spawn failure/);
+  assert.equal(asynchronousFailureUnref, false);
+
+  let successfulSpawnUnref = false;
+  const successfulSpawn = await launchDetachedWorker(["worker"], () => {
+    const child = new EventEmitter();
+    child.pid = 43;
+    child.unref = () => { successfulSpawnUnref = true; };
+    queueMicrotask(() => child.emit("spawn"));
+    return child;
+  });
+  assert.equal(successfulSpawn.worker.pid, 43);
+  assert.equal(successfulSpawnUnref, true);
+
   const receipt = await run();
   assert.equal(receipt.schema, "rbm-native-task-terminal-envelope/v1");
   assert.equal(receipt.payload.schema, "rbm-native-task-terminal/v1");
@@ -360,6 +462,143 @@ try {
   assert.match(cliStderr, /approval decision/);
   assert.equal(JSON.parse(cliStdout).payload.approvals[0].decision, "accept");
   assert.equal(JSON.parse(cliStdout).payload.approvals[0].decision_source, "interactive_stdin_after_request");
+
+  const detachedInvocations = path.join(temporaryRoot, "detached-invocations.txt");
+  const detachedFixture = await fixtureExecutable({ invocationFile: detachedInvocations });
+  const detachedReceiptDir = path.join(temporaryRoot, "detached-receipt");
+  const dispatchArguments = [
+    "dispatch",
+    "--codex-executable", detachedFixture.executable,
+    "--expected-sha256", detachedFixture.sha256,
+    "--expected-version", "0.148.0",
+    "--cwd", temporaryRoot,
+    "--prompt-file", promptFile,
+    "--sandbox", "read-only",
+    "--receipt-dir", detachedReceiptDir,
+    "--timeout-ms", "2000",
+    "--start-timeout-ms", "2000",
+  ];
+  const dispatched = await cliJson(dispatchArguments);
+  assert.ok(["running", "terminal"].includes(dispatched.payload.state));
+  assert.equal(dispatched.payload.attempt.request.prompt_sha256, digest(prompt));
+  assert.equal(dispatched.payload.attempt.request.sandbox, "read-only");
+  await waitForFile(path.join(detachedReceiptDir, "terminal.json"));
+  const inspected = await cliJson(["inspect", "--receipt-dir", detachedReceiptDir]);
+  assert.equal(inspected.payload.state, "terminal");
+  assert.equal(inspected.payload.terminal.payload.terminal.payload.turn.id, turnId);
+  assert.equal(inspected.payload.terminal.payload.terminal.payload.final.text, finalText);
+  const invocationsBeforeRetry = await readFile(detachedInvocations, "utf8");
+  const retried = await cliJson(dispatchArguments);
+  assert.equal(retried.payload.state, "terminal");
+  assert.equal(await readFile(detachedInvocations, "utf8"), invocationsBeforeRetry);
+
+  const receiptLink = path.join(temporaryRoot, "detached-receipt-link");
+  await symlink(detachedReceiptDir, receiptLink, "dir");
+  const linkedInspect = spawn(process.execPath, [path.resolve("scripts/native-task-controller.mjs"), "inspect", "--receipt-dir", receiptLink], { stdio: ["ignore", "pipe", "pipe"] });
+  let linkedStderr = "";
+  linkedInspect.stdout.resume();
+  linkedInspect.stderr.setEncoding("utf8").on("data", (chunk) => { linkedStderr += chunk; });
+  const [linkedCode] = await once(linkedInspect, "exit");
+  assert.notEqual(linkedCode, 0);
+  assert.match(linkedStderr, /directory is missing or unsafe/);
+
+  const terminalReceiptPath = path.join(detachedReceiptDir, "terminal.json");
+  const terminalReceiptSource = await readFile(terminalReceiptPath, "utf8");
+  await writeFile(terminalReceiptPath, terminalReceiptSource.replace(finalText, "tampered final"));
+  const tamperedInspect = spawn(process.execPath, [path.resolve("scripts/native-task-controller.mjs"), "inspect", "--receipt-dir", detachedReceiptDir], { stdio: ["ignore", "pipe", "pipe"] });
+  let tamperedStderr = "";
+  tamperedInspect.stdout.resume();
+  tamperedInspect.stderr.setEncoding("utf8").on("data", (chunk) => { tamperedStderr += chunk; });
+  const [tamperedCode] = await once(tamperedInspect, "exit");
+  assert.notEqual(tamperedCode, 0);
+  assert.match(tamperedStderr, /invalid content identity/);
+  await writeFile(terminalReceiptPath, terminalReceiptSource);
+
+  const secondReceiptDir = path.join(temporaryRoot, "second-detached-receipt");
+  await cliJson(dispatchArguments.map((value, index, values) => values[index - 1] === "--receipt-dir" ? secondReceiptDir : value));
+  const secondTerminalPath = path.join(secondReceiptDir, "terminal.json");
+  await waitForFile(secondTerminalPath);
+  const secondTerminalSource = await readFile(secondTerminalPath, "utf8");
+  await writeFile(secondTerminalPath, terminalReceiptSource);
+  const transplantedInspect = spawn(process.execPath, [path.resolve("scripts/native-task-controller.mjs"), "inspect", "--receipt-dir", secondReceiptDir], { stdio: ["ignore", "pipe", "pipe"] });
+  let transplantedStderr = "";
+  transplantedInspect.stdout.resume();
+  transplantedInspect.stderr.setEncoding("utf8").on("data", (chunk) => { transplantedStderr += chunk; });
+  const [transplantedCode] = await once(transplantedInspect, "exit");
+  assert.notEqual(transplantedCode, 0);
+  assert.match(transplantedStderr, /lacks its exact start attempt/);
+  await writeFile(secondTerminalPath, secondTerminalSource);
+
+  const failedDetachedFixture = await fixtureExecutable({ serverConfigMismatch: true });
+  const failedReceiptDir = path.join(temporaryRoot, "failed-detached-receipt");
+  const failedDispatch = await cliJson([
+    "dispatch", "--codex-executable", failedDetachedFixture.executable,
+    "--expected-sha256", failedDetachedFixture.sha256, "--expected-version", "0.148.0",
+    "--cwd", temporaryRoot, "--prompt-file", promptFile, "--sandbox", "read-only",
+    "--receipt-dir", failedReceiptDir, "--timeout-ms", "2000", "--start-timeout-ms", "2000",
+  ]);
+  assert.equal(failedDispatch.payload.state, "needs_attention");
+  assert.match(failedDispatch.payload.failure.payload.error, /did not confirm requested authority configuration/);
+  await writeFile(path.join(failedReceiptDir, "terminal.json"), terminalReceiptSource);
+  const conflictingInspect = spawn(process.execPath, [path.resolve("scripts/native-task-controller.mjs"), "inspect", "--receipt-dir", failedReceiptDir], { stdio: ["ignore", "pipe", "pipe"] });
+  let conflictingStderr = "";
+  conflictingInspect.stdout.resume();
+  conflictingInspect.stderr.setEncoding("utf8").on("data", (chunk) => { conflictingStderr += chunk; });
+  const [conflictingCode] = await once(conflictingInspect, "exit");
+  assert.notEqual(conflictingCode, 0);
+  assert.match(conflictingStderr, /terminal and failure receipts conflict/);
+
+  const postStartFailureInvocations = path.join(temporaryRoot, "post-start-failure-invocations.txt");
+  const postStartFailureFixture = await fixtureExecutable({ invocationFile: postStartFailureInvocations, readbackFinalMismatch: true });
+  const postStartFailureDir = path.join(temporaryRoot, "post-start-failure-receipt");
+  const postStartFailureArguments = [
+    "dispatch", "--codex-executable", postStartFailureFixture.executable,
+    "--expected-sha256", postStartFailureFixture.sha256, "--expected-version", "0.148.0",
+    "--cwd", temporaryRoot, "--prompt-file", promptFile, "--sandbox", "read-only",
+    "--receipt-dir", postStartFailureDir, "--timeout-ms", "2000", "--start-timeout-ms", "2000",
+  ];
+  const postStartDispatch = await cliJson(postStartFailureArguments);
+  assert.ok(["running", "needs_attention"].includes(postStartDispatch.payload.state));
+  await waitForFile(path.join(postStartFailureDir, "failure.json"));
+  const postStartFailure = await cliJson(["inspect", "--receipt-dir", postStartFailureDir]);
+  assert.equal(postStartFailure.payload.state, "needs_attention");
+  assert.equal(postStartFailure.payload.start.payload.start.thread.id, threadId);
+  assert.equal(postStartFailure.payload.start.payload.start.turn.id, turnId);
+  const postStartInvocationsBeforeRetry = await readFile(postStartFailureInvocations, "utf8");
+  const postStartRetry = await cliJson(postStartFailureArguments);
+  assert.equal(postStartRetry.payload.state, "needs_attention");
+  assert.equal(postStartRetry.payload.start.payload.start.thread.id, threadId);
+  assert.equal(await readFile(postStartFailureInvocations, "utf8"), postStartInvocationsBeforeRetry);
+
+  const postStartPath = path.join(postStartFailureDir, "start.json");
+  const postStartSource = await readFile(postStartPath, "utf8");
+  const forgedStart = JSON.parse(postStartSource);
+  forgedStart.payload.start.thread.id = "019fb8b4-ebd0-7c20-8ba1-041ed6836211";
+  forgedStart.content_sha256 = digest(JSON.stringify(canonical(forgedStart.payload)));
+  await writeFile(postStartPath, JSON.stringify(forgedStart));
+  const forgedStartInspect = spawn(process.execPath, [
+    path.resolve("scripts/native-task-controller.mjs"), "inspect", "--receipt-dir", postStartFailureDir,
+  ], { stdio: ["ignore", "pipe", "pipe"] });
+  let forgedStartStderr = "";
+  forgedStartInspect.stdout.resume();
+  forgedStartInspect.stderr.setEncoding("utf8").on("data", (chunk) => { forgedStartStderr += chunk; });
+  const [forgedStartCode] = await once(forgedStartInspect, "exit");
+  assert.notEqual(forgedStartCode, 0);
+  assert.match(forgedStartStderr, /failure receipt differs from its exact attempt or start receipt/);
+  await writeFile(postStartPath, postStartSource);
+
+  const mismatchedPrompt = path.join(temporaryRoot, "different-prompt.txt");
+  await writeFile(mismatchedPrompt, "different prompt");
+  const mismatch = spawn(process.execPath, [
+    path.resolve("scripts/native-task-controller.mjs"), "dispatch", ...dispatchArguments.slice(1).map((value, index, values) =>
+      values[index - 1] === "--prompt-file" ? mismatchedPrompt : value),
+  ], { stdio: ["ignore", "pipe", "pipe"] });
+  let mismatchStderr = "";
+  mismatch.stdout.resume();
+  mismatch.stderr.setEncoding("utf8").on("data", (chunk) => { mismatchStderr += chunk; });
+  const [mismatchCode] = await once(mismatch, "exit");
+  assert.notEqual(mismatchCode, 0);
+  assert.match(mismatchStderr, /different or incomplete attempt/);
 
   const earlyFixture = await fixtureExecutable({ approval: true });
   const earlyCli = spawn(process.execPath, [

@@ -71,6 +71,29 @@ Before create, close the mode-scoped authoritative set from checkpointed packets
 and identities. Reconcile a known collision once; observe the bounded list only for custody. Reuse an
 exact collision; ambiguous or possible success forbids create.
 
+For a detached native Mission, use the installer-owned controller at
+`<codex-root>/native-task-controller/native-task-controller.mjs`. Invoke `dispatch` once with one new,
+absolute, Hub-owned receipt directory plus the exact Codex executable identity, cwd, prompt file,
+sandbox, model, and timeout. Detached execution is fixed to `approvalPolicy=never`. The controller
+rejects `danger-full-access`. For `workspace-write`, use a child of the installer-owned
+`<codex-root>/native-task-receipts/` directory and never a Task cwd, `/tmp`, `$TMPDIR`, or another
+server-reported writable root; dispatch and start readback both fail closed if the receipt directory
+is writable by the Task sandbox. `read-only` may use any absolute Hub-owned directory that the Task
+cannot write. On POSIX the installer creates the default receipt root with owner-only permissions; on
+Windows it requires a real non-symlink directory and preserves platform ACL authority. The controller
+creates the receipt directory as the consumed attempt lease, starts one app-server Task, atomically
+writes `start.json` only after exact `thread/start` and `turn/start`, and writes `terminal.json` only
+after exact terminal `thread/read`. A returned `starting` attempt is consumed but not identity-admitted;
+invoke no second dispatch. A returned `running` or `terminal` start receipt admits only its exact
+thread/turn. A request mismatch, existing directory without a valid matching attempt, or `failure.json`
+freezes that node.
+
+On a later admitted wake, invoke `inspect` with only that exact receipt directory. It is a bounded local
+receipt read, not a Task history scan or scheduler. `starting` and `running` are silent waiting;
+`needs_attention` and `terminal` are actionable. Repeating `dispatch` with the identical request and
+directory is a receipt recovery read and never creates another Task. Never infer identity from title,
+list results, process id, or receipt-directory name.
+
 The existing Hub creates once. A clientThreadId is a consumed pending attempt; do not read, rename,
 message, or retry it before causal mapping to threadId/hostId. Set/read an exact title once and send
 once; the native receipt is semantic release. Continuation shares that gate and has no supplement.
@@ -89,6 +112,8 @@ The Hub consumes Finalize's Task decision index with the native identity carried
 Missing, malformed, unknown, or unavailable locators freeze only the dependent Hub action; the
 acceptance gate below still resolves every required fact from its current owner.
 
+When every active Task uses controller receipts, one wake may inspect each exact active receipt once and
+must not also call native wait/status transport. Otherwise, use the native transport below.
 One Hub turn owns at most one native cursor-bound wait over the complete exact active set. It is a
 notification accelerator, never acceptance or custody authority. Bind Stop and a host-safe finite
 timeout; explicit status uses one timeoutMs: 0 snapshot. A native `wait_threads.timeoutMs` bounds only its
