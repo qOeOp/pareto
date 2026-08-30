@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { once } from "node:events";
+import { EventEmitter, once } from "node:events";
 import { chmod, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { runNativeTask } from "./native-task-controller.mjs";
+import { launchDetachedWorker, runNativeTask } from "./native-task-controller.mjs";
 
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "native-task-controller-test-"));
 const resolvedTemporaryRoot = await realpath(temporaryRoot);
@@ -264,6 +264,28 @@ async function cliJson(arguments_) {
 }
 
 try {
+  let asynchronousFailureUnref = false;
+  const asynchronousFailure = await launchDetachedWorker(["worker"], () => {
+    const child = new EventEmitter();
+    child.pid = 42;
+    child.unref = () => { asynchronousFailureUnref = true; };
+    queueMicrotask(() => child.emit("error", new Error("fixture asynchronous spawn failure")));
+    return child;
+  });
+  assert.match(asynchronousFailure.error.message, /asynchronous spawn failure/);
+  assert.equal(asynchronousFailureUnref, false);
+
+  let successfulSpawnUnref = false;
+  const successfulSpawn = await launchDetachedWorker(["worker"], () => {
+    const child = new EventEmitter();
+    child.pid = 43;
+    child.unref = () => { successfulSpawnUnref = true; };
+    queueMicrotask(() => child.emit("spawn"));
+    return child;
+  });
+  assert.equal(successfulSpawn.worker.pid, 43);
+  assert.equal(successfulSpawnUnref, true);
+
   const receipt = await run();
   assert.equal(receipt.schema, "rbm-native-task-terminal-envelope/v1");
   assert.equal(receipt.payload.schema, "rbm-native-task-terminal/v1");

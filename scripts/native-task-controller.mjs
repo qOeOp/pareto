@@ -684,6 +684,27 @@ export async function runNativeTask(options) {
   return executeNativeTask(options, "client_handler");
 }
 
+export async function launchDetachedWorker(workerArguments, spawnProcess = spawn) {
+  let worker;
+  try {
+    worker = spawnProcess(process.execPath, workerArguments, { detached: true, stdio: "ignore" });
+  } catch (error) {
+    return { error };
+  }
+  const outcome = await new Promise((resolve) => {
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      resolve(value);
+    };
+    worker.once("error", (error) => finish({ error }));
+    worker.once("spawn", () => finish({ worker }));
+  });
+  if (outcome.worker) outcome.worker.unref();
+  return outcome;
+}
+
 function parsePairs(argv, required, allowed) {
   const options = {};
   for (let index = 0; index < argv.length; index += 2) {
@@ -851,15 +872,13 @@ async function main() {
       ["sandbox", options.sandbox], ["receipt-dir", root], ["attempt-id", attemptId], ["model", options.model],
       ["timeout-ms", options["timeout-ms"]],
     ]) if (value !== undefined) workerArguments.push(`--${name}`, value);
-    let worker;
-    try {
-      worker = spawn(process.execPath, workerArguments, { detached: true, stdio: "ignore" });
-    } catch (error) {
-      await atomicJson(path.join(root, "failure.json"), sealed({ attempt_id: attemptId, error: error.message }, "rbm-native-task-failure-envelope/v1"));
-      throw error;
+    const launch = await launchDetachedWorker(workerArguments);
+    if (launch.error) {
+      await atomicJson(path.join(root, "failure.json"), sealed({ attempt_id: attemptId, error: launch.error.message }, "rbm-native-task-failure-envelope/v1"));
+      process.stdout.write(`${JSON.stringify(await inspectReceipt(root))}\n`);
+      return;
     }
-    worker.unref();
-    await atomicJson(path.join(root, "launch.json"), canonical({ attempt_id: attemptId, pid: worker.pid, schema: "rbm-native-task-launch/v1" }));
+    await atomicJson(path.join(root, "launch.json"), canonical({ attempt_id: attemptId, pid: launch.worker.pid, schema: "rbm-native-task-launch/v1" }));
     const deadline = Date.now() + startTimeoutMs;
     let inspection;
     do {
