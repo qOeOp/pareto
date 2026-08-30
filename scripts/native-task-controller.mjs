@@ -193,13 +193,15 @@ function validRequestId(id) {
 }
 
 async function stopChild(child) {
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  child.kill("SIGTERM");
+  const signalsSent = [];
+  if (child.exitCode !== null || child.signalCode !== null) return { signalsSent };
+  if (child.kill("SIGTERM")) signalsSent.push("SIGTERM");
   await Promise.race([once(child, "exit"), new Promise((resolve) => setTimeout(resolve, 250))]);
-  if (child.exitCode !== null || child.signalCode !== null) return;
-  child.kill("SIGKILL");
+  if (child.exitCode !== null || child.signalCode !== null) return { signalsSent };
+  if (child.kill("SIGKILL")) signalsSent.push("SIGKILL");
   const stopped = await Promise.race([once(child, "exit").then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 2_000))]);
   if (!stopped) fail("app-server process could not be stopped");
+  return { signalsSent };
 }
 
 async function executeNativeTask({
@@ -315,8 +317,11 @@ async function executeNativeTask({
             const closed = once(child, "close");
             child.stdin.end();
             try {
-              await stopChild(child);
-              await closed;
+              const stop = await stopChild(child);
+              const [closeCode, closeSignal] = await closed;
+              const controlledClose = (closeCode === 0 && closeSignal === null)
+                || (closeCode === null && stop.signalsSent.includes(closeSignal));
+              if (!controlledClose) fail(`app-server exited unexpectedly during receipt shutdown: code=${closeCode} signal=${closeSignal}`);
               await chain;
             } catch (error) {
               finish(reject, error);
