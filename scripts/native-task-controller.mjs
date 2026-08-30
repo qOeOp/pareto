@@ -106,6 +106,10 @@ function responseResult(message, id, label) {
   return message.result;
 }
 
+function validRequestId(id) {
+  return (typeof id === "string" && id.length > 0 && id.length <= 200) || Number.isSafeInteger(id);
+}
+
 async function stopChild(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
   child.kill("SIGTERM");
@@ -239,9 +243,20 @@ async function executeNativeTask({
           if (readback.thread?.id !== threadId || readback.thread?.cwd !== serverConfiguration?.cwd || matchingTurns.length !== 1 || matchingTurns[0].status !== terminalTurn?.status) {
             fail("thread/read did not confirm the exact terminal turn");
           }
-          const readbackFinals = Array.isArray(matchingTurns[0].items)
-            ? matchingTurns[0].items.filter((item) => item?.type === "agentMessage" && item?.phase === "final_answer")
-            : [];
+          if (!sameCanonical(matchingTurns[0].error ?? null, terminalTurn.error ?? null)) fail("thread/read returned a different terminal error");
+          const readbackItems = Array.isArray(matchingTurns[0].items) ? matchingTurns[0].items : [];
+          const userMessages = readbackItems.filter((item) => item?.type === "userMessage");
+          if (userMessages.length !== 1 || !Array.isArray(userMessages[0].content) || userMessages[0].content.length !== 1
+            || userMessages[0].content[0]?.type !== "text" || userMessages[0].content[0]?.text !== prompt) {
+            fail("thread/read did not confirm the exact prompt");
+          }
+          const streamedAuthorityItems = [...items.values()].filter((item) => item.subject !== null);
+          const readbackAuthorityItems = readbackItems.filter((item) => ["commandExecution", "fileChange"].includes(item?.type));
+          if (readbackAuthorityItems.length !== streamedAuthorityItems.length || streamedAuthorityItems.some((streamed) => {
+            const matches = readbackAuthorityItems.filter((item) => item.id === streamed.item.id && item.type === streamed.type);
+            return matches.length !== 1 || !sameCanonical(authoritySubject(matches[0]), streamed.subject);
+          })) fail("thread/read did not confirm the exact authority items");
+          const readbackFinals = readbackItems.filter((item) => item?.type === "agentMessage" && item?.phase === "final_answer");
           if (terminalTurn.status === "completed" && (readbackFinals.length !== 1 || readbackFinals[0].text !== finalMessages[0])) {
             fail("thread/read did not confirm the exact terminal answer");
           }
@@ -257,9 +272,11 @@ async function executeNativeTask({
           fail(`unsupported app-server request: ${message.method}`);
         }
         const params = message.params;
+        if (!validRequestId(message.id)) fail("approval request id is malformed");
         if (!threadId || !turnId || params?.threadId !== threadId || params?.turnId !== turnId || typeof params?.itemId !== "string") {
           fail("approval request identity is malformed");
         }
+        if (approvalPolicy === "never") fail("approval request conflicts with the confirmed never policy");
         if (approvalHandler === null) fail("approval requested without an explicit handler");
         const key = JSON.stringify(message.id);
         if (approvals.has(key)) fail("app-server returned a duplicate approval request id");
@@ -278,6 +295,10 @@ async function executeNativeTask({
         const authority = canonical({ method: message.method, params, started_item: startedItem.item });
         const decision = await approvalHandler(authority);
         if (!approvalDecisions.has(decision)) fail("approval handler returned an unsupported decision");
+        if (params.availableDecisions !== undefined
+          && (!Array.isArray(params.availableDecisions) || !params.availableDecisions.every((value) => approvalDecisions.has(value)) || !params.availableDecisions.includes(decision))) {
+          fail("approval decision is not allowed by the request");
+        }
         if ([...approvals.values()].some((approval) => approval.itemId === params.itemId)) fail("item has more than one approval request");
         approvals.set(key, {
           decision,
@@ -330,6 +351,8 @@ async function executeNativeTask({
           fail("turn/completed identity or status is malformed");
         }
         if (terminalTurn) fail("app-server emitted more than one terminal turn");
+        if (params.turn.status === "completed" && params.turn.error != null) fail("completed turn contains an error");
+        if (params.turn.status === "failed" && params.turn.error == null) fail("failed turn omitted its error");
         if (approvals.size !== resolvedApprovals.size) fail("turn completed with unresolved approval requests");
         if ([...items.values()].some((item) => item.state !== "completed")) fail("turn completed with an incomplete item lifecycle");
         if (params.turn.status === "completed" && finalMessages.length !== 1) fail("completed turn lacks one terminal agent message");

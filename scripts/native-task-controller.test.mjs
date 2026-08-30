@@ -19,6 +19,8 @@ async function fixtureExecutable({
   approval = false,
   approvalCommandMismatch = false,
   approvalWithoutStarted = false,
+  availableDecisions = null,
+  completedWithError = false,
   completedWithoutStarted = false,
   duplicateInitialize = false,
   exitEarly = false,
@@ -26,12 +28,14 @@ async function fixtureExecutable({
   omitResolved = false,
   postTerminalItem = false,
   readbackFinalMismatch = false,
+  readbackOmitAuthority = false,
+  readbackPromptMismatch = false,
   serverConfigMismatch = false,
   terminalStatus = "completed",
   version = "0.148.0",
 } = {}) {
   const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalCommandMismatch, approvalWithoutStarted, completedWithoutStarted, duplicateInitialize, executable, exitEarly, fileApproval, finalText, omitResolved, postTerminalItem, readbackFinalMismatch, serverConfigMismatch, terminalStatus, threadId, turnId, version };
+  const fixture = { approval, approvalCommandMismatch, approvalWithoutStarted, availableDecisions, completedWithError, completedWithoutStarted, duplicateInitialize, executable, exitEarly, fileApproval, finalText, omitResolved, postTerminalItem, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, serverConfigMismatch, terminalStatus, threadId, turnId, version };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
@@ -39,6 +43,7 @@ if (process.argv[1] === fixture.executable) process.exit(5);
 if (process.argv[2] === "--version") { process.stdout.write("codex-cli " + fixture.version + "\\n"); process.exit(0); }
 if (process.argv[2] !== "app-server" || process.argv[3] !== "--stdio") process.exit(9);
 const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
+let turnInput = [];
 const rl = readline.createInterface({ input: process.stdin });
 rl.on("line", (line) => {
   const message = JSON.parse(line);
@@ -59,6 +64,7 @@ rl.on("line", (line) => {
     } });
   }
   if (message.method === "turn/start") {
+    turnInput = message.params.input;
     send({ id: 2, result: { turn: { id: fixture.turnId, status: "inProgress", items: [] } } });
     if (fixture.approval) {
       const item = fixture.fileApproval
@@ -68,6 +74,7 @@ rl.on("line", (line) => {
       const params = fixture.fileApproval
         ? { grantRoot: "/tmp/grant", itemId: "change-1", reason: "fixture", startedAtMs: 1, threadId: fixture.threadId, turnId: fixture.turnId }
         : { command: fixture.approvalCommandMismatch ? "whoami" : "pwd", commandActions: [], cwd: process.cwd(), itemId: "command-1", startedAtMs: 1, threadId: fixture.threadId, turnId: fixture.turnId };
+      if (fixture.availableDecisions !== null) params.availableDecisions = fixture.availableDecisions;
       send({ id: "approval-1", method: fixture.fileApproval ? "item/fileChange/requestApproval" : "item/commandExecution/requestApproval", params });
     }
     else if (fixture.completedWithoutStarted) {
@@ -86,7 +93,13 @@ rl.on("line", (line) => {
   }
   if (message.method === "thread/read" && message.id === 3) {
     const readbackText = fixture.readbackFinalMismatch ? "different final" : fixture.finalText;
-    send({ id: 3, result: { thread: { cwd: process.cwd(), id: fixture.threadId, turns: [{ id: fixture.turnId, items: fixture.terminalStatus === "completed" ? [{ id: "agent-1", phase: "final_answer", text: readbackText, type: "agentMessage" }] : [], status: fixture.terminalStatus }] } } });
+    const items = [{ content: fixture.readbackPromptMismatch ? [{ type: "text", text: "different prompt" }] : turnInput, id: "user-1", type: "userMessage" }];
+    if (fixture.approval && !fixture.readbackOmitAuthority) items.push(fixture.fileApproval
+      ? { changes: [{ path: "/tmp/example", type: "update" }], id: "change-1", status: "completed", type: "fileChange" }
+      : { command: "pwd", commandActions: [], cwd: process.cwd(), id: "command-1", status: "completed", type: "commandExecution" });
+    if (fixture.terminalStatus === "completed") items.push({ id: "agent-1", phase: "final_answer", text: readbackText, type: "agentMessage" });
+    const error = fixture.completedWithError || fixture.terminalStatus === "failed" ? { message: "fixture failed" } : null;
+    send({ id: 3, result: { thread: { cwd: process.cwd(), id: fixture.threadId, turns: [{ error, id: fixture.turnId, items, status: fixture.terminalStatus }] } } });
   }
 });
 function finish() {
@@ -94,7 +107,8 @@ function finish() {
     send({ method: "item/started", params: { item: { id: "agent-1", type: "agentMessage", phase: "final_answer", text: fixture.finalText }, threadId: fixture.threadId, turnId: fixture.turnId } });
     send({ method: "item/completed", params: { item: { id: "agent-1", type: "agentMessage", phase: "final_answer", text: fixture.finalText }, threadId: fixture.threadId, turnId: fixture.turnId } });
   }
-  send({ method: "turn/completed", params: { threadId: fixture.threadId, turn: { id: fixture.turnId, status: fixture.terminalStatus, error: fixture.terminalStatus === "failed" ? { message: "fixture failed" } : null } } });
+  const error = fixture.completedWithError || fixture.terminalStatus === "failed" ? { message: "fixture failed" } : null;
+  send({ method: "turn/completed", params: { threadId: fixture.threadId, turn: { id: fixture.turnId, status: fixture.terminalStatus, error } } });
   if (fixture.postTerminalItem) send({ method: "item/started", params: { item: { id: "late-1", type: "reasoning" }, threadId: fixture.threadId, turnId: fixture.turnId } });
 }
 `;
@@ -219,14 +233,19 @@ try {
   assert.equal(failed.payload.final, null);
   assert.match(failed.payload.turn.error_sha256, /^sha256:[a-f0-9]{64}$/);
 
-  await assert.rejects(() => run({ approval: true }), /approval requested without an explicit handler/);
+  await assert.rejects(() => run({ approval: true }), /conflicts with the confirmed never policy/);
+  await assert.rejects(() => run({ approval: true }, { approvalPolicy: "on-request" }), /approval requested without an explicit handler/);
   await assert.rejects(() => run({ approval: true }, { approvalHandler: async () => "invalid", approvalPolicy: "on-request" }), /unsupported decision/);
+  await assert.rejects(() => run({ approval: true, availableDecisions: ["decline"] }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /decision is not allowed by the request/);
   await assert.rejects(() => run({ approval: true, omitResolved: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /before its approval was resolved/);
   await assert.rejects(() => run({ approval: true, approvalWithoutStarted: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /approval request lacks its matching started item/);
   await assert.rejects(() => run({ approval: true, approvalCommandMismatch: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /approval command differs from its started item/);
   await assert.rejects(() => run({ completedWithoutStarted: true }), /item\/completed lacks its matching started item/);
   await assert.rejects(() => run({ postTerminalItem: true }), /event after the terminal turn/);
+  await assert.rejects(() => run({ completedWithError: true }), /completed turn contains an error/);
   await assert.rejects(() => run({ readbackFinalMismatch: true }), /did not confirm the exact terminal answer/);
+  await assert.rejects(() => run({ approval: true, readbackOmitAuthority: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /did not confirm the exact authority items/);
+  await assert.rejects(() => run({ readbackPromptMismatch: true }), /did not confirm the exact prompt/);
   await assert.rejects(() => run({ serverConfigMismatch: true }), /did not confirm requested authority configuration/);
   await assert.rejects(() => run({ duplicateInitialize: true }), /duplicate response id/);
   await assert.rejects(() => run({ exitEarly: true }), /exited before terminal receipt/);
