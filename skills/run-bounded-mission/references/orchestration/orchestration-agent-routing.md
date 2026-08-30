@@ -8,6 +8,9 @@ A lane answers only its dispatching Mission and cannot cross live parent or sibl
 creates a Hub DAG node, active-task member, independent outcome, native Task replacement, branch, PR,
 or lane-owned or lane-authorized downstream effect.
 
+Native custody never gates lanes. While one slice waits, release every admissible nonconflicting lane;
+empty slots prove nothing.
+
 Role load map:
 
 - `mission_planner` also loads `../planning/planning-decision-workflow.md` and, only for revision
