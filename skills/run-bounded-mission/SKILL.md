@@ -200,10 +200,10 @@ admission, one-way failure, and Main reproduction.
 
 ## Finalize
 
-Choose the highest affected boundary: reframe, replan, revise, blocked, or accept. Blocked requires the
-Task workflow's whole-Mission schedulability proof: unavailable required authority, capability, or fact;
-unsatisfiable acceptance; or no viable structural replan. Temporary unavailability may Resume only on a
-new observation for the same predicate.
+Choose the highest affected boundary: reframe, replan, revise, blocked, or accept. Blocked requires proof
+no admitted owner or independent-slice operation can change the decision, plus unavailable required
+authority/capability/fact, unsatisfiable acceptance, or no viable structural replan. Temporary
+unavailability may Resume only on a new observation for the same predicate.
 
 Accept only a verified exact candidate bound to a commit or preserved diff. Lead with the result and
 exact effect state; distinguish current external evidence, local inference, and unavailable evidence.

@@ -437,7 +437,7 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedSkillSource, /Passive observation uses a product-native recurring\s+monitor and remains Goal-unbound/);
   assert.match(installedSkillSource, /enters the host blocked audit; it never returns silence/);
   assert.match(installedSkillSource,
-    /Blocked requires the\s+Task workflow's whole-Mission schedulability proof/);
+    /Blocked requires proof\s+no admitted owner or independent-slice operation can change the decision/);
   assert.match(installedSkillSource, /unverified target is unavailable, not a test target/);
   assert.match(installedSkillSource,
     /Admit pass only from a finished zero-status\s+invocation on the unchanged candidate/);
