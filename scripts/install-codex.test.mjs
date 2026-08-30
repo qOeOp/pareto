@@ -437,9 +437,7 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedSkillSource, /Passive observation uses a product-native recurring\s+monitor and remains Goal-unbound/);
   assert.match(installedSkillSource, /enters the host blocked audit; it never returns silence/);
   assert.match(installedSkillSource,
-    /A forbidden duplicate writer,[\s\S]+does not by itself prove whole-Mission impasse/);
-  assert.match(installedSkillSource,
-    /Consecutive turns prove recurrence only; they never[\s\S]+no viable route remains/);
+    /Blocked requires the\s+Task workflow's whole-Mission schedulability proof/);
   assert.match(installedSkillSource, /unverified target is unavailable, not a test target/);
   assert.match(installedSkillSource,
     /Admit pass only from a finished zero-status\s+invocation on the unchanged candidate/);
@@ -542,7 +540,7 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedTaskWorkflow,
     /Repeated identical automatic continuations establish only[\s\S]+routes are absent/);
   assert.match(installedTaskWorkflow,
-    /Whole-Goal blocked is eligible[\s\S]+no safe owner action that can change the decision/);
+    /Whole-Goal blocked is eligible[\s\S]+no\s+safe owner action that can change the decision/);
   assert.match(installedTaskWorkflow,
     /count three is unavailable only when decision consumption is blocked[\s\S]+runnable node can progress/);
   assert.match(installedRecoveryOwner, /wait-transport failure key\/count/);

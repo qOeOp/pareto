@@ -200,18 +200,10 @@ admission, one-way failure, and Main reproduction.
 
 ## Finalize
 
-Choose the highest affected boundary: reframe, replan, revise, blocked, or accept. Blocked requires
-evidence that a required authority, capability, or fact is unavailable, acceptance is unsatisfiable,
-or a completed structural replan has no viable route. Temporary unavailability may Resume only on a
+Choose the highest affected boundary: reframe, replan, revise, blocked, or accept. Blocked requires the
+Task workflow's whole-Mission schedulability proof: unavailable required authority, capability, or fact;
+unsatisfiable acceptance; or no viable structural replan. Temporary unavailability may Resume only on a
 new observation for the same predicate.
-
-A forbidden duplicate writer, one frozen node, a missing Task receipt, or repeated identical Goal turns
-does not by itself prove whole-Mission impasse. Before blocked, close the current schedulability proof
-across every owner and independent DAG slice. Exact candidate or PR reconciliation, frozen-input review,
-verification or delivery fact reads, custody reconciliation, and nonconflicting read-only investigation
-are runnable operations when their inputs and authority are admitted. Invoke them and remain active or
-needs-attention while any can change a decision. Consecutive turns prove recurrence only; they never
-substitute for evidence that no viable route remains.
 
 Accept only a verified exact candidate bound to a commit or preserved diff. Lead with the result and
 exact effect state; distinguish current external evidence, local inference, and unavailable evidence.
