@@ -17,28 +17,34 @@ const digest = (value) => `sha256:${createHash("sha256").update(value).digest("h
 
 async function fixtureExecutable({
   approval = false,
+  approvalAfterFinal = false,
   approvalCommandMismatch = false,
   approvalWithoutStarted = false,
   availableDecisions = null,
+  authorityCompletedStatus = "completed",
+  authorityStartedStatus = "inProgress",
   completedWithError = false,
   completedWithoutStarted = false,
   duplicateInitialize = false,
   exitEarly = false,
   fileApproval = false,
+  finalCompletedMismatch = false,
   omitResolved = false,
   postFinalAuthority = false,
   postTerminalItem = false,
   readbackExtraTurn = false,
+  readbackDuplicateItemId = false,
   readbackFinalMismatch = false,
   readbackOmitAuthority = false,
   readbackPromptMismatch = false,
   serverConfigMismatch = false,
   terminalStatus = "completed",
+  turnStartStatus = "inProgress",
   unapprovedCommand = null,
   version = "0.148.0",
 } = {}) {
   const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalCommandMismatch, approvalWithoutStarted, availableDecisions, completedWithError, completedWithoutStarted, duplicateInitialize, executable, exitEarly, fileApproval, finalText, omitResolved, postFinalAuthority, postTerminalItem, readbackExtraTurn, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, serverConfigMismatch, terminalStatus, threadId, turnId, unapprovedCommand, version };
+  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completedWithError, completedWithoutStarted, duplicateInitialize, executable, exitEarly, fileApproval, finalCompletedMismatch, finalText, omitResolved, postFinalAuthority, postTerminalItem, readbackDuplicateItemId, readbackExtraTurn, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, serverConfigMismatch, terminalStatus, threadId, turnId, turnStartStatus, unapprovedCommand, version };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
@@ -68,12 +74,16 @@ rl.on("line", (line) => {
   }
   if (message.method === "turn/start") {
     turnInput = message.params.input;
-    send({ id: 2, result: { turn: { id: fixture.turnId, status: "inProgress", items: [] } } });
+    send({ id: 2, result: { turn: { id: fixture.turnId, status: fixture.turnStartStatus, items: [] } } });
     if (fixture.approval) {
       const item = fixture.fileApproval
-        ? { changes: [{ path: "/tmp/example", type: "update" }], id: "change-1", status: "inProgress", type: "fileChange" }
-        : { command: "pwd", commandActions: [], cwd: process.cwd(), id: "command-1", status: "inProgress", type: "commandExecution" };
+        ? { changes: [{ path: "/tmp/example", type: "update" }], id: "change-1", status: fixture.authorityStartedStatus, type: "fileChange" }
+        : { command: "pwd", commandActions: [], cwd: process.cwd(), id: "command-1", status: fixture.authorityStartedStatus, type: "commandExecution" };
       if (!fixture.approvalWithoutStarted) send({ method: "item/started", params: { item, threadId: fixture.threadId, turnId: fixture.turnId } });
+      if (fixture.approvalAfterFinal) {
+        send({ method: "item/started", params: { item: { id: "agent-1", phase: "final_answer", text: fixture.finalText, type: "agentMessage" }, threadId: fixture.threadId, turnId: fixture.turnId } });
+        send({ method: "item/completed", params: { item: { id: "agent-1", phase: "final_answer", text: fixture.finalText, type: "agentMessage" }, threadId: fixture.threadId, turnId: fixture.turnId } });
+      }
       const params = fixture.fileApproval
         ? { grantRoot: "/tmp/grant", itemId: "change-1", reason: "fixture", startedAtMs: 1, threadId: fixture.threadId, turnId: fixture.turnId }
         : { command: fixture.approvalCommandMismatch ? "whoami" : "pwd", commandActions: [], cwd: process.cwd(), itemId: "command-1", startedAtMs: 1, threadId: fixture.threadId, turnId: fixture.turnId };
@@ -84,8 +94,8 @@ rl.on("line", (line) => {
       send({ method: "item/completed", params: { item: { id: "command-1", type: "commandExecution", status: "completed" }, threadId: fixture.threadId, turnId: fixture.turnId } });
     }
     else if (fixture.unapprovedCommand !== null) {
-      send({ method: "item/started", params: { item: { command: fixture.unapprovedCommand, commandActions: [], cwd: process.cwd(), id: "command-1", status: "inProgress", type: "commandExecution" }, threadId: fixture.threadId, turnId: fixture.turnId } });
-      send({ method: "item/completed", params: { item: { command: fixture.unapprovedCommand, commandActions: [], cwd: process.cwd(), id: "command-1", status: "completed", type: "commandExecution" }, threadId: fixture.threadId, turnId: fixture.turnId } });
+      send({ method: "item/started", params: { item: { command: fixture.unapprovedCommand, commandActions: [], cwd: process.cwd(), id: "command-1", status: fixture.authorityStartedStatus, type: "commandExecution" }, threadId: fixture.threadId, turnId: fixture.turnId } });
+      send({ method: "item/completed", params: { item: { command: fixture.unapprovedCommand, commandActions: [], cwd: process.cwd(), id: "command-1", status: fixture.authorityCompletedStatus, type: "commandExecution" }, threadId: fixture.threadId, turnId: fixture.turnId } });
       finish();
     }
     else finish();
@@ -94,8 +104,8 @@ rl.on("line", (line) => {
     if (message.result.decision !== "accept") process.exit(6);
     if (!fixture.omitResolved) send({ method: "serverRequest/resolved", params: { requestId: "approval-1", threadId: fixture.threadId } });
     const item = fixture.fileApproval
-      ? { changes: [{ path: "/tmp/example", type: "update" }], id: "change-1", status: "completed", type: "fileChange" }
-      : { command: "pwd", commandActions: [], cwd: process.cwd(), id: "command-1", status: "completed", type: "commandExecution" };
+      ? { changes: [{ path: "/tmp/example", type: "update" }], id: "change-1", status: fixture.authorityCompletedStatus, type: "fileChange" }
+      : { command: "pwd", commandActions: [], cwd: process.cwd(), id: "command-1", status: fixture.authorityCompletedStatus, type: "commandExecution" };
     send({ method: "item/completed", params: { item, threadId: fixture.threadId, turnId: fixture.turnId } });
     finish();
   }
@@ -103,9 +113,10 @@ rl.on("line", (line) => {
     const readbackText = fixture.readbackFinalMismatch ? "different final" : fixture.finalText;
     const items = [{ content: fixture.readbackPromptMismatch ? [{ type: "text", text: "different prompt" }] : turnInput, id: "user-1", type: "userMessage" }];
     if ((fixture.approval || fixture.unapprovedCommand !== null) && !fixture.readbackOmitAuthority) items.push(fixture.fileApproval
-      ? { changes: [{ path: "/tmp/example", type: "update" }], id: "change-1", status: "completed", type: "fileChange" }
-      : { command: fixture.unapprovedCommand || "pwd", commandActions: [], cwd: process.cwd(), id: "command-1", status: "completed", type: "commandExecution" });
+      ? { changes: [{ path: "/tmp/example", type: "update" }], id: "change-1", status: fixture.authorityCompletedStatus, type: "fileChange" }
+      : { command: fixture.unapprovedCommand || "pwd", commandActions: [], cwd: process.cwd(), id: "command-1", status: fixture.authorityCompletedStatus, type: "commandExecution" });
     if (fixture.terminalStatus === "completed") items.push({ id: "agent-1", phase: "final_answer", text: readbackText, type: "agentMessage" });
+    if (fixture.readbackDuplicateItemId) items.push({ id: "agent-1", type: "reasoning" });
     const error = fixture.completedWithError || fixture.terminalStatus === "failed" ? { message: "fixture failed" } : null;
     const turns = [{ error, id: fixture.turnId, items, status: fixture.terminalStatus }];
     if (fixture.readbackExtraTurn) turns.push({ error: null, id: "019fb8b4-ebd0-7c20-8ba1-041ed6836210", items: [], status: "completed" });
@@ -115,7 +126,7 @@ rl.on("line", (line) => {
 function finish() {
   if (fixture.terminalStatus === "completed") {
     send({ method: "item/started", params: { item: { id: "agent-1", type: "agentMessage", phase: "final_answer", text: fixture.finalText }, threadId: fixture.threadId, turnId: fixture.turnId } });
-    send({ method: "item/completed", params: { item: { id: "agent-1", type: "agentMessage", phase: "final_answer", text: fixture.finalText }, threadId: fixture.threadId, turnId: fixture.turnId } });
+    send({ method: "item/completed", params: { item: { id: "agent-1", type: "agentMessage", phase: "final_answer", text: fixture.finalCompletedMismatch ? "different completed final" : fixture.finalText }, threadId: fixture.threadId, turnId: fixture.turnId } });
   }
   if (fixture.postFinalAuthority) {
     send({ method: "item/started", params: { item: { command: "pwd", commandActions: [], cwd: process.cwd(), id: "late-command", status: "inProgress", type: "commandExecution" }, threadId: fixture.threadId, turnId: fixture.turnId } });
@@ -154,6 +165,7 @@ try {
   assert.equal(receipt.payload.turn.id, turnId);
   assert.equal(receipt.payload.turn.status, "completed");
   assert.equal(receipt.payload.final.text, finalText);
+  assert.equal(receipt.payload.final.item_id, "agent-1");
   assert.equal(receipt.payload.final.sha256, digest(finalText));
   assert.equal(receipt.payload.prompt_sha256, digest(prompt));
   assert.deepEqual(receipt.payload.requested_configuration, {
@@ -177,6 +189,7 @@ try {
   assert.match(approved.payload.approvals[0].subject_sha256, /^sha256:[a-f0-9]{64}$/);
   assert.deepEqual(approved.payload.authority_items, [{
     id: "command-1",
+    status: "completed",
     subject_sha256: approved.payload.approvals[0].subject_sha256,
     type: "commandExecution",
   }]);
@@ -267,11 +280,22 @@ try {
   await assert.rejects(() => run({ completedWithoutStarted: true }), /item\/completed lacks its matching started item/);
   await assert.rejects(() => run({ postTerminalItem: true }), /event after the terminal turn/);
   await assert.rejects(() => run({ postFinalAuthority: true }), /item event after the terminal answer/);
+  await assert.rejects(() => run({ finalCompletedMismatch: true }), /changed its terminal answer/);
+  let postFinalApprovalHandled = false;
+  await assert.rejects(() => run({ approval: true, approvalAfterFinal: true }, {
+    approvalHandler: async () => { postFinalApprovalHandled = true; return "accept"; },
+    approvalPolicy: "on-request",
+  }), /terminal answer started before prior items and approvals closed/);
+  assert.equal(postFinalApprovalHandled, false);
   await assert.rejects(() => run({ completedWithError: true }), /completed turn contains an error/);
   await assert.rejects(() => run({ readbackFinalMismatch: true }), /did not confirm the exact terminal answer/);
   await assert.rejects(() => run({ approval: true, readbackOmitAuthority: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /did not confirm the exact authority items/);
   await assert.rejects(() => run({ readbackPromptMismatch: true }), /did not confirm the exact prompt/);
   await assert.rejects(() => run({ readbackExtraTurn: true }), /did not confirm the exact terminal turn/);
+  await assert.rejects(() => run({ readbackDuplicateItemId: true }), /duplicate item ids/);
+  await assert.rejects(() => run({ turnStartStatus: "completed" }), /exact in-progress turn/);
+  await assert.rejects(() => run({ approval: true, authorityStartedStatus: "completed" }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /started outside inProgress/);
+  await assert.rejects(() => run({ authorityCompletedStatus: "inProgress", unapprovedCommand: "pwd" }), /completed with a non-terminal status/);
   await assert.rejects(() => run({ serverConfigMismatch: true }), /did not confirm requested authority configuration/);
   await assert.rejects(() => run({ duplicateInitialize: true }), /duplicate response id/);
   await assert.rejects(() => run({ exitEarly: true }), /exited before terminal receipt/);

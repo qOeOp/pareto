@@ -58,6 +58,11 @@ function authoritySubject(item) {
   return null;
 }
 
+function terminalAnswerSubject(item) {
+  if (item.type !== "agentMessage" || item.phase !== "final_answer") return null;
+  return typeof item.text === "string" ? canonical({ phase: item.phase, text: item.text, type: item.type }) : null;
+}
+
 async function materializeExecutable(executable, expectedSha256, expectedVersion) {
   if (!path.isAbsolute(executable)) fail("codex executable must be one absolute path");
   if (!shaPattern.test(expectedSha256)) fail("expected executable sha256 is invalid");
@@ -167,6 +172,7 @@ async function executeNativeTask({
   let stdoutBytes = 0;
   let terminalTurn = null;
   let terminalReadback = false;
+  let terminalAnswerItemId = null;
   let serverConfiguration = null;
   let settled = false;
 
@@ -184,6 +190,7 @@ async function executeNativeTask({
     };
 
     const handle = async (line) => {
+      if (settled) return;
       stdoutBytes += Buffer.byteLength(line) + 1;
       if (stdoutBytes > 16 * 1024 * 1024) fail("app-server response exceeded 16 MiB");
       rejectDuplicateJsonObjectMembers(line, "app-server response");
@@ -234,7 +241,7 @@ async function executeNativeTask({
         }
         if (message.id === 2) {
           const started = responseResult(message, 2, "turn/start");
-          if (!threadId || !uuidPattern.test(started.turn?.id ?? "")) fail("turn/start omitted an exact turn id");
+          if (!threadId || !uuidPattern.test(started.turn?.id ?? "") || started.turn?.status !== "inProgress") fail("turn/start omitted an exact in-progress turn");
           turnId = started.turn.id;
           return;
         }
@@ -247,6 +254,10 @@ async function executeNativeTask({
           }
           if (!sameCanonical(matchingTurns[0].error ?? null, terminalTurn.error ?? null)) fail("thread/read returned a different terminal error");
           const readbackItems = Array.isArray(matchingTurns[0].items) ? matchingTurns[0].items : [];
+          const readbackItemIds = readbackItems.map((item) => item?.id);
+          if (readbackItemIds.some((id) => typeof id !== "string" || id.length === 0) || new Set(readbackItemIds).size !== readbackItemIds.length) {
+            fail("thread/read returned malformed or duplicate item ids");
+          }
           const userMessages = readbackItems.filter((item) => item?.type === "userMessage");
           if (userMessages.length !== 1 || !Array.isArray(userMessages[0].content) || userMessages[0].content.length !== 1
             || userMessages[0].content[0]?.type !== "text" || userMessages[0].content[0]?.text !== prompt) {
@@ -256,13 +267,14 @@ async function executeNativeTask({
           const readbackAuthorityItems = readbackItems.filter((item) => ["commandExecution", "fileChange"].includes(item?.type));
           if (readbackAuthorityItems.length !== streamedAuthorityItems.length || streamedAuthorityItems.some((streamed, index) => {
             const readbackItem = readbackAuthorityItems[index];
-            return readbackItem?.id !== streamed.item.id || readbackItem.type !== streamed.type || !sameCanonical(authoritySubject(readbackItem), streamed.subject);
+            return readbackItem?.id !== streamed.item.id || readbackItem.type !== streamed.type || readbackItem.status !== streamed.item.status
+              || !sameCanonical(authoritySubject(readbackItem), streamed.subject);
           })) fail("thread/read did not confirm the exact authority items");
           const readbackFinals = readbackItems.filter((item) => item?.type === "agentMessage" && item?.phase === "final_answer");
-          if (terminalTurn.status === "completed" && (readbackFinals.length !== 1 || readbackFinals[0].text !== finalMessages[0])) {
+          if (terminalTurn.status === "completed" && (readbackFinals.length !== 1 || readbackFinals[0].id !== terminalAnswerItemId || readbackFinals[0].text !== finalMessages[0])) {
             fail("thread/read did not confirm the exact terminal answer");
           }
-          if (terminalTurn.status === "completed" && readbackItems.at(-1)?.id !== readbackFinals[0].id) fail("thread/read terminal answer is not the last item");
+          if (terminalTurn.status === "completed" && readbackItems.at(-1) !== readbackFinals[0]) fail("thread/read terminal answer is not the last item");
           terminalReadback = true;
           finish(resolve);
           return;
@@ -271,6 +283,7 @@ async function executeNativeTask({
       }
 
       if (message.id !== undefined && typeof message.method === "string") {
+        if (terminalAnswerItemId !== null) fail("app-server requested approval after the terminal answer started");
         if (!["item/commandExecution/requestApproval", "item/fileChange/requestApproval"].includes(message.method)) {
           fail(`unsupported app-server request: ${message.method}`);
         }
@@ -318,7 +331,9 @@ async function executeNativeTask({
       if (typeof message.method !== "string" || message.id !== undefined) fail("app-server notification is malformed");
       const params = message.params ?? {};
       if (message.method === "item/started" || message.method === "item/completed") {
-        if (finalMessages.length > 0) fail("app-server emitted an item event after the terminal answer");
+        if (terminalAnswerItemId !== null && !(message.method === "item/completed" && params.item?.id === terminalAnswerItemId && finalMessages.length === 0)) {
+          fail("app-server emitted an item event after the terminal answer started");
+        }
         if (params.threadId !== threadId || params.turnId !== turnId || typeof params.item?.id !== "string" || typeof params.item?.type !== "string") {
           fail(`${message.method} identity is malformed`);
         }
@@ -327,12 +342,22 @@ async function executeNativeTask({
           if (current) fail("item/started duplicated or reversed an item lifecycle");
           const item = canonical(params.item);
           const subject = authoritySubject(item);
+          const terminalSubject = terminalAnswerSubject(item);
           if (["commandExecution", "fileChange"].includes(item.type) && !subject) fail("authority item is malformed");
-          items.set(params.item.id, { item, state: "started", subject, type: params.item.type });
+          if (["commandExecution", "fileChange"].includes(item.type) && item.status !== "inProgress") fail("authority item started outside inProgress status");
+          if (item.type === "agentMessage" && item.phase === "final_answer"
+            && ([...items.values()].some((entry) => entry.state !== "completed") || approvals.size !== resolvedApprovals.size)) {
+            fail("terminal answer started before prior items and approvals closed");
+          }
+          if (item.type === "agentMessage" && item.phase === "final_answer" && terminalSubject === null) fail("terminal answer started with malformed content");
+          if (terminalSubject !== null) terminalAnswerItemId = item.id;
+          items.set(params.item.id, { item, state: "started", subject, terminalSubject, type: params.item.type });
         } else {
           if (current?.state !== "started" || current.type !== params.item.type) fail("item/completed lacks its matching started item");
           const completedSubject = authoritySubject(params.item);
           if (current.subject !== null && !sameCanonical(completedSubject, current.subject)) fail("item/completed changed its authority subject");
+          if (current.terminalSubject !== null && !sameCanonical(terminalAnswerSubject(params.item), current.terminalSubject)) fail("item/completed changed its terminal answer");
+          if (current.subject !== null && !["completed", "failed", "declined"].includes(params.item.status)) fail("authority item completed with a non-terminal status");
           const approvalKey = [...approvals].find(([, approval]) => approval.itemId === params.item.id)?.[0];
           if (approvalKey !== undefined && !resolvedApprovals.has(approvalKey)) fail("item completed before its approval was resolved");
           items.set(params.item.id, { ...current, item: canonical(params.item), state: "completed" });
@@ -400,6 +425,7 @@ async function executeNativeTask({
   const finalText = finalMessages[0] ?? null;
   const authorityItems = completionOrder.map((id) => items.get(id)).filter((item) => item.subject !== null).map((item) => canonical({
     id: item.item.id,
+    status: item.item.status,
     subject_sha256: digest(JSON.stringify(item.subject)),
     type: item.type,
   }));
@@ -409,7 +435,7 @@ async function executeNativeTask({
     requested_configuration: { approval_policy: approvalPolicy, cwd: taskCwd, model, sandbox },
     server_configuration: serverConfiguration,
     executable,
-    final: finalText === null ? null : { bytes: Buffer.byteLength(finalText), sha256: digest(finalText), text: finalText },
+    final: finalText === null ? null : { bytes: Buffer.byteLength(finalText), item_id: terminalAnswerItemId, sha256: digest(finalText), text: finalText },
     items: { completed: [...items.values()].filter((item) => item.state === "completed").length },
     prompt_sha256: digest(prompt),
     schema: "rbm-native-task-terminal/v1",
