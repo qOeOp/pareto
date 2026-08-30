@@ -14,6 +14,11 @@ const turnId = "019fb8b4-ebd0-7c20-8ba1-041ed6836207";
 const prompt = "Return exactly: controller fixture passed";
 const finalText = "controller fixture passed";
 const digest = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
+const canonical = (value) => Array.isArray(value)
+  ? value.map(canonical)
+  : value && typeof value === "object"
+    ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
+    : value;
 
 async function fixtureExecutable({
   approval = false,
@@ -500,6 +505,23 @@ try {
   assert.equal(postStartRetry.payload.state, "needs_attention");
   assert.equal(postStartRetry.payload.start.payload.start.thread.id, threadId);
   assert.equal(await readFile(postStartFailureInvocations, "utf8"), postStartInvocationsBeforeRetry);
+
+  const postStartPath = path.join(postStartFailureDir, "start.json");
+  const postStartSource = await readFile(postStartPath, "utf8");
+  const forgedStart = JSON.parse(postStartSource);
+  forgedStart.payload.start.thread.id = "019fb8b4-ebd0-7c20-8ba1-041ed6836211";
+  forgedStart.content_sha256 = digest(JSON.stringify(canonical(forgedStart.payload)));
+  await writeFile(postStartPath, JSON.stringify(forgedStart));
+  const forgedStartInspect = spawn(process.execPath, [
+    path.resolve("scripts/native-task-controller.mjs"), "inspect", "--receipt-dir", postStartFailureDir,
+  ], { stdio: ["ignore", "pipe", "pipe"] });
+  let forgedStartStderr = "";
+  forgedStartInspect.stdout.resume();
+  forgedStartInspect.stderr.setEncoding("utf8").on("data", (chunk) => { forgedStartStderr += chunk; });
+  const [forgedStartCode] = await once(forgedStartInspect, "exit");
+  assert.notEqual(forgedStartCode, 0);
+  assert.match(forgedStartStderr, /failure receipt differs from its exact attempt or start receipt/);
+  await writeFile(postStartPath, postStartSource);
 
   const mismatchedPrompt = path.join(temporaryRoot, "different-prompt.txt");
   await writeFile(mismatchedPrompt, "different prompt");

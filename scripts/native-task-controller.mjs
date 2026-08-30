@@ -784,19 +784,36 @@ async function inspectReceipt(receiptDir) {
   const failure = failureValue ? verifyEnvelope(failureValue, "rbm-native-task-failure-envelope/v1", "failure") : null;
   const terminalValue = await readJson(path.join(root, "terminal.json"));
   const terminal = terminalValue ? verifyEnvelope(terminalValue, "rbm-native-task-detached-terminal-envelope/v1", "terminal") : null;
-  if (start && (start.payload.attempt_id !== attempt.attempt_id || start.payload.start?.schema !== "rbm-native-task-start/v1")) {
-    fail("start receipt differs from its exact attempt");
+  const expectedRequestedConfiguration = canonical({
+    approval_policy: "never", cwd: attempt.request.cwd, model: attempt.request.model, sandbox: attempt.request.sandbox,
+  });
+  if (start) {
+    const startPayload = start.payload.start;
+    if (start.payload.attempt_id !== attempt.attempt_id || startPayload?.schema !== "rbm-native-task-start/v1"
+      || startPayload.prompt_sha256 !== attempt.request.prompt_sha256
+      || !sameCanonical(startPayload.requested_configuration, expectedRequestedConfiguration)
+      || startPayload.executable?.sha256 !== attempt.request.expected_sha256
+      || startPayload.executable?.version !== attempt.request.expected_version
+      || !uuidPattern.test(startPayload.thread?.id ?? "")
+      || !uuidPattern.test(startPayload.turn?.id ?? "")
+      || startPayload.turn.status !== "inProgress"
+      || startPayload.server_configuration?.approval_policy !== "never"
+      || startPayload.server_configuration?.cwd !== attempt.request.cwd
+      || (attempt.request.model !== null && startPayload.server_configuration?.model !== attempt.request.model)
+      || startPayload.server_configuration?.sandbox?.type !== sandboxPolicyTypes.get(attempt.request.sandbox)) {
+      fail("start receipt differs from its exact attempt");
+    }
   }
-  if (failure && failure.payload.attempt_id !== attempt.attempt_id) fail("failure receipt differs from its exact attempt");
+  if (failure && (failure.payload.attempt_id !== attempt.attempt_id
+    || failure.payload.start_content_sha256 !== (start?.content_sha256 ?? null))) {
+    fail("failure receipt differs from its exact attempt or start receipt");
+  }
   if (terminal) {
     if (failure) fail("terminal and failure receipts conflict");
     if (!start || terminal.payload.attempt_id !== attempt.attempt_id) fail("terminal receipt lacks its exact start attempt");
     const inner = verifyEnvelope(terminal.payload.terminal, "rbm-native-task-terminal-envelope/v1", "nested terminal");
     const startPayload = start.payload.start;
     const terminalPayload = inner.payload;
-    const expectedRequestedConfiguration = canonical({
-      approval_policy: "never", cwd: attempt.request.cwd, model: attempt.request.model, sandbox: attempt.request.sandbox,
-    });
     if (startPayload.prompt_sha256 !== attempt.request.prompt_sha256
       || !sameCanonical(startPayload.requested_configuration, expectedRequestedConfiguration)
       || startPayload.executable?.sha256 !== attempt.request.expected_sha256
@@ -874,7 +891,9 @@ async function main() {
     ]) if (value !== undefined) workerArguments.push(`--${name}`, value);
     const launch = await launchDetachedWorker(workerArguments);
     if (launch.error) {
-      await atomicJson(path.join(root, "failure.json"), sealed({ attempt_id: attemptId, error: launch.error.message }, "rbm-native-task-failure-envelope/v1"));
+      await atomicJson(path.join(root, "failure.json"), sealed({
+        attempt_id: attemptId, error: launch.error.message, start_content_sha256: null,
+      }, "rbm-native-task-failure-envelope/v1"));
       process.stdout.write(`${JSON.stringify(await inspectReceipt(root))}\n`);
       return;
     }
@@ -963,7 +982,10 @@ async function main() {
   } catch (error) {
     if (command === "worker") {
       const root = await receiptDirectory(options["receipt-dir"]);
-      await atomicJson(path.join(root, "failure.json"), sealed({ attempt_id: options["attempt-id"], error: error.message }, "rbm-native-task-failure-envelope/v1")).catch(() => {});
+      const start = await readJson(path.join(root, "start.json")).catch(() => null);
+      await atomicJson(path.join(root, "failure.json"), sealed({
+        attempt_id: options["attempt-id"], error: error.message, start_content_sha256: start?.content_sha256 ?? null,
+      }, "rbm-native-task-failure-envelope/v1")).catch(() => {});
       return;
     }
     throw error;
