@@ -74,7 +74,9 @@ exact collision; ambiguous or possible success forbids create.
 For a detached native Mission, use the installer-owned controller at
 `<codex-root>/native-task-controller/native-task-controller.mjs`. Invoke `dispatch` once with one new,
 absolute, Hub-owned receipt directory plus the exact Codex executable identity, cwd, prompt file,
-sandbox, model, and timeout. Detached execution is fixed to `approvalPolicy=never`. The controller
+adjacent `codex-code-mode-host` SHA-256 identity, sandbox, model, and timeout. The controller
+content-addresses and materializes both executable files together before any Task start. Detached
+execution is fixed to `approvalPolicy=never`. The controller
 rejects `danger-full-access`. For `workspace-write`, use a child of the installer-owned
 `<codex-root>/native-task-receipts/` directory and never a Task cwd, `/tmp`, `$TMPDIR`, or another
 server-reported writable root; dispatch and start readback both fail closed if the receipt directory
@@ -83,8 +85,10 @@ cannot write. On POSIX the installer creates the default receipt root with owner
 Windows it requires a real non-symlink directory and preserves platform ACL authority. The controller
 creates the receipt directory as the consumed attempt lease, starts one app-server Task, atomically
 writes `start.json` only after exact `thread/start` and `turn/start`, and writes `terminal.json` only
-after exact terminal `thread/read`. A returned `starting` attempt is consumed but not identity-admitted;
-invoke no second dispatch. A returned `running` or `terminal` start receipt admits only its exact
+after exact terminal `thread/read`; attempt, start, and terminal receipts bind the sidecar identity.
+Missing or mismatched sidecar content fails before Task start. A returned `starting` attempt is
+consumed but not identity-admitted; invoke no second dispatch. A returned `running` or `terminal`
+start receipt admits only its exact
 thread/turn. A request mismatch, existing directory without a valid matching attempt, or `failure.json`
 freezes that node.
 

@@ -22,6 +22,186 @@ const sandboxPolicyTypes = new Map([
   ["danger-full-access", "dangerFullAccess"],
 ]);
 
+const windowsJobWrapperSource = String.raw`using System;
+using System.Runtime.InteropServices;
+using System.Text;
+
+public static class NativeTaskControllerJobWrapper {
+  [StructLayout(LayoutKind.Sequential)]
+  private struct BasicLimits {
+    public long PerProcessUserTimeLimit;
+    public long PerJobUserTimeLimit;
+    public uint LimitFlags;
+    public UIntPtr MinimumWorkingSetSize;
+    public UIntPtr MaximumWorkingSetSize;
+    public uint ActiveProcessLimit;
+    public UIntPtr Affinity;
+    public uint PriorityClass;
+    public uint SchedulingClass;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct IoCounters {
+    public ulong ReadOperationCount;
+    public ulong WriteOperationCount;
+    public ulong OtherOperationCount;
+    public ulong ReadTransferCount;
+    public ulong WriteTransferCount;
+    public ulong OtherTransferCount;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct ExtendedLimits {
+    public BasicLimits BasicLimitInformation;
+    public IoCounters IoInfo;
+    public UIntPtr ProcessMemoryLimit;
+    public UIntPtr JobMemoryLimit;
+    public UIntPtr PeakProcessMemoryUsed;
+    public UIntPtr PeakJobMemoryUsed;
+  }
+
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  private struct StartupInfo {
+    public int cb;
+    public string lpReserved;
+    public string lpDesktop;
+    public string lpTitle;
+    public int dwX;
+    public int dwY;
+    public int dwXSize;
+    public int dwYSize;
+    public int dwXCountChars;
+    public int dwYCountChars;
+    public int dwFillAttribute;
+    public int dwFlags;
+    public short wShowWindow;
+    public short cbReserved2;
+    public IntPtr lpReserved2;
+    public IntPtr hStdInput;
+    public IntPtr hStdOutput;
+    public IntPtr hStdError;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  private struct ProcessInformation {
+    public IntPtr hProcess;
+    public IntPtr hThread;
+    public uint dwProcessId;
+    public uint dwThreadId;
+  }
+
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
+  private static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+
+  [DllImport("kernel32.dll")]
+  private static extern bool SetInformationJobObject(IntPtr job, int informationClass, IntPtr information, uint length);
+
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+  private static extern bool CreateProcess(
+    string applicationName,
+    StringBuilder commandLine,
+    IntPtr processAttributes,
+    IntPtr threadAttributes,
+    bool inheritHandles,
+    uint creationFlags,
+    IntPtr environment,
+    string currentDirectory,
+    ref StartupInfo startupInfo,
+    out ProcessInformation processInformation
+  );
+
+  [DllImport("kernel32.dll")]
+  private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+  [DllImport("kernel32.dll")]
+  private static extern uint ResumeThread(IntPtr thread);
+
+  [DllImport("kernel32.dll")]
+  private static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+
+  [DllImport("kernel32.dll")]
+  private static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
+
+  [DllImport("kernel32.dll")]
+  private static extern bool TerminateProcess(IntPtr process, uint exitCode);
+
+  [DllImport("kernel32.dll")]
+  private static extern IntPtr GetStdHandle(int standardHandle);
+
+  [DllImport("kernel32.dll")]
+  private static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
+
+  [DllImport("kernel32.dll")]
+  private static extern bool CloseHandle(IntPtr handle);
+
+  private const uint KillOnJobClose = 0x00002000;
+  private const uint CreateSuspended = 0x00000004;
+  private const int UseStdHandles = 0x00000100;
+  private const uint HandleFlagInherit = 0x00000001;
+  private const uint Infinite = 0xffffffff;
+
+  private static bool MakeInheritable(IntPtr handle) {
+    return handle != IntPtr.Zero && handle != new IntPtr(-1)
+      && SetHandleInformation(handle, HandleFlagInherit, HandleFlagInherit);
+  }
+
+  private static string Quote(string value) {
+    if (value.Length > 0 && value.IndexOfAny(new[] { ' ', '\t', '\n', '\v', '"' }) < 0) return value;
+    var result = new StringBuilder("\"");
+    var slashes = 0;
+    foreach (var character in value) {
+      if (character == '\\') { slashes += 1; continue; }
+      if (character == '"') result.Append('\\', slashes * 2 + 1).Append(character);
+      else result.Append('\\', slashes).Append(character);
+      slashes = 0;
+    }
+    return result.Append('\\', slashes * 2).Append('"').ToString();
+  }
+
+  public static int Main(string[] arguments) {
+    if (arguments.Length == 0) return 64;
+    var application = arguments[0];
+    var commandLine = new StringBuilder(Quote(application));
+    for (var index = 1; index < arguments.Length; index += 1) commandLine.Append(' ').Append(Quote(arguments[index]));
+    var job = CreateJobObject(IntPtr.Zero, null);
+    if (job == IntPtr.Zero) return 65;
+    var limits = new ExtendedLimits();
+    limits.BasicLimitInformation.LimitFlags = KillOnJobClose;
+    var limitsSize = Marshal.SizeOf(typeof(ExtendedLimits));
+    var limitsPointer = Marshal.AllocHGlobal(limitsSize);
+    var process = new ProcessInformation();
+    try {
+      Marshal.StructureToPtr(limits, limitsPointer, false);
+      if (!SetInformationJobObject(job, 9, limitsPointer, (uint)limitsSize)) return 66;
+      var startup = new StartupInfo();
+      startup.cb = Marshal.SizeOf(typeof(StartupInfo));
+      startup.dwFlags = UseStdHandles;
+      startup.hStdInput = GetStdHandle(-10);
+      startup.hStdOutput = GetStdHandle(-11);
+      startup.hStdError = GetStdHandle(-12);
+      if (!MakeInheritable(startup.hStdInput) || !MakeInheritable(startup.hStdOutput) || !MakeInheritable(startup.hStdError)) return 71;
+      if (!CreateProcess(application, commandLine, IntPtr.Zero, IntPtr.Zero, true, CreateSuspended, IntPtr.Zero, null, ref startup, out process)) return 67;
+      if (!AssignProcessToJobObject(job, process.hProcess)) {
+        TerminateProcess(process.hProcess, 68);
+        return 68;
+      }
+      if (ResumeThread(process.hThread) == 0xffffffff) {
+        TerminateProcess(process.hProcess, 69);
+        return 69;
+      }
+      WaitForSingleObject(process.hProcess, Infinite);
+      uint exitCode;
+      if (!GetExitCodeProcess(process.hProcess, out exitCode)) return 70;
+      return unchecked((int)exitCode);
+    } finally {
+      if (process.hThread != IntPtr.Zero) CloseHandle(process.hThread);
+      if (process.hProcess != IntPtr.Zero) CloseHandle(process.hProcess);
+      Marshal.FreeHGlobal(limitsPointer);
+      CloseHandle(job);
+    }
+  }
+}`;
+
 function fail(message) {
   throw new Error(message);
 }
@@ -40,6 +220,32 @@ function canonical(value) {
     return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
   }
   return value;
+}
+
+function boundedErrorText(value, maximumBytes) {
+  let text = String(value).slice(0, maximumBytes);
+  if (Buffer.byteLength(text) <= maximumBytes) return text;
+  while (Buffer.byteLength(text) > maximumBytes - 3) text = text.slice(0, -1);
+  return `${text}...`;
+}
+
+export function summarizeFailureError(error) {
+  const causes = error instanceof AggregateError ? [...error.errors] : [];
+  return canonical({
+    causes: causes.slice(0, 4).map((cause) => ({
+      message: boundedErrorText(cause instanceof Error ? cause.message : "non-Error cause", 512),
+      name: boundedErrorText(cause instanceof Error ? cause.name : typeof cause, 64),
+    })),
+    causes_truncated: causes.length > 4,
+    message: boundedErrorText(error instanceof Error ? error.message : "native task failed", 512),
+    name: boundedErrorText(error instanceof Error ? error.name : typeof error, 64),
+  });
+}
+
+function displayedFailureError(error) {
+  const summary = summarizeFailureError(error);
+  const causes = summary.causes.map((cause) => `${cause.name}: ${cause.message}`).join(" | ");
+  return causes.length === 0 ? summary.message : `${summary.message}; causes: ${causes}${summary.causes_truncated ? " | ..." : ""}`;
 }
 
 function sameCanonical(left, right) {
@@ -152,41 +358,139 @@ async function readVersionProbe(executable, signal) {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-async function materializeExecutable(executable, expectedSha256, expectedVersion, signal) {
+async function executableIdentity(executable, label, signal) {
   failIfAborted(signal);
-  if (!path.isAbsolute(executable)) fail("codex executable must be one absolute path");
-  if (!shaPattern.test(expectedSha256)) fail("expected executable sha256 is invalid");
-  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(expectedVersion)) fail("expected server version is invalid");
   const resolved = await realpath(executable).catch(() => "");
   failIfAborted(signal);
   const info = resolved ? await lstat(resolved).catch(() => null) : null;
   failIfAborted(signal);
   if (!info?.isFile() || info.isSymbolicLink() || (process.platform !== "win32" && (info.mode & 0o111) === 0)) {
-    fail("codex executable is missing or unsafe");
+    fail(`${label} is missing or unsafe`);
   }
+  return resolved;
+}
+
+async function fileSha256(pathname, signal) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(pathname)) {
+    failIfAborted(signal);
+    hash.update(chunk);
+  }
+  failIfAborted(signal);
+  return `sha256:${hash.digest("hex")}`;
+}
+
+async function removeMaterializedRoot(root) {
+  const deadline = Date.now() + 2_000;
+  while (true) {
+    try {
+      await rm(root, { force: true, recursive: true });
+      return;
+    } catch (error) {
+      if (process.platform !== "win32" || !new Set(["EBUSY", "ENOTEMPTY", "EPERM"]).has(error?.code) || Date.now() >= deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+}
+
+async function waitForBoundedProcess(child, signal, timeoutMs, label) {
+  let interrupt;
+  const interrupted = new Promise((resolve) => { interrupt = resolve; });
+  const onAbort = () => interrupt(new Error("native task was aborted"));
+  if (signal?.aborted) onAbort();
+  else signal?.addEventListener("abort", onAbort, { once: true });
+  const timer = setTimeout(() => interrupt(new Error(`${label} timed out`)), timeoutMs);
+  const closed = new Promise((resolve) => {
+    child.once("error", (error) => resolve({ error }));
+    child.once("close", (code, childSignal) => resolve({ childSignal, code }));
+  });
+  const outcome = await Promise.race([
+    closed.then((value) => ({ type: "close", value })),
+    interrupted.then((error) => ({ error, type: "interrupt" })),
+  ]);
+  clearTimeout(timer);
+  signal?.removeEventListener("abort", onAbort);
+  if (outcome.type === "interrupt") {
+    await stopChild(child);
+    throw outcome.error;
+  }
+  if (outcome.value.error) throw outcome.value.error;
+  return outcome.value;
+}
+
+async function materializeProcessTreeCustody(signal) {
+  failIfAborted(signal);
+  if (process.platform !== "win32") {
+    return {
+      cleanup: async () => {},
+      identity: { kind: "posix_process_group" },
+      spawn: (runtimePath, arguments_, cwd) => spawn(runtimePath, arguments_, { cwd, detached: true, stdio: ["pipe", "pipe", "pipe"] }),
+    };
+  }
+  const systemRoot = process.env.SystemRoot;
+  if (typeof systemRoot !== "string" || !path.isAbsolute(systemRoot)) fail("Windows system root is unavailable");
+  const powershell = await executableIdentity(path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), "Windows PowerShell", signal);
+  const root = await mkdtemp(path.join(os.tmpdir(), "native-task-controller-job-wrapper-"));
+  const wrapperPath = path.join(root, "native-task-controller-job-wrapper.exe");
+  const encodedSource = Buffer.from(windowsJobWrapperSource).toString("base64");
+  const command = "$source=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:NTC_JOB_WRAPPER_SOURCE)); Add-Type -TypeDefinition $source -OutputAssembly $env:NTC_JOB_WRAPPER_PATH -OutputType ConsoleApplication";
+  let compiler;
+  try {
+    compiler = spawn(powershell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], {
+      env: { ...process.env, NTC_JOB_WRAPPER_PATH: wrapperPath, NTC_JOB_WRAPPER_SOURCE: encodedSource },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    compiler.stdout?.resume();
+    compiler.stderr?.resume();
+    const outcome = await waitForBoundedProcess(compiler, signal, 30_000, "Windows process-tree wrapper compilation");
+    if (outcome.code !== 0 || outcome.childSignal !== null) fail("Windows process-tree wrapper compilation failed");
+    const info = await lstat(wrapperPath).catch(() => null);
+    if (!info?.isFile() || info.isSymbolicLink()) fail("Windows process-tree wrapper is missing or unsafe");
+    const wrapperSha256 = await fileSha256(wrapperPath, signal);
+    return {
+      cleanup: () => removeMaterializedRoot(root),
+      identity: { kind: "windows_job_object", source_sha256: digest(windowsJobWrapperSource), wrapper_sha256: wrapperSha256 },
+      spawn: (runtimePath, arguments_, cwd) => spawn(wrapperPath, [runtimePath, ...arguments_], { cwd, stdio: ["pipe", "pipe", "pipe"] }),
+    };
+  } catch (error) {
+    if (compiler && compiler.exitCode === null && compiler.signalCode === null) await stopChild(compiler).catch(() => {});
+    await removeMaterializedRoot(root).catch(() => {});
+    throw error;
+  }
+}
+
+async function materializeExecutableBundle(executable, expectedSha256, expectedSidecarSha256, expectedVersion, signal) {
+  failIfAborted(signal);
+  if (!path.isAbsolute(executable)) fail("codex executable must be one absolute path");
+  if (!shaPattern.test(expectedSha256)) fail("expected executable sha256 is invalid");
+  if (!shaPattern.test(expectedSidecarSha256)) fail("expected sidecar sha256 is invalid");
+  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(expectedVersion)) fail("expected server version is invalid");
+  const resolved = await executableIdentity(executable, "codex executable", signal);
+  const sidecarName = process.platform === "win32" ? "codex-code-mode-host.exe" : "codex-code-mode-host";
+  const resolvedSidecar = await executableIdentity(path.join(path.dirname(resolved), sidecarName), "codex code-mode sidecar", signal);
   const copyExecutable = async (prefix) => {
     failIfAborted(signal);
     const root = await mkdtemp(path.join(os.tmpdir(), prefix));
     const copiedPath = path.join(root, process.platform === "win32" ? "codex.exe" : "codex");
+    const copiedSidecarPath = path.join(root, sidecarName);
     try {
       await copyFile(resolved, copiedPath);
+      await copyFile(resolvedSidecar, copiedSidecarPath);
       failIfAborted(signal);
-      if (process.platform !== "win32") await chmod(copiedPath, 0o500);
+      if (process.platform !== "win32") await Promise.all([chmod(copiedPath, 0o500), chmod(copiedSidecarPath, 0o500)]);
       failIfAborted(signal);
-      const copiedInfo = await lstat(copiedPath);
+      const [copiedInfo, copiedSidecarInfo] = await Promise.all([lstat(copiedPath), lstat(copiedSidecarPath)]);
       failIfAborted(signal);
-      if (!copiedInfo.isFile() || copiedInfo.isSymbolicLink()) fail("materialized codex executable is unsafe");
-      const hash = createHash("sha256");
-      for await (const chunk of createReadStream(copiedPath)) {
-        failIfAborted(signal);
-        hash.update(chunk);
+      if (!copiedInfo.isFile() || copiedInfo.isSymbolicLink() || !copiedSidecarInfo.isFile() || copiedSidecarInfo.isSymbolicLink()) {
+        fail("materialized codex executable bundle is unsafe");
       }
-      failIfAborted(signal);
-      const sha256 = `sha256:${hash.digest("hex")}`;
+      const sha256 = await fileSha256(copiedPath, signal);
+      const sidecarSha256 = await fileSha256(copiedSidecarPath, signal);
       if (sha256 !== expectedSha256) fail("codex executable sha256 mismatch");
-      return { cleanup: () => rm(root, { force: true, recursive: true }), copiedPath, sha256 };
+      if (sidecarSha256 !== expectedSidecarSha256) fail("codex code-mode sidecar sha256 mismatch");
+      return { cleanup: () => removeMaterializedRoot(root), copiedPath, sha256, sidecarSha256 };
     } catch (error) {
-      await rm(root, { force: true, recursive: true });
+      await removeMaterializedRoot(root);
       throw error;
     }
   };
@@ -204,6 +508,7 @@ async function materializeExecutable(executable, expectedSha256, expectedVersion
     failIfAborted(signal);
     return {
       identity: { path: resolved, sha256: runtime.sha256, version: expectedVersion },
+      sidecarIdentity: { path: resolvedSidecar, sha256: runtime.sidecarSha256 },
       runtimePath: runtime.copiedPath,
       cleanup: runtime.cleanup,
     };
@@ -232,8 +537,52 @@ function validRequestId(id) {
   return (typeof id === "string" && id.length > 0 && id.length <= 200) || Number.isSafeInteger(id);
 }
 
-async function stopChild(child) {
+function posixProcessGroupExists(processGroupId) {
+  try {
+    process.kill(-processGroupId, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+function signalPosixProcessGroup(processGroupId, signal) {
+  try {
+    process.kill(-processGroupId, signal);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+async function waitForPosixProcessGroupExit(processGroupId, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (posixProcessGroupExists(processGroupId)) {
+    if (Date.now() >= deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  return true;
+}
+
+async function stopChild(child, processTreeCustody = null) {
   const signalsSent = [];
+  if (processTreeCustody?.kind === "posix_process_group") {
+    if (!Number.isSafeInteger(child.pid) || child.pid <= 0) fail("app-server process group identity is unavailable");
+    if (posixProcessGroupExists(child.pid)) {
+      if (signalPosixProcessGroup(child.pid, "SIGTERM")) signalsSent.push("SIGTERM_GROUP");
+      if (!await waitForPosixProcessGroupExit(child.pid, 250)) {
+        if (signalPosixProcessGroup(child.pid, "SIGKILL")) signalsSent.push("SIGKILL_GROUP");
+        if (!await waitForPosixProcessGroupExit(child.pid, 2_000)) fail("app-server process group could not be stopped");
+      }
+    }
+    if (child.exitCode === null && child.signalCode === null) {
+      const stopped = await Promise.race([once(child, "exit").then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 2_000))]);
+      if (!stopped) fail("app-server process group leader did not exit");
+    }
+    return { signalsSent };
+  }
   if (child.exitCode !== null || child.signalCode !== null) return { signalsSent };
   if (child.kill("SIGTERM")) signalsSent.push("SIGTERM");
   await Promise.race([once(child, "exit"), new Promise((resolve) => setTimeout(resolve, 250))]);
@@ -247,6 +596,7 @@ async function stopChild(child) {
 async function executeNativeTask({
   codexExecutable,
   expectedExecutableSha256,
+  expectedSidecarSha256,
   expectedServerVersion,
   cwd,
   prompt,
@@ -273,19 +623,30 @@ async function executeNativeTask({
   failIfAborted(signal);
   const taskCwd = await directoryIdentity(cwd);
   failIfAborted(signal);
-  const materialized = await materializeExecutable(codexExecutable, expectedExecutableSha256, expectedServerVersion, signal);
+  const materialized = await materializeExecutableBundle(codexExecutable, expectedExecutableSha256, expectedSidecarSha256, expectedServerVersion, signal);
   const executable = materialized.identity;
+  const sidecar = materialized.sidecarIdentity;
+  let processTreeCustody;
   let child;
   try {
     failIfAborted(signal);
-    child = spawn(materialized.runtimePath, ["app-server", "--stdio"], { cwd: taskCwd, stdio: ["pipe", "pipe", "pipe"] });
+    processTreeCustody = await materializeProcessTreeCustody(signal);
+    child = processTreeCustody.spawn(materialized.runtimePath, ["app-server", "--stdio"], taskCwd);
   } catch (error) {
-    await materialized.cleanup();
+    const cleanupErrors = [];
+    try { await processTreeCustody?.cleanup(); } catch (cleanupError) { cleanupErrors.push(cleanupError); }
+    try { await materialized.cleanup(); } catch (cleanupError) { cleanupErrors.push(cleanupError); }
+    if (cleanupErrors.length > 0) throw new AggregateError([error, ...cleanupErrors], "app-server launch and cleanup failed");
     throw error;
   }
   if (!child.stdin || !child.stdout || !child.stderr) {
-    await materialized.cleanup();
-    fail("app-server process transport is unavailable");
+    const transportError = new Error("app-server process transport is unavailable");
+    const cleanupErrors = [];
+    try { await stopChild(child, processTreeCustody.identity); } catch (cleanupError) { cleanupErrors.push(cleanupError); }
+    try { await materialized.cleanup(); } catch (cleanupError) { cleanupErrors.push(cleanupError); }
+    try { await processTreeCustody.cleanup(); } catch (cleanupError) { cleanupErrors.push(cleanupError); }
+    if (cleanupErrors.length > 0) throw new AggregateError([transportError, ...cleanupErrors], "app-server transport and cleanup failed");
+    throw transportError;
   }
   child.stderr.resume();
   const responseIds = new Set();
@@ -445,6 +806,8 @@ async function executeNativeTask({
           turnId = started.turn.id;
           if (onStarted) await onStarted(canonical({
             executable,
+            process_tree_custody: processTreeCustody.identity,
+            sidecar,
             prompt_sha256: digest(prompt),
             requested_configuration: { approval_policy: approvalPolicy, cwd: taskCwd, model, sandbox },
             schema: "rbm-native-task-start/v1",
@@ -674,16 +1037,16 @@ async function executeNativeTask({
     });
   }
 
-  try {
-    await terminal;
-  } finally {
-    child.stdin.end();
-    try {
-      await stopChild(child);
-    } finally {
-      await materialized.cleanup();
-    }
-  }
+  let terminalError = null;
+  try { await terminal; } catch (error) { terminalError = error; }
+  child.stdin.end();
+  const cleanupErrors = [];
+  try { await stopChild(child, processTreeCustody.identity); } catch (error) { cleanupErrors.push(error); }
+  try { await materialized.cleanup(); } catch (error) { cleanupErrors.push(error); }
+  try { await processTreeCustody.cleanup(); } catch (error) { cleanupErrors.push(error); }
+  if (terminalError !== null && cleanupErrors.length > 0) throw new AggregateError([terminalError, ...cleanupErrors], "native task and process-tree cleanup failed");
+  if (terminalError !== null) throw terminalError;
+  if (cleanupErrors.length > 0) throw new AggregateError(cleanupErrors, "native task process-tree cleanup failed");
 
   const finalText = finalMessages[0] ?? null;
   const authorityItems = completionOrder.map((id) => items.get(id)).filter((item) => item.subject !== null).map((item) => canonical({
@@ -701,6 +1064,8 @@ async function executeNativeTask({
     requested_configuration: { approval_policy: approvalPolicy, cwd: taskCwd, model, sandbox },
     server_configuration: serverConfiguration,
     executable,
+    process_tree_custody: processTreeCustody.identity,
+    sidecar,
     final: finalText === null ? null : {
       bytes: Buffer.byteLength(finalText),
       completed_wire_sequence: items.get(terminalAnswerItemId)?.completedWireSequence,
@@ -765,7 +1130,7 @@ function parsePairs(argv, required, allowed) {
 
 function parseArguments(argv) {
   const command = argv[0];
-  const common = ["codex-executable", "expected-sha256", "expected-version", "cwd", "prompt-file", "sandbox"];
+  const common = ["codex-executable", "expected-sha256", "expected-sidecar-sha256", "expected-version", "cwd", "prompt-file", "sandbox"];
   if (command === "run") return { command, options: parsePairs(argv.slice(1), [...common, "approval-policy"], new Set([...common, "approval-policy", "model", "timeout-ms"])) };
   if (command === "dispatch") return { command, options: parsePairs(argv.slice(1), [...common, "receipt-dir"], new Set([...common, "receipt-dir", "model", "timeout-ms", "start-timeout-ms"])) };
   if (command === "inspect") return { command, options: parsePairs(argv.slice(1), ["receipt-dir"], new Set(["receipt-dir"])) };
@@ -824,7 +1189,13 @@ async function inspectReceipt(receiptDir) {
   const rootStat = await lstat(root).catch(() => null);
   if (!rootStat?.isDirectory() || rootStat.isSymbolicLink()) fail("native task receipt directory is missing or unsafe");
   const attempt = await readJson(path.join(root, "attempt.json"));
+  const legacyAttempt = attempt?.request?.expected_sidecar_sha256 === undefined
+    && attempt?.request?.process_tree_custody === undefined;
+  const currentAttempt = shaPattern.test(attempt?.request?.expected_sidecar_sha256 ?? "")
+    && attempt?.request?.process_tree_custody === "v1";
   if (!attempt || attempt.schema !== "rbm-native-task-attempt/v1" || !uuidPattern.test(attempt.attempt_id ?? "")
+    || !shaPattern.test(attempt.request?.expected_sha256 ?? "")
+    || !(legacyAttempt || currentAttempt)
     || attempt.content_sha256 !== digest(JSON.stringify(canonical({ attempt_id: attempt.attempt_id, request: attempt.request, schema: attempt.schema })))) {
     fail("native task attempt receipt is missing, malformed, or has invalid content identity");
   }
@@ -836,6 +1207,8 @@ async function inspectReceipt(receiptDir) {
   const expectedRequestedConfiguration = canonical({
     approval_policy: "never", cwd: attempt.request.cwd, model: attempt.request.model, sandbox: attempt.request.sandbox,
   });
+  const validProcessTreeCustody = (identity) => identity?.kind === "posix_process_group"
+    || (identity?.kind === "windows_job_object" && shaPattern.test(identity.source_sha256 ?? "") && shaPattern.test(identity.wrapper_sha256 ?? ""));
   if (start) {
     const startPayload = start.payload.start;
     if (start.payload.attempt_id !== attempt.attempt_id || startPayload?.schema !== "rbm-native-task-start/v1"
@@ -843,6 +1216,9 @@ async function inspectReceipt(receiptDir) {
       || !sameCanonical(startPayload.requested_configuration, expectedRequestedConfiguration)
       || startPayload.executable?.sha256 !== attempt.request.expected_sha256
       || startPayload.executable?.version !== attempt.request.expected_version
+      || (currentAttempt && startPayload.sidecar?.sha256 !== attempt.request.expected_sidecar_sha256)
+      || (legacyAttempt && (startPayload.sidecar !== undefined || startPayload.process_tree_custody !== undefined))
+      || (currentAttempt && !validProcessTreeCustody(startPayload.process_tree_custody))
       || !uuidPattern.test(startPayload.thread?.id ?? "")
       || !uuidPattern.test(startPayload.turn?.id ?? "")
       || startPayload.turn.status !== "inProgress"
@@ -868,9 +1244,14 @@ async function inspectReceipt(receiptDir) {
       || !sameCanonical(startPayload.requested_configuration, expectedRequestedConfiguration)
       || startPayload.executable?.sha256 !== attempt.request.expected_sha256
       || startPayload.executable?.version !== attempt.request.expected_version
+      || (currentAttempt && startPayload.sidecar?.sha256 !== attempt.request.expected_sidecar_sha256)
+      || (legacyAttempt && (startPayload.sidecar !== undefined || startPayload.process_tree_custody !== undefined))
+      || (currentAttempt && !validProcessTreeCustody(startPayload.process_tree_custody))
       || terminalPayload.prompt_sha256 !== attempt.request.prompt_sha256
       || !sameCanonical(terminalPayload.requested_configuration, expectedRequestedConfiguration)
       || !sameCanonical(terminalPayload.executable, startPayload.executable)
+      || !sameCanonical(terminalPayload.process_tree_custody, startPayload.process_tree_custody)
+      || !sameCanonical(terminalPayload.sidecar, startPayload.sidecar)
       || !sameCanonical(terminalPayload.server_configuration, startPayload.server_configuration)
       || terminalPayload.thread?.id !== startPayload.thread?.id
       || terminalPayload.turn?.id !== startPayload.turn?.id
@@ -909,8 +1290,10 @@ async function main() {
       codex_executable: options["codex-executable"],
       cwd: taskCwd,
       expected_sha256: options["expected-sha256"],
+      expected_sidecar_sha256: options["expected-sidecar-sha256"],
       expected_version: options["expected-version"],
       model: options.model ?? null,
+      process_tree_custody: "v1",
       prompt_sha256: digest(prompt),
       sandbox: options.sandbox,
       timeout_ms: taskTimeoutMs,
@@ -936,6 +1319,7 @@ async function main() {
     const workerArguments = [path.resolve(process.argv[1]), "worker"];
     for (const [name, value] of [
       ["codex-executable", options["codex-executable"]], ["expected-sha256", options["expected-sha256"]],
+      ["expected-sidecar-sha256", options["expected-sidecar-sha256"]],
       ["expected-version", options["expected-version"]], ["cwd", taskCwd], ["prompt-file", materializedPrompt],
       ["sandbox", options.sandbox], ["receipt-dir", root], ["attempt-id", attemptId], ["model", options.model],
       ["timeout-ms", options["timeout-ms"]],
@@ -943,7 +1327,7 @@ async function main() {
     const launch = await launchDetachedWorker(workerArguments);
     if (launch.error) {
       await atomicJson(path.join(root, "failure.json"), sealed({
-        attempt_id: attemptId, error: launch.error.message, start_content_sha256: null,
+        attempt_id: attemptId, error: launch.error.message, error_summary: summarizeFailureError(launch.error), start_content_sha256: null,
       }, "rbm-native-task-failure-envelope/v1"));
       process.stdout.write(`${JSON.stringify(await inspectReceipt(root))}\n`);
       return;
@@ -1004,8 +1388,9 @@ async function main() {
     if (root) {
       const workerRequest = canonical({
         codex_executable: options["codex-executable"], cwd: options.cwd,
-        expected_sha256: options["expected-sha256"], expected_version: options["expected-version"],
-        model: options.model ?? null, prompt_sha256: digest(prompt), sandbox: options.sandbox,
+        expected_sha256: options["expected-sha256"], expected_sidecar_sha256: options["expected-sidecar-sha256"],
+        expected_version: options["expected-version"],
+        model: options.model ?? null, process_tree_custody: "v1", prompt_sha256: digest(prompt), sandbox: options.sandbox,
         timeout_ms: options["timeout-ms"] === undefined ? 7_200_000 : Number(options["timeout-ms"]),
       });
       if (!sameCanonical(workerRequest, attempt.request)) fail("worker request differs from its exact attempt");
@@ -1016,6 +1401,7 @@ async function main() {
       codexExecutable: options["codex-executable"],
       cwd: options.cwd,
       expectedExecutableSha256: options["expected-sha256"],
+      expectedSidecarSha256: options["expected-sidecar-sha256"],
       expectedServerVersion: options["expected-version"],
       model: options.model ?? null,
       prompt,
@@ -1036,7 +1422,7 @@ async function main() {
       const root = await receiptDirectory(options["receipt-dir"]);
       const start = await readJson(path.join(root, "start.json")).catch(() => null);
       await atomicJson(path.join(root, "failure.json"), sealed({
-        attempt_id: options["attempt-id"], error: error.message, start_content_sha256: start?.content_sha256 ?? null,
+        attempt_id: options["attempt-id"], error: error.message, error_summary: summarizeFailureError(error), start_content_sha256: start?.content_sha256 ?? null,
       }, "rbm-native-task-failure-envelope/v1")).catch(() => {});
       return;
     }
@@ -1049,7 +1435,7 @@ async function main() {
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   main().catch((error) => {
-    process.stderr.write(`native-task-controller: failed: ${error.message}\n`);
+    process.stderr.write(`native-task-controller: failed: ${displayedFailureError(error)}\n`);
     process.exitCode = 1;
   });
 }

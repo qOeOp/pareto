@@ -2,13 +2,18 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter, once } from "node:events";
-import { chmod, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { assertDetachedReceiptIsolation, launchDetachedWorker, readLifecycleReceiptValues, runNativeTask } from "./native-task-controller.mjs";
+import { assertDetachedReceiptIsolation, launchDetachedWorker, readLifecycleReceiptValues, runNativeTask, summarizeFailureError } from "./native-task-controller.mjs";
 
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "native-task-controller-test-"));
 const resolvedTemporaryRoot = await realpath(temporaryRoot);
+const detachedAuthorityRoot = await mkdtemp(path.join(os.homedir(), ".native-task-controller-test-"));
+const windowsFixturePidRoot = process.platform === "win32"
+  ? await mkdtemp(path.join(os.tmpdir(), "native-task-controller-fixture-pids-"))
+  : null;
+if (windowsFixturePidRoot !== null) process.env.NATIVE_TASK_CONTROLLER_FIXTURE_PID_ROOT = windowsFixturePidRoot;
 const threadId = "019fb8b4-ebd0-7c20-8ba1-041ed6836204";
 const turnId = "019fb8b4-ebd0-7c20-8ba1-041ed6836207";
 const prompt = "Return exactly: controller fixture passed";
@@ -19,6 +24,95 @@ const canonical = (value) => Array.isArray(value)
   : value && typeof value === "object"
     ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
     : value;
+
+const aggregateSummary = summarizeFailureError(new AggregateError(
+  [new Error("terminal detail"), new Error("cleanup detail")],
+  "native task and process-tree cleanup failed",
+));
+assert.deepEqual(aggregateSummary, {
+  causes: [
+    { message: "terminal detail", name: "Error" },
+    { message: "cleanup detail", name: "Error" },
+  ],
+  causes_truncated: false,
+  message: "native task and process-tree cleanup failed",
+  name: "AggregateError",
+});
+assert.equal("stack" in aggregateSummary, false);
+assert.equal(aggregateSummary.causes.some((cause) => "stack" in cause), false);
+const truncatedAggregateSummary = summarizeFailureError(new AggregateError(
+  Array.from({ length: 5 }, (_, index) => new Error(`${"界".repeat(600)}-${index}`)),
+  "bounded",
+));
+assert.equal(truncatedAggregateSummary.causes.length, 4);
+assert.equal(truncatedAggregateSummary.causes_truncated, true);
+assert.equal(truncatedAggregateSummary.causes.every((cause) => Buffer.byteLength(cause.message) <= 512), true);
+
+let windowsFixtureLauncherPromise = null;
+
+async function windowsFixtureLauncher() {
+  if (process.platform !== "win32") throw new Error("Windows fixture launcher requested on another platform");
+  if (windowsFixtureLauncherPromise === null) {
+    windowsFixtureLauncherPromise = (async () => {
+      const launcher = path.join(temporaryRoot, "native-task-fixture-launcher.exe");
+      const nodeExecutable = process.execPath.replaceAll("\\", "\\\\").replaceAll('"', '\\"');
+      const source = `using System;
+using System.Diagnostics;
+using System.IO;
+using System.Text;
+
+public static class NativeTaskFixtureLauncher {
+  private static string Quote(string value) {
+    if (value.Length > 0 && value.IndexOfAny(new[] { ' ', '\\t', '\\n', '\\v', '"' }) < 0) return value;
+    var result = new StringBuilder("\\\"");
+    var slashes = 0;
+    foreach (var character in value) {
+      if (character == '\\\\') { slashes += 1; continue; }
+      if (character == '"') result.Append('\\\\', slashes * 2 + 1).Append(character);
+      else result.Append('\\\\', slashes).Append(character);
+      slashes = 0;
+    }
+    return result.Append('\\\\', slashes * 2).Append('"').ToString();
+  }
+
+  public static int Main(string[] arguments) {
+    var executable = Process.GetCurrentProcess().MainModule.FileName;
+    var sidecar = String.Equals(Path.GetFileName(executable), "codex-code-mode-host.exe", StringComparison.OrdinalIgnoreCase);
+    var program = Environment.GetEnvironmentVariable(sidecar
+      ? "NATIVE_TASK_CONTROLLER_FIXTURE_SIDECAR_PROGRAM"
+      : "NATIVE_TASK_CONTROLLER_FIXTURE_PROGRAM");
+    var pidRoot = Environment.GetEnvironmentVariable("NATIVE_TASK_CONTROLLER_FIXTURE_PID_ROOT");
+    if (String.IsNullOrEmpty(program) || String.IsNullOrEmpty(pidRoot)) return 97;
+    File.WriteAllText(Path.Combine(pidRoot, Process.GetCurrentProcess().Id + ".launcher"), "");
+    var command = new StringBuilder(Quote(program));
+    foreach (var argument in arguments) command.Append(' ').Append(Quote(argument));
+    var start = new ProcessStartInfo("${nodeExecutable}", command.ToString());
+    start.UseShellExecute = false;
+    start.EnvironmentVariables["NATIVE_TASK_CONTROLLER_FIXTURE_EXECUTABLE"] = executable;
+    using (var child = Process.Start(start)) {
+      File.WriteAllText(Path.Combine(pidRoot, child.Id + ".child"), "");
+      child.WaitForExit();
+      return child.ExitCode;
+    }
+  }
+}`;
+      const encodedSource = Buffer.from(source).toString("base64");
+      const command = "$source=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($env:NTC_LAUNCHER_SOURCE)); Add-Type -TypeDefinition $source -OutputAssembly $env:NTC_LAUNCHER_PATH -OutputType ConsoleApplication";
+      const compiler = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], {
+        env: { ...process.env, NTC_LAUNCHER_PATH: launcher, NTC_LAUNCHER_SOURCE: encodedSource },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      let stdout = "";
+      let stderr = "";
+      compiler.stdout.setEncoding("utf8").on("data", (chunk) => { stdout += chunk; });
+      compiler.stderr.setEncoding("utf8").on("data", (chunk) => { stderr += chunk; });
+      const [code] = await once(compiler, "exit");
+      if (code !== 0) throw new Error(`Windows fixture launcher compilation failed: ${stdout}${stderr}`);
+      return launcher;
+    })();
+  }
+  return windowsFixtureLauncherPromise;
+}
 
 for (const successorName of ["failure.json", "terminal.json"]) {
   const reads = [];
@@ -98,6 +192,7 @@ async function fixtureExecutable({
   ignoreSigterm = false,
   ignoreVersionSigterm = false,
   invocationFile = null,
+  launchSidecar = false,
   postFinalAuthority = false,
   postTerminalItem = false,
   readbackExtraTurn = false,
@@ -111,6 +206,9 @@ async function fixtureExecutable({
   serverWritableRoots = [],
   splitUtf8Readback = false,
   sameChunkEarlyThreadResponse = false,
+  taskReadFile = null,
+  taskWriteFile = null,
+  taskWriteText = null,
   terminalStatus = "completed",
   turnStartFile = null,
   turnStartStatus = "inProgress",
@@ -121,19 +219,26 @@ async function fixtureExecutable({
   versionDelayMs = 0,
   versionPidFile = null,
 } = {}) {
-  const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, delayedDuplicateReadback, delayedFailureAfterReadback, delayedInheritedVersionStdout, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalForNonCompleted, finalText: fixtureFinalText, hangAfterTurnStart, ignoreSigterm, ignoreVersionSigterm, incompleteUtf8AfterReadback, invocationFile, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, pidFile, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalForNonCompleted, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, sameChunkEarlyThreadResponse, serverConfigMismatch, serverWritableRoots, splitUtf8Readback, terminalStatus, threadId, turnId, turnStartFile, turnStartStatus, unterminatedAfterReadback, unsolicitedThreadResponse, unapprovedCommand, version, versionDelayMs, versionPidFile };
-  const program = `#!/usr/bin/env node
+  const fixtureRoot = await mkdtemp(path.join(temporaryRoot, "codex-fixture-"));
+  const executable = path.join(fixtureRoot, process.platform === "win32" ? "codex.exe" : "codex");
+  const sidecar = path.join(fixtureRoot, process.platform === "win32" ? "codex-code-mode-host.exe" : "codex-code-mode-host");
+  const sidecarPidFile = path.join(fixtureRoot, "sidecar.json");
+  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, delayedDuplicateReadback, delayedFailureAfterReadback, delayedInheritedVersionStdout, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalForNonCompleted, finalText: fixtureFinalText, hangAfterTurnStart, ignoreSigterm, ignoreVersionSigterm, incompleteUtf8AfterReadback, invocationFile, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, launchSidecar, mutateProbe, omitResolved, pidFile, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalForNonCompleted, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, sameChunkEarlyThreadResponse, serverConfigMismatch, serverWritableRoots, sidecarPidFile, splitUtf8Readback, taskReadFile, taskWriteFile, taskWriteText, terminalStatus, threadId, turnId, turnStartFile, turnStartStatus, unterminatedAfterReadback, unsolicitedThreadResponse, unapprovedCommand, version, versionDelayMs, versionPidFile };
+const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
+const invokedExecutable = process.env.NATIVE_TASK_CONTROLLER_FIXTURE_EXECUTABLE || process.argv[1];
 if (fixture.invocationFile) require("node:fs").appendFileSync(fixture.invocationFile, String(process.argv[2]) + "\\n");
-if (process.argv[1] === fixture.executable) process.exit(5);
+if (invokedExecutable === fixture.executable) process.exit(5);
 if (process.argv[2] === "--version") {
   if (fixture.versionPidFile) require("node:fs").writeFileSync(fixture.versionPidFile, String(process.pid));
   if (fixture.ignoreVersionSigterm) { process.on("SIGTERM", () => {}); setInterval(() => {}, 1_000); }
   if (fixture.mutateProbe) {
-    require("node:fs").chmodSync(process.argv[1], 0o700);
-    require("node:fs").writeFileSync(process.argv[1], "#!/usr/bin/env node\\nprocess.exit(19);\\n");
+    const mutatePath = process.platform === "win32"
+      ? require("node:path").join(require("node:path").dirname(invokedExecutable), "codex-code-mode-host.exe")
+      : invokedExecutable;
+    require("node:fs").chmodSync(mutatePath, 0o700);
+    require("node:fs").writeFileSync(mutatePath, "#!/usr/bin/env node\\nprocess.exit(19);\\n");
   }
   if (!fixture.ignoreVersionSigterm) {
     if (fixture.delayedInheritedVersionStdout) {
@@ -145,6 +250,18 @@ if (process.argv[2] === "--version") {
   }
 }
 if ((process.argv[2] !== "app-server" || process.argv[3] !== "--stdio") && !(process.argv[2] === "--version" && fixture.ignoreVersionSigterm)) process.exit(9);
+if (fixture.launchSidecar) {
+  const sidecarPath = require("node:path").join(
+    require("node:path").dirname(invokedExecutable),
+    process.platform === "win32" ? "codex-code-mode-host.exe" : "codex-code-mode-host",
+  );
+  require("node:child_process").spawn(sidecarPath, [], { stdio: "ignore" });
+  const sidecarDeadline = Date.now() + 10_000;
+  while (!require("node:fs").existsSync(fixture.sidecarPidFile)) {
+    if (Date.now() >= sidecarDeadline) process.exit(95);
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
+  }
+}
 if (fixture.ignoreSigterm) { process.on("SIGTERM", () => {}); setInterval(() => {}, 1_000); }
 if (fixture.pidFile) require("node:fs").writeFileSync(fixture.pidFile, String(process.pid));
 const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
@@ -179,6 +296,8 @@ rl.on("line", (line) => {
   }
   if (message.method === "turn/start") {
     if (fixture.turnStartFile) require("node:fs").writeFileSync(fixture.turnStartFile, "turn started\\n");
+    if (fixture.taskReadFile) require("node:fs").readFileSync(fixture.taskReadFile, "utf8");
+    if (fixture.taskWriteFile) require("node:fs").writeFileSync(fixture.taskWriteFile, fixture.taskWriteText);
     turnInput = message.params.input;
     if (fixture.itemStartedBeforeTurnResponse) send({ method: "item/started", params: { item: { command: "pwd", commandActions: [], cwd: process.cwd(), id: "early-command", status: "inProgress", type: "commandExecution" }, threadId: fixture.threadId, turnId: null } });
     send({ id: 2, result: { turn: { id: fixture.turnId, status: fixture.turnStartStatus, items: [] } } });
@@ -277,24 +396,47 @@ function finish() {
   if (fixture.postTerminalItem) send({ method: "item/started", params: { item: { id: "late-1", type: "reasoning" }, threadId: fixture.threadId, turnId: fixture.turnId } });
 }
 `;
-  await writeFile(executable, program);
-  await chmod(executable, 0o755);
-  return { executable, sha256: digest(await readFile(executable)) };
+  const sidecarProgram = `#!/usr/bin/env node
+const invokedExecutable = process.env.NATIVE_TASK_CONTROLLER_FIXTURE_EXECUTABLE || process.argv[1];
+require("node:fs").writeFileSync(${JSON.stringify(sidecarPidFile)}, JSON.stringify({ executable: invokedExecutable, pid: process.pid }));
+setInterval(() => {}, 1_000);
+`;
+  if (process.platform === "win32") {
+    const programPath = path.join(fixtureRoot, "codex-fixture.cjs");
+    const sidecarProgramPath = path.join(fixtureRoot, "codex-sidecar-fixture.cjs");
+    await writeFile(programPath, program);
+    await writeFile(sidecarProgramPath, sidecarProgram);
+    process.env.NATIVE_TASK_CONTROLLER_FIXTURE_PROGRAM = programPath;
+    process.env.NATIVE_TASK_CONTROLLER_FIXTURE_SIDECAR_PROGRAM = sidecarProgramPath;
+    const launcher = await windowsFixtureLauncher();
+    await Promise.all([copyFile(launcher, executable), copyFile(launcher, sidecar)]);
+  } else {
+    await writeFile(executable, program);
+    await chmod(executable, 0o755);
+    await writeFile(sidecar, sidecarProgram);
+    await chmod(sidecar, 0o755);
+  }
+  return { executable, sha256: digest(await readFile(executable)), sidecar, sidecarPidFile, sidecarSha256: digest(await readFile(sidecar)) };
 }
 
-async function run(fixture = {}, overrides = {}) {
-  const identity = await fixtureExecutable(fixture);
-  return runNativeTask({
+function nativeTaskOptions(identity, fixture, overrides) {
+  return {
     approvalPolicy: "never",
     codexExecutable: identity.executable,
     cwd: resolvedTemporaryRoot,
     expectedExecutableSha256: identity.sha256,
+    expectedSidecarSha256: identity.sidecarSha256,
     expectedServerVersion: fixture.version ?? "0.148.0",
     prompt,
     sandbox: "read-only",
     timeoutMs: 2_000,
     ...overrides,
-  });
+  };
+}
+
+async function run(fixture = {}, overrides = {}) {
+  const identity = await fixtureExecutable(fixture);
+  return runNativeTask(nativeTaskOptions(identity, fixture, overrides));
 }
 
 async function waitForFile(file) {
@@ -304,6 +446,73 @@ async function waitForFile(file) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`timed out waiting for fixture file: ${file}`);
+}
+
+function processExists(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (error?.code === "ESRCH") return false;
+    throw error;
+  }
+}
+
+async function waitForProcessAbsence(pid) {
+  const deadline = Date.now() + 2_000;
+  while (processExists(pid)) {
+    if (Date.now() >= deadline) throw new Error(`sidecar process remained alive: ${pid}`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+async function runWithProcessTreeProof(fixture = {}, overrides = {}) {
+  const proofFixture = { ...fixture, launchSidecar: true };
+  const identity = await fixtureExecutable(proofFixture);
+  try {
+    return await runNativeTask(nativeTaskOptions(identity, proofFixture, overrides));
+  } finally {
+    const sidecarProcess = JSON.parse(await waitForFile(identity.sidecarPidFile));
+    assert.equal(Number.isSafeInteger(sidecarProcess.pid) && sidecarProcess.pid > 0, true);
+    assert.equal(path.basename(sidecarProcess.executable), process.platform === "win32" ? "codex-code-mode-host.exe" : "codex-code-mode-host");
+    await waitForProcessAbsence(sidecarProcess.pid);
+    const runtimeRoot = path.dirname(sidecarProcess.executable);
+    assert.match(path.basename(runtimeRoot), /^native-task-controller-runtime-/);
+    assert.equal(await realpath(runtimeRoot).catch(() => null), null);
+  }
+}
+
+async function assertWindowsFixtureProcessesStopped() {
+  if (windowsFixturePidRoot === null) return;
+  const pids = [...new Set((await readdir(windowsFixturePidRoot)).map((name) => Number.parseInt(name, 10)))]
+    .filter(Number.isSafeInteger);
+  const deadline = Date.now() + 2_000;
+  while (true) {
+    const livePids = pids.filter(processExists);
+    if (livePids.length === 0) return;
+    if (Date.now() >= deadline) throw new Error(`Windows fixture processes remained alive: ${livePids.join(",")}`);
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+async function removeTemporaryRoot() {
+  if (process.platform !== "win32") {
+    await rm(temporaryRoot, { recursive: true, force: true });
+    return;
+  }
+  await assertWindowsFixtureProcessesStopped();
+  const deadline = Date.now() + 2_000;
+  while (true) {
+    try {
+      await rm(temporaryRoot, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      if (!["EBUSY", "ENOTEMPTY", "EPERM"].includes(error?.code) || Date.now() >= deadline) throw error;
+      // Windows may release a closed executable or cwd handle just after its owning process disappears.
+      await assertWindowsFixtureProcessesStopped();
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
 }
 
 async function cliJson(arguments_) {
@@ -355,17 +564,20 @@ try {
   assert.equal(successfulSpawn.worker.pid, 43);
   assert.equal(successfulSpawnUnref, true);
 
-  const receipt = await run();
+  const receipt = await runWithProcessTreeProof();
   assert.equal(receipt.schema, "rbm-native-task-terminal-envelope/v1");
   assert.equal(receipt.payload.schema, "rbm-native-task-terminal/v1");
   assert.equal(receipt.payload.thread.id, threadId);
   assert.equal(receipt.payload.turn.id, turnId);
   assert.equal(receipt.payload.turn.status, "completed");
+  assert.equal(receipt.payload.process_tree_custody.kind, process.platform === "win32" ? "windows_job_object" : "posix_process_group");
   assert.equal(receipt.payload.final.text, finalText);
   assert.equal(receipt.payload.final.event_item_id, "agent-1");
   assert.equal(receipt.payload.final.readback_item_id, "agent-1");
   assert.equal(receipt.payload.final.sha256, digest(finalText));
   assert.equal(receipt.payload.prompt_sha256, digest(prompt));
+  assert.match(receipt.payload.sidecar.path, /codex-code-mode-host(?:\.exe)?$/);
+  assert.match(receipt.payload.sidecar.sha256, /^sha256:[a-f0-9]{64}$/);
   assert.deepEqual(receipt.payload.requested_configuration, {
     approval_policy: "never",
     cwd: resolvedTemporaryRoot,
@@ -434,10 +646,26 @@ try {
   const cliFixture = await fixtureExecutable({ approval: true });
   const promptFile = path.join(temporaryRoot, "prompt.txt");
   await writeFile(promptFile, prompt);
+  const missingSidecarIdentityCli = spawn(process.execPath, [
+    path.resolve("scripts/native-task-controller.mjs"), "run",
+    "--codex-executable", cliFixture.executable,
+    "--expected-sha256", cliFixture.sha256,
+    "--expected-version", "0.148.0",
+    "--cwd", temporaryRoot,
+    "--prompt-file", promptFile,
+    "--approval-policy", "never",
+    "--sandbox", "read-only",
+  ], { stdio: ["ignore", "ignore", "pipe"] });
+  let missingSidecarIdentityStderr = "";
+  missingSidecarIdentityCli.stderr.setEncoding("utf8").on("data", (chunk) => { missingSidecarIdentityStderr += chunk; });
+  const [missingSidecarIdentityCode] = await once(missingSidecarIdentityCli, "exit");
+  assert.notEqual(missingSidecarIdentityCode, 0);
+  assert.match(missingSidecarIdentityStderr, /missing argument: --expected-sidecar-sha256/);
   const cli = spawn(process.execPath, [
     path.resolve("scripts/native-task-controller.mjs"), "run",
     "--codex-executable", cliFixture.executable,
     "--expected-sha256", cliFixture.sha256,
+    "--expected-sidecar-sha256", cliFixture.sidecarSha256,
     "--expected-version", "0.148.0",
     "--cwd", temporaryRoot,
     "--prompt-file", promptFile,
@@ -470,6 +698,7 @@ try {
     "dispatch",
     "--codex-executable", detachedFixture.executable,
     "--expected-sha256", detachedFixture.sha256,
+    "--expected-sidecar-sha256", detachedFixture.sidecarSha256,
     "--expected-version", "0.148.0",
     "--cwd", temporaryRoot,
     "--prompt-file", promptFile,
@@ -482,18 +711,114 @@ try {
   assert.ok(["running", "terminal"].includes(dispatched.payload.state));
   assert.equal(dispatched.payload.attempt.request.prompt_sha256, digest(prompt));
   assert.equal(dispatched.payload.attempt.request.sandbox, "read-only");
+  assert.equal(dispatched.payload.attempt.request.expected_sidecar_sha256, detachedFixture.sidecarSha256);
   await waitForFile(path.join(detachedReceiptDir, "terminal.json"));
   const inspected = await cliJson(["inspect", "--receipt-dir", detachedReceiptDir]);
   assert.equal(inspected.payload.state, "terminal");
   assert.equal(inspected.payload.terminal.payload.terminal.payload.turn.id, turnId);
   assert.equal(inspected.payload.terminal.payload.terminal.payload.final.text, finalText);
+  assert.deepEqual(
+    inspected.payload.terminal.payload.terminal.payload.sidecar,
+    inspected.payload.start.payload.start.sidecar,
+  );
+
+  const legacyReceiptDir = await mkdtemp(path.join(temporaryRoot, "legacy-detached-receipt-"));
+  const legacyAttempt = JSON.parse(await readFile(path.join(detachedReceiptDir, "attempt.json"), "utf8"));
+  delete legacyAttempt.request.expected_sidecar_sha256;
+  delete legacyAttempt.request.process_tree_custody;
+  legacyAttempt.content_sha256 = digest(JSON.stringify(canonical({
+    attempt_id: legacyAttempt.attempt_id,
+    request: legacyAttempt.request,
+    schema: legacyAttempt.schema,
+  })));
+  const legacyStart = JSON.parse(await readFile(path.join(detachedReceiptDir, "start.json"), "utf8"));
+  delete legacyStart.payload.start.sidecar;
+  delete legacyStart.payload.start.process_tree_custody;
+  legacyStart.content_sha256 = digest(JSON.stringify(canonical(legacyStart.payload)));
+  const legacyTerminal = JSON.parse(await readFile(path.join(detachedReceiptDir, "terminal.json"), "utf8"));
+  delete legacyTerminal.payload.terminal.payload.sidecar;
+  delete legacyTerminal.payload.terminal.payload.process_tree_custody;
+  legacyTerminal.payload.terminal.content_sha256 = digest(JSON.stringify(canonical(legacyTerminal.payload.terminal.payload)));
+  legacyTerminal.content_sha256 = digest(JSON.stringify(canonical(legacyTerminal.payload)));
+  await Promise.all([
+    writeFile(path.join(legacyReceiptDir, "attempt.json"), JSON.stringify(legacyAttempt)),
+    writeFile(path.join(legacyReceiptDir, "start.json"), JSON.stringify(legacyStart)),
+    writeFile(path.join(legacyReceiptDir, "terminal.json"), JSON.stringify(legacyTerminal)),
+  ]);
+  const legacyInspection = await cliJson(["inspect", "--receipt-dir", legacyReceiptDir]);
+  assert.equal(legacyInspection.payload.state, "terminal");
+  assert.equal(legacyInspection.payload.attempt.request.expected_sidecar_sha256, undefined);
+  assert.equal(legacyInspection.payload.start.payload.start.sidecar, undefined);
+  assert.equal(legacyInspection.payload.start.payload.start.process_tree_custody, undefined);
+  assert.equal(legacyInspection.payload.terminal.payload.terminal.payload.sidecar, undefined);
+  legacyAttempt.request.process_tree_custody = "v1";
+  legacyAttempt.content_sha256 = digest(JSON.stringify(canonical({
+    attempt_id: legacyAttempt.attempt_id,
+    request: legacyAttempt.request,
+    schema: legacyAttempt.schema,
+  })));
+  await writeFile(path.join(legacyReceiptDir, "attempt.json"), JSON.stringify(legacyAttempt));
+  const mixedLegacyInspect = spawn(process.execPath, [path.resolve("scripts/native-task-controller.mjs"), "inspect", "--receipt-dir", legacyReceiptDir], { stdio: ["ignore", "pipe", "pipe"] });
+  let mixedLegacyStderr = "";
+  mixedLegacyInspect.stdout.resume();
+  mixedLegacyInspect.stderr.setEncoding("utf8").on("data", (chunk) => { mixedLegacyStderr += chunk; });
+  const [mixedLegacyCode] = await once(mixedLegacyInspect, "exit");
+  assert.notEqual(mixedLegacyCode, 0);
+  assert.match(mixedLegacyStderr, /attempt receipt is missing, malformed/);
+
+  const workspaceInput = path.join(temporaryRoot, "workspace-input.txt");
+  const workspaceOutput = path.join(temporaryRoot, "workspace-output.txt");
+  await writeFile(workspaceInput, "one task read\n");
+  const receiptSentinel = path.join(detachedAuthorityRoot, "receipt-sentinel.txt");
+  await writeFile(receiptSentinel, "hub receipt authority\n");
+  const sentinelSha256 = digest(await readFile(receiptSentinel));
+  const workspaceFixture = await fixtureExecutable({
+    serverWritableRoots: [resolvedTemporaryRoot],
+    taskReadFile: workspaceInput,
+    taskWriteFile: workspaceOutput,
+    taskWriteText: "one task-cwd-only write\n",
+  });
+  const workspaceReceiptDir = path.join(detachedAuthorityRoot, "workspace-receipt");
+  const workspaceDispatch = await cliJson([
+    "dispatch", "--codex-executable", workspaceFixture.executable,
+    "--expected-sha256", workspaceFixture.sha256,
+    "--expected-sidecar-sha256", workspaceFixture.sidecarSha256,
+    "--expected-version", "0.148.0", "--cwd", temporaryRoot,
+    "--prompt-file", promptFile, "--sandbox", "workspace-write",
+    "--receipt-dir", workspaceReceiptDir, "--timeout-ms", "2000", "--start-timeout-ms", "2000",
+  ]);
+  assert.ok(["running", "terminal"].includes(workspaceDispatch.payload.state));
+  const workspaceAttemptSource = await readFile(path.join(workspaceReceiptDir, "attempt.json"), "utf8");
+  await waitForFile(path.join(workspaceReceiptDir, "terminal.json"));
+  const workspaceInspection = await cliJson(["inspect", "--receipt-dir", workspaceReceiptDir]);
+  assert.equal(workspaceInspection.payload.state, "terminal");
+  assert.equal(await readFile(workspaceOutput, "utf8"), "one task-cwd-only write\n");
+  assert.equal(digest(await readFile(receiptSentinel)), sentinelSha256);
+  assert.equal(await readFile(path.join(workspaceReceiptDir, "attempt.json"), "utf8"), workspaceAttemptSource);
+  assert.equal(
+    workspaceInspection.payload.attempt.content_sha256,
+    digest(JSON.stringify(canonical({
+      attempt_id: workspaceInspection.payload.attempt.attempt_id,
+      request: workspaceInspection.payload.attempt.request,
+      schema: workspaceInspection.payload.attempt.schema,
+    }))),
+  );
+  assert.equal(
+    workspaceInspection.payload.terminal.content_sha256,
+    digest(JSON.stringify(canonical(workspaceInspection.payload.terminal.payload))),
+  );
+  assert.equal(
+    workspaceInspection.payload.start.payload.start.server_configuration.sandbox.writableRoots[0],
+    resolvedTemporaryRoot,
+  );
+  assert.equal(path.relative(resolvedTemporaryRoot, workspaceReceiptDir).startsWith(".."), true);
   const invocationsBeforeRetry = await readFile(detachedInvocations, "utf8");
   const retried = await cliJson(dispatchArguments);
   assert.equal(retried.payload.state, "terminal");
   assert.equal(await readFile(detachedInvocations, "utf8"), invocationsBeforeRetry);
 
   const receiptLink = path.join(temporaryRoot, "detached-receipt-link");
-  await symlink(detachedReceiptDir, receiptLink, "dir");
+  await symlink(detachedReceiptDir, receiptLink, process.platform === "win32" ? "junction" : "dir");
   const linkedInspect = spawn(process.execPath, [path.resolve("scripts/native-task-controller.mjs"), "inspect", "--receipt-dir", receiptLink], { stdio: ["ignore", "pipe", "pipe"] });
   let linkedStderr = "";
   linkedInspect.stdout.resume();
@@ -533,12 +858,15 @@ try {
   const failedReceiptDir = path.join(temporaryRoot, "failed-detached-receipt");
   const failedDispatch = await cliJson([
     "dispatch", "--codex-executable", failedDetachedFixture.executable,
-    "--expected-sha256", failedDetachedFixture.sha256, "--expected-version", "0.148.0",
+    "--expected-sha256", failedDetachedFixture.sha256,
+    "--expected-sidecar-sha256", failedDetachedFixture.sidecarSha256, "--expected-version", "0.148.0",
     "--cwd", temporaryRoot, "--prompt-file", promptFile, "--sandbox", "read-only",
     "--receipt-dir", failedReceiptDir, "--timeout-ms", "2000", "--start-timeout-ms", "2000",
   ]);
   assert.equal(failedDispatch.payload.state, "needs_attention");
   assert.match(failedDispatch.payload.failure.payload.error, /did not confirm requested authority configuration/);
+  assert.match(failedDispatch.payload.failure.payload.error_summary.message, /did not confirm requested authority configuration/);
+  assert.deepEqual(failedDispatch.payload.failure.payload.error_summary.causes, []);
   await writeFile(path.join(failedReceiptDir, "terminal.json"), terminalReceiptSource);
   const conflictingInspect = spawn(process.execPath, [path.resolve("scripts/native-task-controller.mjs"), "inspect", "--receipt-dir", failedReceiptDir], { stdio: ["ignore", "pipe", "pipe"] });
   let conflictingStderr = "";
@@ -553,7 +881,8 @@ try {
   const postStartFailureDir = path.join(temporaryRoot, "post-start-failure-receipt");
   const postStartFailureArguments = [
     "dispatch", "--codex-executable", postStartFailureFixture.executable,
-    "--expected-sha256", postStartFailureFixture.sha256, "--expected-version", "0.148.0",
+    "--expected-sha256", postStartFailureFixture.sha256,
+    "--expected-sidecar-sha256", postStartFailureFixture.sidecarSha256, "--expected-version", "0.148.0",
     "--cwd", temporaryRoot, "--prompt-file", promptFile, "--sandbox", "read-only",
     "--receipt-dir", postStartFailureDir, "--timeout-ms", "2000", "--start-timeout-ms", "2000",
   ];
@@ -605,6 +934,7 @@ try {
     path.resolve("scripts/native-task-controller.mjs"), "run",
     "--codex-executable", earlyFixture.executable,
     "--expected-sha256", earlyFixture.sha256,
+    "--expected-sidecar-sha256", earlyFixture.sidecarSha256,
     "--expected-version", "0.148.0",
     "--cwd", temporaryRoot,
     "--prompt-file", promptFile,
@@ -619,33 +949,38 @@ try {
   assert.notEqual(earlyCode, 0);
   assert.match(earlyStderr, /approval decision arrived before a displayed request/);
 
-  const runtimeRootsBeforeSignal = new Set((await readdir(os.tmpdir())).filter((name) => name.startsWith("native-task-controller-runtime-")));
-  const signalPidFile = path.join(temporaryRoot, "signal-child.pid");
-  const signalFixture = await fixtureExecutable({ hangAfterTurnStart: true, ignoreSigterm: true, pidFile: signalPidFile });
-  const signalCli = spawn(process.execPath, [
-    path.resolve("scripts/native-task-controller.mjs"), "run",
-    "--codex-executable", signalFixture.executable,
-    "--expected-sha256", signalFixture.sha256,
-    "--expected-version", "0.148.0",
-    "--cwd", temporaryRoot,
-    "--prompt-file", promptFile,
-    "--approval-policy", "never",
-    "--sandbox", "read-only",
-    "--timeout-ms", "30000",
-  ], { stdio: ["pipe", "pipe", "pipe"] });
-  let signalStderr = "";
-  signalCli.stdout.resume();
-  signalCli.stderr.setEncoding("utf8").on("data", (chunk) => { signalStderr += chunk; });
-  const signalChildPid = Number(await waitForFile(signalPidFile));
-  signalCli.kill("SIGTERM");
-  setTimeout(() => signalCli.kill("SIGTERM"), 20);
-  const [signalCode, signalName] = await once(signalCli, "exit");
-  assert.notEqual(signalCode, 0);
-  assert.equal(signalName, null);
-  assert.match(signalStderr, /native task was aborted/);
-  assert.throws(() => process.kill(signalChildPid, 0), (error) => error?.code === "ESRCH");
-  const runtimeRootsAfterSignal = new Set((await readdir(os.tmpdir())).filter((name) => name.startsWith("native-task-controller-runtime-")));
-  assert.deepEqual([...runtimeRootsAfterSignal].filter((name) => !runtimeRootsBeforeSignal.has(name)), []);
+  if (process.platform !== "win32") {
+    const runtimeRootsBeforeSignal = new Set((await readdir(os.tmpdir())).filter((name) => name.startsWith("native-task-controller-runtime-")));
+    const signalPidFile = path.join(temporaryRoot, "signal-child.pid");
+    const signalFixture = await fixtureExecutable({ hangAfterTurnStart: true, ignoreSigterm: true, launchSidecar: true, pidFile: signalPidFile });
+    const signalCli = spawn(process.execPath, [
+      path.resolve("scripts/native-task-controller.mjs"), "run",
+      "--codex-executable", signalFixture.executable,
+      "--expected-sha256", signalFixture.sha256,
+      "--expected-sidecar-sha256", signalFixture.sidecarSha256,
+      "--expected-version", "0.148.0",
+      "--cwd", temporaryRoot,
+      "--prompt-file", promptFile,
+      "--approval-policy", "never",
+      "--sandbox", "read-only",
+      "--timeout-ms", "30000",
+    ], { stdio: ["pipe", "pipe", "pipe"] });
+    let signalStderr = "";
+    signalCli.stdout.resume();
+    signalCli.stderr.setEncoding("utf8").on("data", (chunk) => { signalStderr += chunk; });
+    const signalChildPid = Number(await waitForFile(signalPidFile));
+    signalCli.kill("SIGTERM");
+    setTimeout(() => signalCli.kill("SIGTERM"), 20);
+    const [signalCode, signalName] = await once(signalCli, "exit");
+    assert.notEqual(signalCode, 0);
+    assert.equal(signalName, null);
+    assert.match(signalStderr, /native task was aborted/);
+    assert.throws(() => process.kill(signalChildPid, 0), (error) => error?.code === "ESRCH");
+    const signalSidecar = JSON.parse(await waitForFile(signalFixture.sidecarPidFile));
+    await waitForProcessAbsence(signalSidecar.pid);
+    const runtimeRootsAfterSignal = new Set((await readdir(os.tmpdir())).filter((name) => name.startsWith("native-task-controller-runtime-")));
+    assert.deepEqual([...runtimeRootsAfterSignal].filter((name) => !runtimeRootsBeforeSignal.has(name)), []);
+  }
 
   const failed = await run({ terminalStatus: "failed" });
   assert.equal(failed.payload.turn.status, "failed");
@@ -662,18 +997,20 @@ try {
   await assert.rejects(() => run({ invocationFile: preAbortedInvocations }, { signal: preAbortedController.signal }), /native task was aborted/);
   assert.equal(await readFile(preAbortedInvocations, "utf8").catch(() => null), null);
 
-  const probeAbortController = new AbortController();
-  const probeAbortInvocations = path.join(temporaryRoot, "probe-abort-invocations.txt");
-  const probePidFile = path.join(temporaryRoot, "probe-abort.pid");
-  const probeRootsBeforeAbort = new Set((await readdir(os.tmpdir())).filter((name) => name.startsWith("native-task-controller-probe-")));
-  const probeAbortRun = run({ ignoreVersionSigterm: true, invocationFile: probeAbortInvocations, versionPidFile: probePidFile }, { signal: probeAbortController.signal });
-  const probePid = Number(await waitForFile(probePidFile));
-  probeAbortController.abort();
-  await assert.rejects(probeAbortRun, /native task was aborted/);
-  assert.throws(() => process.kill(probePid, 0), (error) => error?.code === "ESRCH");
-  assert.deepEqual((await readFile(probeAbortInvocations, "utf8")).trim().split("\n"), ["--version"]);
-  const probeRootsAfterAbort = new Set((await readdir(os.tmpdir())).filter((name) => name.startsWith("native-task-controller-probe-")));
-  assert.deepEqual([...probeRootsAfterAbort].filter((name) => !probeRootsBeforeAbort.has(name)), []);
+  if (process.platform !== "win32") {
+    const probeAbortController = new AbortController();
+    const probeAbortInvocations = path.join(temporaryRoot, "probe-abort-invocations.txt");
+    const probePidFile = path.join(temporaryRoot, "probe-abort.pid");
+    const probeRootsBeforeAbort = new Set((await readdir(os.tmpdir())).filter((name) => name.startsWith("native-task-controller-probe-")));
+    const probeAbortRun = run({ ignoreVersionSigterm: true, invocationFile: probeAbortInvocations, versionPidFile: probePidFile }, { signal: probeAbortController.signal });
+    const probePid = Number(await waitForFile(probePidFile));
+    probeAbortController.abort();
+    await assert.rejects(probeAbortRun, /native task was aborted/);
+    assert.throws(() => process.kill(probePid, 0), (error) => error?.code === "ESRCH");
+    assert.deepEqual((await readFile(probeAbortInvocations, "utf8")).trim().split("\n"), ["--version"]);
+    const probeRootsAfterAbort = new Set((await readdir(os.tmpdir())).filter((name) => name.startsWith("native-task-controller-probe-")));
+    assert.deepEqual([...probeRootsAfterAbort].filter((name) => !probeRootsBeforeAbort.has(name)), []);
+  }
 
   await assert.rejects(() => run({ approval: true }), /conflicts with the confirmed never policy/);
   await assert.rejects(() => run({ approval: true, approvalMissingId: true }, { approvalPolicy: "on-request" }), /approval request id is malformed/);
@@ -713,16 +1050,19 @@ try {
   await assert.rejects(() => run({ turnStartStatus: "completed" }), /exact in-progress turn/);
   await assert.rejects(() => run({ approval: true, authorityStartedStatus: "completed" }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /started outside inProgress/);
   await assert.rejects(() => run({ authorityCompletedStatus: "inProgress", unapprovedCommand: "pwd" }), /completed with a non-terminal status/);
-  await assert.rejects(() => run({ serverConfigMismatch: true }), /did not confirm requested authority configuration/);
+  await assert.rejects(() => runWithProcessTreeProof({ serverConfigMismatch: true }), /did not confirm requested authority configuration/);
   await assert.rejects(() => run({ unsolicitedThreadResponse: true }), /response arrived before its matching request was sent/);
   await assert.rejects(() => run({ sameChunkEarlyThreadResponse: true }), /response arrived before its matching request was sent/);
   await assert.rejects(() => run({ duplicateInitialize: true }), /duplicate response id/);
   await assert.rejects(() => run({ duplicateReadback: true }), /duplicate response id/);
-  await assert.rejects(() => run({ delayedDuplicateReadback: true, ignoreSigterm: true }), /duplicate response id/);
-  await assert.rejects(() => run({ delayedFailureAfterReadback: true, ignoreSigterm: true }), /exited unexpectedly during receipt shutdown: code=7 signal=null/);
+  if (process.platform !== "win32") {
+    // These cases require a child that ignores SIGTERM; Windows TerminateProcess closes its kill-on-close Job instead.
+    await assert.rejects(() => run({ delayedDuplicateReadback: true, ignoreSigterm: true }), /duplicate response id/);
+    await assert.rejects(() => run({ delayedFailureAfterReadback: true, ignoreSigterm: true }), /exited unexpectedly during receipt shutdown: code=7 signal=null/);
+  }
   await assert.rejects(() => run({ incompleteUtf8AfterReadback: true }), /unterminated frame/);
   await assert.rejects(() => run({ unterminatedAfterReadback: true }), /unterminated frame/);
-  await assert.rejects(() => run({ exitEarly: true }), /exited before terminal receipt/);
+  await assert.rejects(() => runWithProcessTreeProof({ exitEarly: true }), /exited before terminal receipt/);
   await assert.rejects(() => run({ exitAfterReadback: true }), /exited before terminal receipt/);
 
   const wrongHash = await fixtureExecutable();
@@ -731,16 +1071,49 @@ try {
     codexExecutable: wrongHash.executable,
     cwd: temporaryRoot,
     expectedExecutableSha256: `sha256:${"0".repeat(64)}`,
+    expectedSidecarSha256: wrongHash.sidecarSha256,
     expectedServerVersion: "0.148.0",
     prompt,
     sandbox: "read-only",
   }), /sha256 mismatch/);
+  const missingSidecarTurnStart = path.join(temporaryRoot, "missing-sidecar-turn-start.txt");
+  const missingSidecar = await fixtureExecutable({ turnStartFile: missingSidecarTurnStart });
+  await rm(missingSidecar.sidecar);
+  await assert.rejects(() => runNativeTask({
+    approvalPolicy: "never",
+    codexExecutable: missingSidecar.executable,
+    cwd: temporaryRoot,
+    expectedExecutableSha256: missingSidecar.sha256,
+    expectedSidecarSha256: missingSidecar.sidecarSha256,
+    expectedServerVersion: "0.148.0",
+    prompt,
+    sandbox: "read-only",
+  }), /sidecar is missing or unsafe/);
+  assert.equal(await readFile(missingSidecarTurnStart, "utf8").catch(() => null), null);
+  const wrongSidecarTurnStart = path.join(temporaryRoot, "wrong-sidecar-turn-start.txt");
+  const wrongSidecar = await fixtureExecutable({ turnStartFile: wrongSidecarTurnStart });
+  await assert.rejects(() => runNativeTask({
+    approvalPolicy: "never",
+    codexExecutable: wrongSidecar.executable,
+    cwd: temporaryRoot,
+    expectedExecutableSha256: wrongSidecar.sha256,
+    expectedSidecarSha256: `sha256:${"0".repeat(64)}`,
+    expectedServerVersion: "0.148.0",
+    prompt,
+    sandbox: "read-only",
+  }), /sidecar sha256 mismatch/);
+  assert.equal(await readFile(wrongSidecarTurnStart, "utf8").catch(() => null), null);
   await assert.rejects(() => run({}, { expectedServerVersion: "0.149.0" }), /version mismatch/);
-  await assert.rejects(() => run({ delayedInheritedVersionStdout: true }), /version mismatch/);
+  if (process.platform !== "win32") {
+    // Windows kill-on-close Jobs terminate the grandchild that would otherwise retain inherited stdout.
+    await assert.rejects(() => run({ delayedInheritedVersionStdout: true }), /version mismatch/);
+  }
   await assert.rejects(() => run({}, { approvalPolicy: "invalid" }), /approval policy is unsupported/);
   await assert.rejects(() => run({}, { sandbox: "invalid" }), /sandbox mode is unsupported/);
 
   console.log("native task controller tests passed");
 } finally {
-  await rm(temporaryRoot, { recursive: true, force: true });
+  await removeTemporaryRoot();
+  await rm(detachedAuthorityRoot, { recursive: true, force: true });
+  if (windowsFixturePidRoot !== null) await rm(windowsFixturePidRoot, { recursive: true, force: true });
 }
