@@ -16,6 +16,7 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 const approvalPolicies = new Set(["untrusted", "on-request", "never"]);
 const sandboxModes = new Set(["read-only", "workspace-write", "danger-full-access"]);
 const approvalDecisions = new Set(["accept", "decline", "cancel"]);
+const approvalRequestMethods = new Set(["item/commandExecution/requestApproval", "item/fileChange/requestApproval"]);
 const sandboxPolicyTypes = new Map([
   ["read-only", "readOnly"],
   ["workspace-write", "workspaceWrite"],
@@ -336,11 +337,8 @@ async function executeNativeTask({
         fail("app-server returned an unknown client response id");
       }
 
-      if (message.id !== undefined && typeof message.method === "string") {
+      if (approvalRequestMethods.has(message.method)) {
         if (terminalAnswerItemId !== null) fail("app-server requested approval after the terminal answer started");
-        if (!["item/commandExecution/requestApproval", "item/fileChange/requestApproval"].includes(message.method)) {
-          fail(`unsupported app-server request: ${message.method}`);
-        }
         const params = message.params;
         if (!validRequestId(message.id)) fail("approval request id is malformed");
         if (!threadId || !turnId || params?.threadId !== threadId || params?.turnId !== turnId || typeof params?.itemId !== "string") {
@@ -386,6 +384,7 @@ async function executeNativeTask({
         send({ id: message.id, result: { decision } });
         return;
       }
+      if (message.id !== undefined && typeof message.method === "string") fail(`unsupported app-server request: ${message.method}`);
 
       if (typeof message.method !== "string" || message.id !== undefined) fail("app-server notification is malformed");
       const params = message.params ?? {};
@@ -393,7 +392,7 @@ async function executeNativeTask({
         if (terminalAnswerItemId !== null && !(message.method === "item/completed" && params.item?.id === terminalAnswerItemId && finalMessages.length === 0)) {
           fail("app-server emitted an item event after the terminal answer started");
         }
-        if (params.threadId !== threadId || params.turnId !== turnId || typeof params.item?.id !== "string" || typeof params.item?.type !== "string") {
+        if (!threadId || !turnId || params.threadId !== threadId || params.turnId !== turnId || typeof params.item?.id !== "string" || typeof params.item?.type !== "string") {
           fail(`${message.method} identity is malformed`);
         }
         const current = items.get(params.item.id);
@@ -410,9 +409,10 @@ async function executeNativeTask({
           }
           if (item.type === "agentMessage" && item.phase === "final_answer" && terminalSubject === null) fail("terminal answer started with malformed content");
           if (terminalSubject !== null) terminalAnswerItemId = item.id;
-          items.set(params.item.id, { item, startedWireSequence: receiveWireSequence, state: "started", subject, terminalSubject, type: params.item.type });
+          items.set(params.item.id, { item, startedWireSequence: receiveWireSequence, state: "started", subject, terminalSubject, threadId, turnId, type: params.item.type });
         } else {
           if (current?.state !== "started" || current.type !== params.item.type) fail("item/completed lacks its matching started item");
+          if (current.threadId !== params.threadId || current.turnId !== params.turnId) fail("item/completed changed its started identity");
           const completedSubject = authoritySubject(params.item);
           if (current.subject !== null && !sameCanonical(completedSubject, current.subject)) fail("item/completed changed its authority subject");
           if (current.terminalSubject !== null && !sameCanonical(terminalAnswerSubject(params.item), current.terminalSubject)) fail("item/completed changed its terminal answer");
