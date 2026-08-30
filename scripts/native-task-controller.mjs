@@ -1,4 +1,4 @@
-import { spawn, execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { createReadStream } from "node:fs";
@@ -6,11 +6,10 @@ import { chmod, copyFile, lstat, mkdtemp, readFile, realpath, rm } from "node:fs
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
-import { promisify, TextDecoder } from "node:util";
+import { TextDecoder } from "node:util";
 import { pathToFileURL } from "node:url";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
-const execFileAsync = promisify(execFile);
 const shaPattern = /^sha256:[a-f0-9]{64}$/;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const approvalPolicies = new Set(["untrusted", "on-request", "never"]);
@@ -68,6 +67,51 @@ function terminalAnswerSubject(item) {
   return canonical({ phase: item.phase, type: item.type });
 }
 
+async function readVersionProbe(executable, signal) {
+  failIfAborted(signal);
+  let child;
+  try {
+    child = spawn(executable, ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+  } catch (error) {
+    throw error;
+  }
+  if (!child.stdout || !child.stderr) {
+    await stopChild(child);
+    fail("codex version probe transport is unavailable");
+  }
+  child.stderr.resume();
+  const chunks = [];
+  let stdoutBytes = 0;
+  let interrupt;
+  const interrupted = new Promise((resolve) => { interrupt = resolve; });
+  const onAbort = () => interrupt(new Error("native task was aborted"));
+  if (signal?.aborted) onAbort();
+  else signal?.addEventListener("abort", onAbort, { once: true });
+  const timer = setTimeout(() => interrupt(new Error("codex version probe timed out")), 10_000);
+  child.stdout.on("data", (chunk) => {
+    stdoutBytes += chunk.length;
+    if (stdoutBytes > 1024 * 1024) interrupt(new Error("codex version probe output exceeded 1 MiB"));
+    else chunks.push(chunk);
+  });
+  const exited = new Promise((resolve) => {
+    child.once("error", (error) => resolve({ error }));
+    child.once("exit", (code, childSignal) => resolve({ childSignal, code }));
+  });
+  const outcome = await Promise.race([
+    exited.then((value) => ({ type: "exit", value })),
+    interrupted.then((error) => ({ error, type: "interrupt" })),
+  ]);
+  clearTimeout(timer);
+  signal?.removeEventListener("abort", onAbort);
+  if (outcome.type === "interrupt") {
+    await stopChild(child);
+    throw outcome.error;
+  }
+  if (outcome.value.error) throw outcome.value.error;
+  if (outcome.value.code !== 0 || outcome.value.childSignal !== null) fail("codex version probe failed");
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 async function materializeExecutable(executable, expectedSha256, expectedVersion, signal) {
   failIfAborted(signal);
   if (!path.isAbsolute(executable)) fail("codex executable must be one absolute path");
@@ -108,13 +152,7 @@ async function materializeExecutable(executable, expectedSha256, expectedVersion
   };
   const probe = await copyExecutable("native-task-controller-probe-");
   try {
-    let stdout;
-    try {
-      ({ stdout } = await execFileAsync(probe.copiedPath, ["--version"], { encoding: "utf8", signal: signal ?? undefined, timeout: 10_000 }));
-    } catch (error) {
-      failIfAborted(signal);
-      throw error;
-    }
+    const stdout = await readVersionProbe(probe.copiedPath, signal);
     failIfAborted(signal);
     if (stdout.trim() !== `codex-cli ${expectedVersion}`) fail("codex executable version mismatch");
   } finally {

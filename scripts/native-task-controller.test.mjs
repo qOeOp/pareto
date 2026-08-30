@@ -44,6 +44,7 @@ async function fixtureExecutable({
   itemStartedBeforeTurnResponse = false,
   incompleteUtf8AfterReadback = false,
   ignoreSigterm = false,
+  ignoreVersionSigterm = false,
   invocationFile = null,
   postFinalAuthority = false,
   postTerminalItem = false,
@@ -64,24 +65,29 @@ async function fixtureExecutable({
   unapprovedCommand = null,
   version = "0.148.0",
   versionDelayMs = 0,
+  versionPidFile = null,
 } = {}) {
   const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalForNonCompleted, finalText: fixtureFinalText, hangAfterTurnStart, ignoreSigterm, incompleteUtf8AfterReadback, invocationFile, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, pidFile, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalForNonCompleted, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, sameChunkEarlyThreadResponse, serverConfigMismatch, splitUtf8Readback, terminalStatus, threadId, turnId, turnStartStatus, unterminatedAfterReadback, unsolicitedThreadResponse, unapprovedCommand, version, versionDelayMs };
+  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalForNonCompleted, finalText: fixtureFinalText, hangAfterTurnStart, ignoreSigterm, ignoreVersionSigterm, incompleteUtf8AfterReadback, invocationFile, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, pidFile, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalForNonCompleted, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, sameChunkEarlyThreadResponse, serverConfigMismatch, splitUtf8Readback, terminalStatus, threadId, turnId, turnStartStatus, unterminatedAfterReadback, unsolicitedThreadResponse, unapprovedCommand, version, versionDelayMs, versionPidFile };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
 if (fixture.invocationFile) require("node:fs").appendFileSync(fixture.invocationFile, String(process.argv[2]) + "\\n");
 if (process.argv[1] === fixture.executable) process.exit(5);
 if (process.argv[2] === "--version") {
+  if (fixture.versionPidFile) require("node:fs").writeFileSync(fixture.versionPidFile, String(process.pid));
+  if (fixture.ignoreVersionSigterm) { process.on("SIGTERM", () => {}); setInterval(() => {}, 1_000); }
   if (fixture.mutateProbe) {
     require("node:fs").chmodSync(process.argv[1], 0o700);
     require("node:fs").writeFileSync(process.argv[1], "#!/usr/bin/env node\\nprocess.exit(19);\\n");
   }
-  const finishVersion = () => { process.stdout.write("codex-cli " + fixture.version + "\\n"); process.exit(0); };
-  if (fixture.versionDelayMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, fixture.versionDelayMs);
-  finishVersion();
+  if (!fixture.ignoreVersionSigterm) {
+    const finishVersion = () => { process.stdout.write("codex-cli " + fixture.version + "\\n"); process.exit(0); };
+    if (fixture.versionDelayMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, fixture.versionDelayMs);
+    finishVersion();
+  }
 }
-if (process.argv[2] !== "app-server" || process.argv[3] !== "--stdio") process.exit(9);
+if ((process.argv[2] !== "app-server" || process.argv[3] !== "--stdio") && !(process.argv[2] === "--version" && fixture.ignoreVersionSigterm)) process.exit(9);
 if (fixture.ignoreSigterm) { process.on("SIGTERM", () => {}); setInterval(() => {}, 1_000); }
 if (fixture.pidFile) require("node:fs").writeFileSync(fixture.pidFile, String(process.pid));
 const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
@@ -132,14 +138,21 @@ rl.on("line", (line) => {
       if (fixture.availableDecisions !== null) params.availableDecisions = fixture.availableDecisions;
       const request = { id: "approval-1", method: fixture.fileApproval ? "item/fileChange/requestApproval" : "item/commandExecution/requestApproval", params };
       if (fixture.approvalMissingId) delete request.id;
-      send(request);
       if (fixture.completeBeforeApprovalResponse) {
-        if (!fixture.omitResolved) send({ method: "serverRequest/resolved", params: { requestId: "approval-1", threadId: fixture.threadId } });
         const completedItem = fixture.fileApproval
           ? { changes: [{ path: "/tmp/example", type: "update" }], id: "change-1", status: fixture.authorityCompletedStatus, type: "fileChange" }
           : { command: "pwd", commandActions: [], cwd: process.cwd(), id: "command-1", status: fixture.authorityCompletedStatus, type: "commandExecution" };
-        send({ method: "item/completed", params: { item: completedItem, threadId: fixture.threadId, turnId: fixture.turnId } });
-        finish();
+        const messages = [request];
+        if (!fixture.omitResolved) messages.push({ method: "serverRequest/resolved", params: { requestId: "approval-1", threadId: fixture.threadId } });
+        messages.push({ method: "item/completed", params: { item: completedItem, threadId: fixture.threadId, turnId: fixture.turnId } });
+        if (fixture.terminalStatus === "completed") {
+          messages.push({ method: "item/started", params: { item: { id: "agent-1", type: "agentMessage", phase: "final_answer", text: fixture.finalText }, threadId: fixture.threadId, turnId: fixture.turnId } });
+          messages.push({ method: "item/completed", params: { item: { id: "agent-1", type: "agentMessage", phase: "final_answer", text: fixture.finalText }, threadId: fixture.threadId, turnId: fixture.turnId } });
+        }
+        messages.push({ method: "turn/completed", params: { threadId: fixture.threadId, turn: { id: fixture.turnId, status: fixture.terminalStatus, error: null } } });
+        process.stdout.write(messages.map((value) => JSON.stringify(value)).join("\\n") + "\\n");
+      } else {
+        send(request);
       }
     }
     else if (fixture.completedWithoutStarted) {
@@ -404,11 +417,16 @@ try {
 
   const probeAbortController = new AbortController();
   const probeAbortInvocations = path.join(temporaryRoot, "probe-abort-invocations.txt");
-  const probeAbortRun = run({ invocationFile: probeAbortInvocations, versionDelayMs: 5_000 }, { signal: probeAbortController.signal });
-  await waitForFile(probeAbortInvocations);
+  const probePidFile = path.join(temporaryRoot, "probe-abort.pid");
+  const probeRootsBeforeAbort = new Set((await readdir(os.tmpdir())).filter((name) => name.startsWith("native-task-controller-probe-")));
+  const probeAbortRun = run({ ignoreVersionSigterm: true, invocationFile: probeAbortInvocations, versionPidFile: probePidFile }, { signal: probeAbortController.signal });
+  const probePid = Number(await waitForFile(probePidFile));
   probeAbortController.abort();
   await assert.rejects(probeAbortRun, /native task was aborted/);
+  assert.throws(() => process.kill(probePid, 0), (error) => error?.code === "ESRCH");
   assert.deepEqual((await readFile(probeAbortInvocations, "utf8")).trim().split("\n"), ["--version"]);
+  const probeRootsAfterAbort = new Set((await readdir(os.tmpdir())).filter((name) => name.startsWith("native-task-controller-probe-")));
+  assert.deepEqual([...probeRootsAfterAbort].filter((name) => !probeRootsBeforeAbort.has(name)), []);
 
   await assert.rejects(() => run({ approval: true }), /conflicts with the confirmed never policy/);
   await assert.rejects(() => run({ approval: true, approvalMissingId: true }, { approvalPolicy: "on-request" }), /approval request id is malformed/);
