@@ -1,0 +1,149 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
+import { once } from "node:events";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { runNativeTask } from "./native-task-controller.mjs";
+
+const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "native-task-controller-test-"));
+const threadId = "019fb8b4-ebd0-7c20-8ba1-041ed6836204";
+const turnId = "019fb8b4-ebd0-7c20-8ba1-041ed6836207";
+const prompt = "Return exactly: controller fixture passed";
+const finalText = "controller fixture passed";
+const digest = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
+
+async function fixtureExecutable({ approval = false, duplicateInitialize = false, omitResolved = false, terminalStatus = "completed", exitEarly = false, version = "0.148.0" } = {}) {
+  const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
+  const fixture = { approval, duplicateInitialize, exitEarly, finalText, omitResolved, terminalStatus, threadId, turnId, version };
+  const program = `#!/usr/bin/env node
+const readline = require("node:readline");
+const fixture = ${JSON.stringify(fixture)};
+if (process.argv[2] === "--version") { process.stdout.write("codex-cli " + fixture.version + "\\n"); process.exit(0); }
+if (process.argv[2] !== "app-server" || process.argv[3] !== "--stdio") process.exit(9);
+const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
+const rl = readline.createInterface({ input: process.stdin });
+rl.on("line", (line) => {
+  const message = JSON.parse(line);
+  if (message.id === 0) {
+    if (message.params.capabilities !== undefined) process.exit(8);
+    send({ id: 0, result: { userAgent: "fixture/" + fixture.version, platformFamily: "unix", platformOs: "fixture" } });
+    if (fixture.duplicateInitialize) send({ id: 0, result: { userAgent: "fixture/" + fixture.version } });
+  }
+  if (message.method === "initialized" && fixture.exitEarly) process.exit(7);
+  if (message.method === "thread/start") send({ id: 1, result: { thread: { id: fixture.threadId } } });
+  if (message.method === "turn/start") {
+    send({ id: 2, result: { turn: { id: fixture.turnId, status: "inProgress", items: [] } } });
+    if (fixture.approval) {
+      send({ method: "item/started", params: { item: { id: "command-1", type: "commandExecution" }, threadId: fixture.threadId, turnId: fixture.turnId } });
+      send({ id: "approval-1", method: "item/commandExecution/requestApproval", params: { itemId: "command-1", threadId: fixture.threadId, turnId: fixture.turnId } });
+    }
+    else finish();
+  }
+  if (message.id === "approval-1") {
+    if (message.result.decision !== "accept") process.exit(6);
+    if (!fixture.omitResolved) send({ method: "serverRequest/resolved", params: { requestId: "approval-1", threadId: fixture.threadId } });
+    send({ method: "item/completed", params: { item: { id: "command-1", type: "commandExecution", status: "completed" }, threadId: fixture.threadId, turnId: fixture.turnId } });
+    finish();
+  }
+});
+function finish() {
+  if (fixture.terminalStatus === "completed") {
+    send({ method: "item/started", params: { item: { id: "agent-1", type: "agentMessage", phase: "final_answer", text: fixture.finalText }, threadId: fixture.threadId, turnId: fixture.turnId } });
+    send({ method: "item/completed", params: { item: { id: "agent-1", type: "agentMessage", phase: "final_answer", text: fixture.finalText }, threadId: fixture.threadId, turnId: fixture.turnId } });
+  }
+  send({ method: "turn/completed", params: { threadId: fixture.threadId, turn: { id: fixture.turnId, status: fixture.terminalStatus, error: fixture.terminalStatus === "failed" ? { message: "fixture failed" } : null } } });
+}
+`;
+  await writeFile(executable, program);
+  await chmod(executable, 0o755);
+  return { executable, sha256: digest(await readFile(executable)) };
+}
+
+async function run(fixture = {}, overrides = {}) {
+  const identity = await fixtureExecutable(fixture);
+  return runNativeTask({
+    approvalPolicy: "never",
+    codexExecutable: identity.executable,
+    cwd: temporaryRoot,
+    expectedExecutableSha256: identity.sha256,
+    expectedServerVersion: fixture.version ?? "0.148.0",
+    prompt,
+    sandbox: "read-only",
+    timeoutMs: 2_000,
+    ...overrides,
+  });
+}
+
+try {
+  const receipt = await run();
+  assert.equal(receipt.schema, "rbm-native-task-terminal-envelope/v1");
+  assert.equal(receipt.payload.schema, "rbm-native-task-terminal/v1");
+  assert.equal(receipt.payload.thread.id, threadId);
+  assert.equal(receipt.payload.turn.id, turnId);
+  assert.equal(receipt.payload.turn.status, "completed");
+  assert.equal(receipt.payload.final.text, finalText);
+  assert.equal(receipt.payload.final.sha256, digest(finalText));
+  assert.equal(receipt.payload.prompt_sha256, digest(prompt));
+  assert.equal(receipt.content_sha256, digest(JSON.stringify(receipt.payload)));
+
+  const approved = await run({ approval: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" });
+  assert.deepEqual(approved.payload.approvals, [{ decision: "accept", itemId: "command-1", method: "item/commandExecution/requestApproval" }]);
+  assert.equal(approved.payload.items.started, 2);
+  assert.equal(approved.payload.items.completed, 2);
+
+  const cliFixture = await fixtureExecutable({ approval: true });
+  const promptFile = path.join(temporaryRoot, "prompt.txt");
+  await writeFile(promptFile, prompt);
+  const cli = spawn(process.execPath, [
+    path.resolve("scripts/native-task-controller.mjs"), "run",
+    "--codex-executable", cliFixture.executable,
+    "--expected-sha256", cliFixture.sha256,
+    "--expected-version", "0.148.0",
+    "--cwd", temporaryRoot,
+    "--prompt-file", promptFile,
+    "--approval-policy", "on-request",
+    "--sandbox", "read-only",
+    "--timeout-ms", "2000",
+  ], { stdio: ["pipe", "pipe", "pipe"] });
+  let cliStdout = "";
+  let cliStderr = "";
+  cli.stdout.setEncoding("utf8").on("data", (chunk) => { cliStdout += chunk; });
+  cli.stderr.setEncoding("utf8").on("data", (chunk) => { cliStderr += chunk; });
+  cli.stdin.end("accept\n");
+  const [cliCode] = await once(cli, "exit");
+  assert.equal(cliCode, 0);
+  assert.match(cliStderr, /approval_request/);
+  assert.match(cliStderr, /approval decision/);
+  assert.equal(JSON.parse(cliStdout).payload.approvals[0].decision, "accept");
+
+  const failed = await run({ terminalStatus: "failed" });
+  assert.equal(failed.payload.turn.status, "failed");
+  assert.equal(failed.payload.final, null);
+  assert.match(failed.payload.turn.error_sha256, /^sha256:[a-f0-9]{64}$/);
+
+  await assert.rejects(() => run({ approval: true }), /approval requested without an explicit handler/);
+  await assert.rejects(() => run({ approval: true }, { approvalHandler: async () => "invalid", approvalPolicy: "on-request" }), /unsupported decision/);
+  await assert.rejects(() => run({ approval: true, omitResolved: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /unresolved approval/);
+  await assert.rejects(() => run({ duplicateInitialize: true }), /duplicate response id/);
+  await assert.rejects(() => run({ exitEarly: true }), /exited before terminal receipt/);
+
+  const wrongHash = await fixtureExecutable();
+  await assert.rejects(() => runNativeTask({
+    approvalPolicy: "never",
+    codexExecutable: wrongHash.executable,
+    cwd: temporaryRoot,
+    expectedExecutableSha256: `sha256:${"0".repeat(64)}`,
+    expectedServerVersion: "0.148.0",
+    prompt,
+    sandbox: "read-only",
+  }), /sha256 mismatch/);
+  await assert.rejects(() => run({}, { expectedServerVersion: "0.149.0" }), /version mismatch/);
+  await assert.rejects(() => run({}, { approvalPolicy: "invalid" }), /approval policy is unsupported/);
+  await assert.rejects(() => run({}, { sandbox: "invalid" }), /sandbox mode is unsupported/);
+
+  console.log("native task controller tests passed");
+} finally {
+  await rm(temporaryRoot, { recursive: true, force: true });
+}

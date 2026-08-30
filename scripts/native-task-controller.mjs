@@ -1,0 +1,347 @@
+import { spawn, execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { once } from "node:events";
+import { createReadStream } from "node:fs";
+import { lstat, readFile, realpath } from "node:fs/promises";
+import path from "node:path";
+import readline from "node:readline";
+import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
+import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
+
+const execFileAsync = promisify(execFile);
+const shaPattern = /^sha256:[a-f0-9]{64}$/;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const approvalPolicies = new Set(["untrusted", "on-request", "never"]);
+const sandboxModes = new Set(["read-only", "workspace-write", "danger-full-access"]);
+const approvalDecisions = new Set(["accept", "acceptForSession", "decline", "cancel"]);
+
+function fail(message) {
+  throw new Error(message);
+}
+
+function digest(value) {
+  return `sha256:${createHash("sha256").update(value).digest("hex")}`;
+}
+
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]));
+  }
+  return value;
+}
+
+async function executableIdentity(executable, expectedSha256, expectedVersion) {
+  if (!path.isAbsolute(executable)) fail("codex executable must be one absolute path");
+  if (!shaPattern.test(expectedSha256)) fail("expected executable sha256 is invalid");
+  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(expectedVersion)) fail("expected server version is invalid");
+  const resolved = await realpath(executable).catch(() => "");
+  const info = resolved ? await lstat(resolved).catch(() => null) : null;
+  if (!info?.isFile() || info.isSymbolicLink() || (process.platform !== "win32" && (info.mode & 0o111) === 0)) {
+    fail("codex executable is missing or unsafe");
+  }
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(resolved)) hash.update(chunk);
+  const sha256 = `sha256:${hash.digest("hex")}`;
+  if (sha256 !== expectedSha256) fail("codex executable sha256 mismatch");
+  const { stdout } = await execFileAsync(resolved, ["--version"], { encoding: "utf8", timeout: 10_000 });
+  if (stdout.trim() !== `codex-cli ${expectedVersion}`) fail("codex executable version mismatch");
+  return { path: resolved, sha256, version: expectedVersion };
+}
+
+async function directoryIdentity(cwd) {
+  if (!path.isAbsolute(cwd)) fail("cwd must be one absolute path");
+  const resolved = await realpath(cwd).catch(() => "");
+  const info = resolved ? await lstat(resolved).catch(() => null) : null;
+  if (!info?.isDirectory() || info.isSymbolicLink()) fail("cwd is missing or unsafe");
+  return resolved;
+}
+
+function responseResult(message, id, label) {
+  if (message.id !== id || message.method !== undefined || !message.result || typeof message.result !== "object" || message.error !== undefined) {
+    fail(`${label} response is malformed`);
+  }
+  return message.result;
+}
+
+async function stopChild(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  child.kill("SIGTERM");
+  await Promise.race([once(child, "exit"), new Promise((resolve) => setTimeout(resolve, 250))]);
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  child.kill("SIGKILL");
+  const stopped = await Promise.race([once(child, "exit").then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 2_000))]);
+  if (!stopped) fail("app-server process could not be stopped");
+}
+
+export async function runNativeTask({
+  codexExecutable,
+  expectedExecutableSha256,
+  expectedServerVersion,
+  cwd,
+  prompt,
+  approvalPolicy,
+  sandbox,
+  approvalHandler = null,
+  model = null,
+  timeoutMs = 7_200_000,
+}) {
+  if (typeof prompt !== "string" || prompt.length === 0 || Buffer.byteLength(prompt) > 1024 * 1024) fail("prompt must contain between 1 byte and 1 MiB");
+  if (!approvalPolicies.has(approvalPolicy)) fail("approval policy is unsupported");
+  if (!sandboxModes.has(sandbox)) fail("sandbox mode is unsupported");
+  if (!(approvalHandler === null || typeof approvalHandler === "function")) fail("approval handler is invalid");
+  if (!(model === null || (typeof model === "string" && model.length > 0 && model.length <= 200))) fail("model is invalid");
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 86_400_000) fail("timeout must be between 1000 and 86400000 ms");
+
+  const executable = await executableIdentity(codexExecutable, expectedExecutableSha256, expectedServerVersion);
+  const taskCwd = await directoryIdentity(cwd);
+  const child = spawn(executable.path, ["app-server", "--stdio"], { cwd: taskCwd, stdio: ["pipe", "pipe", "pipe"] });
+  if (!child.stdin || !child.stdout || !child.stderr) fail("app-server process transport is unavailable");
+  child.stderr.resume();
+  const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
+  const responseIds = new Set();
+  const startedItems = new Map();
+  const completedItems = new Map();
+  const approvals = new Map();
+  const resolvedApprovals = new Set();
+  const finalMessages = [];
+  let threadId = null;
+  let turnId = null;
+  let stdoutBytes = 0;
+  let terminalTurn = null;
+  let settled = false;
+
+  const send = (message) => {
+    if (!child.stdin.write(`${JSON.stringify(message)}\n`)) child.stdin.once("drain", () => {});
+  };
+
+  const terminal = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => finish(reject, new Error("app-server task timed out")), timeoutMs);
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      callback(value);
+    };
+
+    const handle = async (line) => {
+      stdoutBytes += Buffer.byteLength(line) + 1;
+      if (stdoutBytes > 16 * 1024 * 1024) fail("app-server response exceeded 16 MiB");
+      rejectDuplicateJsonObjectMembers(line, "app-server response");
+      const message = JSON.parse(line);
+      if (!message || Array.isArray(message) || typeof message !== "object") fail("app-server message is malformed");
+
+      if (message.method === undefined && message.id !== undefined) {
+        const key = JSON.stringify(message.id);
+        if (responseIds.has(key)) fail("app-server returned a duplicate response id");
+        responseIds.add(key);
+        if (message.error !== undefined) fail(`app-server request ${message.id} failed`);
+        if (message.id === 0) {
+          const initialized = responseResult(message, 0, "initialize");
+          if (typeof initialized.userAgent !== "string" || initialized.userAgent.length === 0) fail("initialize omitted userAgent");
+          send({ method: "initialized", params: {} });
+          send({
+            method: "thread/start",
+            id: 1,
+            params: {
+              approvalPolicy,
+              cwd: taskCwd,
+              ephemeral: false,
+              model,
+              sandbox,
+              serviceName: "qoeop_pareto_native_task_controller",
+            },
+          });
+          return;
+        }
+        if (message.id === 1) {
+          const started = responseResult(message, 1, "thread/start");
+          if (!uuidPattern.test(started.thread?.id ?? "")) fail("thread/start omitted an exact thread id");
+          threadId = started.thread.id;
+          send({ method: "turn/start", id: 2, params: { input: [{ type: "text", text: prompt }], threadId } });
+          return;
+        }
+        if (message.id === 2) {
+          const started = responseResult(message, 2, "turn/start");
+          if (!threadId || !uuidPattern.test(started.turn?.id ?? "")) fail("turn/start omitted an exact turn id");
+          turnId = started.turn.id;
+          return;
+        }
+        fail("app-server returned an unknown client response id");
+      }
+
+      if (message.id !== undefined && typeof message.method === "string") {
+        if (!["item/commandExecution/requestApproval", "item/fileChange/requestApproval"].includes(message.method)) {
+          fail(`unsupported app-server request: ${message.method}`);
+        }
+        const params = message.params;
+        if (!threadId || !turnId || params?.threadId !== threadId || params?.turnId !== turnId || typeof params?.itemId !== "string") {
+          fail("approval request identity is malformed");
+        }
+        if (approvalHandler === null) fail("approval requested without an explicit handler");
+        const key = JSON.stringify(message.id);
+        if (approvals.has(key)) fail("app-server returned a duplicate approval request id");
+        const expectedItemType = message.method === "item/commandExecution/requestApproval" ? "commandExecution" : "fileChange";
+        if (startedItems.get(params.itemId) !== expectedItemType) fail("approval request lacks its matching started item");
+        const decision = await approvalHandler({ method: message.method, params: canonical(params) });
+        if (!approvalDecisions.has(decision)) fail("approval handler returned an unsupported decision");
+        approvals.set(key, { decision, itemId: params.itemId, method: message.method });
+        send({ id: message.id, result: { decision } });
+        return;
+      }
+
+      if (typeof message.method !== "string" || message.id !== undefined) fail("app-server notification is malformed");
+      const params = message.params ?? {};
+      if (message.method === "item/started" || message.method === "item/completed") {
+        if (params.threadId !== threadId || params.turnId !== turnId || typeof params.item?.id !== "string" || typeof params.item?.type !== "string") {
+          fail(`${message.method} identity is malformed`);
+        }
+        const target = message.method === "item/started" ? startedItems : completedItems;
+        if (target.has(params.item.id)) fail(`${message.method} duplicated an item`);
+        target.set(params.item.id, params.item.type);
+        if (message.method === "item/completed" && params.item.type === "agentMessage" && params.item.phase === "final_answer") {
+          if (typeof params.item.text !== "string" || Buffer.byteLength(params.item.text) > 1024 * 1024) fail("terminal agent message is malformed or exceeds 1 MiB");
+          finalMessages.push(params.item.text);
+        }
+        return;
+      }
+      if (message.method === "serverRequest/resolved") {
+        if (params.threadId !== threadId || params.requestId === undefined) fail("resolved approval identity is malformed");
+        const key = JSON.stringify(params.requestId);
+        if (!approvals.has(key) || resolvedApprovals.has(key)) fail("resolved approval is unknown or duplicate");
+        resolvedApprovals.add(key);
+        return;
+      }
+      if (message.method === "turn/completed") {
+        if (!threadId || !turnId || params.threadId !== threadId || params.turn?.id !== turnId || !["completed", "interrupted", "failed"].includes(params.turn?.status)) {
+          fail("turn/completed identity or status is malformed");
+        }
+        if (approvals.size !== resolvedApprovals.size) fail("turn completed with unresolved approval requests");
+        if (startedItems.size !== completedItems.size || [...startedItems].some(([id, type]) => completedItems.get(id) !== type)) {
+          fail("turn completed with an incomplete or mismatched item lifecycle");
+        }
+        if (params.turn.status === "completed" && finalMessages.length !== 1) fail("completed turn lacks one terminal agent message");
+        terminalTurn = params.turn;
+        finish(resolve);
+        return;
+      }
+      if (message.method === "error" && (!params.threadId || params.threadId === threadId)) fail("app-server emitted an error notification");
+    };
+
+    let chain = Promise.resolve();
+    lines.on("line", (line) => {
+      chain = chain.then(() => handle(line)).catch((error) => finish(reject, error));
+    });
+    child.once("error", () => finish(reject, new Error("app-server process failed")));
+    child.once("exit", (code, signal) => {
+      if (!terminalTurn) finish(reject, new Error(`app-server exited before terminal receipt: code=${code} signal=${signal}`));
+    });
+  });
+
+  send({
+    method: "initialize",
+    id: 0,
+    params: { clientInfo: { name: "qoeop_pareto_native_task_controller", title: "Pareto Native Task Controller", version: "1.0.0" } },
+  });
+
+  try {
+    await terminal;
+  } finally {
+    lines.close();
+    child.stdin.end();
+    await stopChild(child);
+  }
+
+  const finalText = finalMessages[0] ?? null;
+  const payload = canonical({
+    approvals: [...approvals.values()].map(canonical),
+    executable,
+    final: finalText === null ? null : { bytes: Buffer.byteLength(finalText), sha256: digest(finalText), text: finalText },
+    items: { completed: completedItems.size, started: startedItems.size },
+    prompt_sha256: digest(prompt),
+    schema: "rbm-native-task-terminal/v1",
+    thread: { id: threadId },
+    turn: {
+      error_sha256: terminalTurn.error == null ? null : digest(JSON.stringify(canonical(terminalTurn.error))),
+      id: turnId,
+      status: terminalTurn.status,
+    },
+  });
+  return { content_sha256: digest(JSON.stringify(payload)), payload, schema: "rbm-native-task-terminal-envelope/v1" };
+}
+
+function parseArguments(argv) {
+  if (argv[0] !== "run") fail("usage: native-task-controller.mjs run --codex-executable <absolute> --expected-sha256 <sha256:digest> --expected-version <version> --cwd <absolute> --prompt-file <absolute> --approval-policy <policy> --sandbox <mode> [--model <model>] [--timeout-ms <ms>]");
+  const options = {};
+  for (let index = 1; index < argv.length; index += 2) {
+    const name = argv[index];
+    const value = argv[index + 1];
+    if (!name?.startsWith("--") || value === undefined) fail("command arguments must be exact name/value pairs");
+    const key = name.slice(2);
+    if (options[key] !== undefined) fail(`duplicate argument: ${name}`);
+    options[key] = value;
+  }
+  const required = ["codex-executable", "expected-sha256", "expected-version", "cwd", "prompt-file", "approval-policy", "sandbox"];
+  for (const name of required) if (options[name] === undefined) fail(`missing argument: --${name}`);
+  const allowed = new Set([...required, "model", "timeout-ms"]);
+  for (const name of Object.keys(options)) if (!allowed.has(name)) fail(`unknown argument: --${name}`);
+  return options;
+}
+
+async function readPrompt(promptFile) {
+  if (!path.isAbsolute(promptFile)) fail("prompt file must be one absolute path");
+  const info = await lstat(promptFile).catch(() => null);
+  if (!info?.isFile() || info.isSymbolicLink() || info.size < 1 || info.size > 1024 * 1024) fail("prompt file is missing, unsafe, empty, or exceeds 1 MiB");
+  return readFile(promptFile, "utf8");
+}
+
+async function main() {
+  const options = parseArguments(process.argv.slice(2));
+  const approvalInput = readline.createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: process.stdin.isTTY });
+  const decisions = [];
+  const decisionWaiters = [];
+  let approvalInputClosed = false;
+  approvalInput.on("line", (line) => {
+    const decision = line.trim();
+    const waiter = decisionWaiters.shift();
+    if (waiter) waiter.resolve(decision);
+    else decisions.push(decision);
+  });
+  approvalInput.on("close", () => {
+    approvalInputClosed = true;
+    for (const waiter of decisionWaiters.splice(0)) waiter.reject(new Error("approval input closed before a decision"));
+  });
+  const approvalHandler = async ({ method, params }) => {
+    process.stderr.write(`${JSON.stringify({ approval_request: { availableDecisions: params.availableDecisions ?? null, command: params.command ?? null, cwd: params.cwd ?? null, itemId: params.itemId, method, reason: params.reason ?? null } })}\n`);
+    process.stderr.write("approval decision (accept|acceptForSession|decline|cancel): ");
+    if (decisions.length > 0) return decisions.shift();
+    if (approvalInputClosed) fail("approval input closed before a decision");
+    return new Promise((resolve, reject) => decisionWaiters.push({ reject, resolve }));
+  };
+  try {
+    const receipt = await runNativeTask({
+      approvalHandler,
+      approvalPolicy: options["approval-policy"],
+      codexExecutable: options["codex-executable"],
+      cwd: options.cwd,
+      expectedExecutableSha256: options["expected-sha256"],
+      expectedServerVersion: options["expected-version"],
+      model: options.model ?? null,
+      prompt: await readPrompt(options["prompt-file"]),
+      sandbox: options.sandbox,
+      timeoutMs: options["timeout-ms"] === undefined ? undefined : Number(options["timeout-ms"]),
+    });
+    process.stdout.write(`${JSON.stringify(receipt)}\n`);
+    if (receipt.payload.turn.status !== "completed") process.exitCode = 1;
+  } finally {
+    approvalInput.close();
+  }
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  main().catch((error) => {
+    process.stderr.write(`native-task-controller: failed: ${error.message}\n`);
+    process.exitCode = 1;
+  });
+}
