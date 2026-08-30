@@ -5,7 +5,7 @@ import { EventEmitter, once } from "node:events";
 import { chmod, copyFile, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { assertDetachedReceiptIsolation, launchDetachedWorker, readLifecycleReceiptValues, runNativeTask } from "./native-task-controller.mjs";
+import { assertDetachedReceiptIsolation, launchDetachedWorker, readLifecycleReceiptValues, runNativeTask, summarizeFailureError } from "./native-task-controller.mjs";
 
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "native-task-controller-test-"));
 const resolvedTemporaryRoot = await realpath(temporaryRoot);
@@ -24,6 +24,29 @@ const canonical = (value) => Array.isArray(value)
   : value && typeof value === "object"
     ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonical(value[key])]))
     : value;
+
+const aggregateSummary = summarizeFailureError(new AggregateError(
+  [new Error("terminal detail"), new Error("cleanup detail")],
+  "native task and process-tree cleanup failed",
+));
+assert.deepEqual(aggregateSummary, {
+  causes: [
+    { message: "terminal detail", name: "Error" },
+    { message: "cleanup detail", name: "Error" },
+  ],
+  causes_truncated: false,
+  message: "native task and process-tree cleanup failed",
+  name: "AggregateError",
+});
+assert.equal("stack" in aggregateSummary, false);
+assert.equal(aggregateSummary.causes.some((cause) => "stack" in cause), false);
+const truncatedAggregateSummary = summarizeFailureError(new AggregateError(
+  Array.from({ length: 5 }, (_, index) => new Error(`${"界".repeat(600)}-${index}`)),
+  "bounded",
+));
+assert.equal(truncatedAggregateSummary.causes.length, 4);
+assert.equal(truncatedAggregateSummary.causes_truncated, true);
+assert.equal(truncatedAggregateSummary.causes.every((cause) => Buffer.byteLength(cause.message) <= 512), true);
 
 let windowsFixtureLauncherPromise = null;
 
@@ -699,6 +722,50 @@ try {
     inspected.payload.start.payload.start.sidecar,
   );
 
+  const legacyReceiptDir = await mkdtemp(path.join(temporaryRoot, "legacy-detached-receipt-"));
+  const legacyAttempt = JSON.parse(await readFile(path.join(detachedReceiptDir, "attempt.json"), "utf8"));
+  delete legacyAttempt.request.expected_sidecar_sha256;
+  delete legacyAttempt.request.process_tree_custody;
+  legacyAttempt.content_sha256 = digest(JSON.stringify(canonical({
+    attempt_id: legacyAttempt.attempt_id,
+    request: legacyAttempt.request,
+    schema: legacyAttempt.schema,
+  })));
+  const legacyStart = JSON.parse(await readFile(path.join(detachedReceiptDir, "start.json"), "utf8"));
+  delete legacyStart.payload.start.sidecar;
+  delete legacyStart.payload.start.process_tree_custody;
+  legacyStart.content_sha256 = digest(JSON.stringify(canonical(legacyStart.payload)));
+  const legacyTerminal = JSON.parse(await readFile(path.join(detachedReceiptDir, "terminal.json"), "utf8"));
+  delete legacyTerminal.payload.terminal.payload.sidecar;
+  delete legacyTerminal.payload.terminal.payload.process_tree_custody;
+  legacyTerminal.payload.terminal.content_sha256 = digest(JSON.stringify(canonical(legacyTerminal.payload.terminal.payload)));
+  legacyTerminal.content_sha256 = digest(JSON.stringify(canonical(legacyTerminal.payload)));
+  await Promise.all([
+    writeFile(path.join(legacyReceiptDir, "attempt.json"), JSON.stringify(legacyAttempt)),
+    writeFile(path.join(legacyReceiptDir, "start.json"), JSON.stringify(legacyStart)),
+    writeFile(path.join(legacyReceiptDir, "terminal.json"), JSON.stringify(legacyTerminal)),
+  ]);
+  const legacyInspection = await cliJson(["inspect", "--receipt-dir", legacyReceiptDir]);
+  assert.equal(legacyInspection.payload.state, "terminal");
+  assert.equal(legacyInspection.payload.attempt.request.expected_sidecar_sha256, undefined);
+  assert.equal(legacyInspection.payload.start.payload.start.sidecar, undefined);
+  assert.equal(legacyInspection.payload.start.payload.start.process_tree_custody, undefined);
+  assert.equal(legacyInspection.payload.terminal.payload.terminal.payload.sidecar, undefined);
+  legacyAttempt.request.process_tree_custody = "v1";
+  legacyAttempt.content_sha256 = digest(JSON.stringify(canonical({
+    attempt_id: legacyAttempt.attempt_id,
+    request: legacyAttempt.request,
+    schema: legacyAttempt.schema,
+  })));
+  await writeFile(path.join(legacyReceiptDir, "attempt.json"), JSON.stringify(legacyAttempt));
+  const mixedLegacyInspect = spawn(process.execPath, [path.resolve("scripts/native-task-controller.mjs"), "inspect", "--receipt-dir", legacyReceiptDir], { stdio: ["ignore", "pipe", "pipe"] });
+  let mixedLegacyStderr = "";
+  mixedLegacyInspect.stdout.resume();
+  mixedLegacyInspect.stderr.setEncoding("utf8").on("data", (chunk) => { mixedLegacyStderr += chunk; });
+  const [mixedLegacyCode] = await once(mixedLegacyInspect, "exit");
+  assert.notEqual(mixedLegacyCode, 0);
+  assert.match(mixedLegacyStderr, /attempt receipt is missing, malformed/);
+
   const workspaceInput = path.join(temporaryRoot, "workspace-input.txt");
   const workspaceOutput = path.join(temporaryRoot, "workspace-output.txt");
   await writeFile(workspaceInput, "one task read\n");
@@ -798,6 +865,8 @@ try {
   ]);
   assert.equal(failedDispatch.payload.state, "needs_attention");
   assert.match(failedDispatch.payload.failure.payload.error, /did not confirm requested authority configuration/);
+  assert.match(failedDispatch.payload.failure.payload.error_summary.message, /did not confirm requested authority configuration/);
+  assert.deepEqual(failedDispatch.payload.failure.payload.error_summary.causes, []);
   await writeFile(path.join(failedReceiptDir, "terminal.json"), terminalReceiptSource);
   const conflictingInspect = spawn(process.execPath, [path.resolve("scripts/native-task-controller.mjs"), "inspect", "--receipt-dir", failedReceiptDir], { stdio: ["ignore", "pipe", "pipe"] });
   let conflictingStderr = "";

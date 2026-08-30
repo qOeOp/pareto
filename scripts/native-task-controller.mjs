@@ -222,6 +222,32 @@ function canonical(value) {
   return value;
 }
 
+function boundedErrorText(value, maximumBytes) {
+  let text = String(value).slice(0, maximumBytes);
+  if (Buffer.byteLength(text) <= maximumBytes) return text;
+  while (Buffer.byteLength(text) > maximumBytes - 3) text = text.slice(0, -1);
+  return `${text}...`;
+}
+
+export function summarizeFailureError(error) {
+  const causes = error instanceof AggregateError ? [...error.errors] : [];
+  return canonical({
+    causes: causes.slice(0, 4).map((cause) => ({
+      message: boundedErrorText(cause instanceof Error ? cause.message : "non-Error cause", 512),
+      name: boundedErrorText(cause instanceof Error ? cause.name : typeof cause, 64),
+    })),
+    causes_truncated: causes.length > 4,
+    message: boundedErrorText(error instanceof Error ? error.message : "native task failed", 512),
+    name: boundedErrorText(error instanceof Error ? error.name : typeof error, 64),
+  });
+}
+
+function displayedFailureError(error) {
+  const summary = summarizeFailureError(error);
+  const causes = summary.causes.map((cause) => `${cause.name}: ${cause.message}`).join(" | ");
+  return causes.length === 0 ? summary.message : `${summary.message}; causes: ${causes}${summary.causes_truncated ? " | ..." : ""}`;
+}
+
 function sameCanonical(left, right) {
   return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
 }
@@ -1163,9 +1189,13 @@ async function inspectReceipt(receiptDir) {
   const rootStat = await lstat(root).catch(() => null);
   if (!rootStat?.isDirectory() || rootStat.isSymbolicLink()) fail("native task receipt directory is missing or unsafe");
   const attempt = await readJson(path.join(root, "attempt.json"));
+  const legacyAttempt = attempt?.request?.expected_sidecar_sha256 === undefined
+    && attempt?.request?.process_tree_custody === undefined;
+  const currentAttempt = shaPattern.test(attempt?.request?.expected_sidecar_sha256 ?? "")
+    && attempt?.request?.process_tree_custody === "v1";
   if (!attempt || attempt.schema !== "rbm-native-task-attempt/v1" || !uuidPattern.test(attempt.attempt_id ?? "")
     || !shaPattern.test(attempt.request?.expected_sha256 ?? "")
-    || !shaPattern.test(attempt.request?.expected_sidecar_sha256 ?? "")
+    || !(legacyAttempt || currentAttempt)
     || attempt.content_sha256 !== digest(JSON.stringify(canonical({ attempt_id: attempt.attempt_id, request: attempt.request, schema: attempt.schema })))) {
     fail("native task attempt receipt is missing, malformed, or has invalid content identity");
   }
@@ -1177,8 +1207,6 @@ async function inspectReceipt(receiptDir) {
   const expectedRequestedConfiguration = canonical({
     approval_policy: "never", cwd: attempt.request.cwd, model: attempt.request.model, sandbox: attempt.request.sandbox,
   });
-  const requiresProcessTreeCustody = attempt.request.process_tree_custody === "v1";
-  if (!(attempt.request.process_tree_custody === undefined || requiresProcessTreeCustody)) fail("native task attempt process-tree custody version is unsupported");
   const validProcessTreeCustody = (identity) => identity?.kind === "posix_process_group"
     || (identity?.kind === "windows_job_object" && shaPattern.test(identity.source_sha256 ?? "") && shaPattern.test(identity.wrapper_sha256 ?? ""));
   if (start) {
@@ -1188,8 +1216,9 @@ async function inspectReceipt(receiptDir) {
       || !sameCanonical(startPayload.requested_configuration, expectedRequestedConfiguration)
       || startPayload.executable?.sha256 !== attempt.request.expected_sha256
       || startPayload.executable?.version !== attempt.request.expected_version
-      || startPayload.sidecar?.sha256 !== attempt.request.expected_sidecar_sha256
-      || (requiresProcessTreeCustody && !validProcessTreeCustody(startPayload.process_tree_custody))
+      || (currentAttempt && startPayload.sidecar?.sha256 !== attempt.request.expected_sidecar_sha256)
+      || (legacyAttempt && (startPayload.sidecar !== undefined || startPayload.process_tree_custody !== undefined))
+      || (currentAttempt && !validProcessTreeCustody(startPayload.process_tree_custody))
       || !uuidPattern.test(startPayload.thread?.id ?? "")
       || !uuidPattern.test(startPayload.turn?.id ?? "")
       || startPayload.turn.status !== "inProgress"
@@ -1215,8 +1244,9 @@ async function inspectReceipt(receiptDir) {
       || !sameCanonical(startPayload.requested_configuration, expectedRequestedConfiguration)
       || startPayload.executable?.sha256 !== attempt.request.expected_sha256
       || startPayload.executable?.version !== attempt.request.expected_version
-      || startPayload.sidecar?.sha256 !== attempt.request.expected_sidecar_sha256
-      || (requiresProcessTreeCustody && !validProcessTreeCustody(startPayload.process_tree_custody))
+      || (currentAttempt && startPayload.sidecar?.sha256 !== attempt.request.expected_sidecar_sha256)
+      || (legacyAttempt && (startPayload.sidecar !== undefined || startPayload.process_tree_custody !== undefined))
+      || (currentAttempt && !validProcessTreeCustody(startPayload.process_tree_custody))
       || terminalPayload.prompt_sha256 !== attempt.request.prompt_sha256
       || !sameCanonical(terminalPayload.requested_configuration, expectedRequestedConfiguration)
       || !sameCanonical(terminalPayload.executable, startPayload.executable)
@@ -1297,7 +1327,7 @@ async function main() {
     const launch = await launchDetachedWorker(workerArguments);
     if (launch.error) {
       await atomicJson(path.join(root, "failure.json"), sealed({
-        attempt_id: attemptId, error: launch.error.message, start_content_sha256: null,
+        attempt_id: attemptId, error: launch.error.message, error_summary: summarizeFailureError(launch.error), start_content_sha256: null,
       }, "rbm-native-task-failure-envelope/v1"));
       process.stdout.write(`${JSON.stringify(await inspectReceipt(root))}\n`);
       return;
@@ -1392,7 +1422,7 @@ async function main() {
       const root = await receiptDirectory(options["receipt-dir"]);
       const start = await readJson(path.join(root, "start.json")).catch(() => null);
       await atomicJson(path.join(root, "failure.json"), sealed({
-        attempt_id: options["attempt-id"], error: error.message, start_content_sha256: start?.content_sha256 ?? null,
+        attempt_id: options["attempt-id"], error: error.message, error_summary: summarizeFailureError(error), start_content_sha256: start?.content_sha256 ?? null,
       }, "rbm-native-task-failure-envelope/v1")).catch(() => {});
       return;
     }
@@ -1405,7 +1435,7 @@ async function main() {
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
   main().catch((error) => {
-    process.stderr.write(`native-task-controller: failed: ${error.message}\n`);
+    process.stderr.write(`native-task-controller: failed: ${displayedFailureError(error)}\n`);
     process.exitCode = 1;
   });
 }
