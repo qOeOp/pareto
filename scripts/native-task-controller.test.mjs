@@ -49,11 +49,12 @@ async function fixtureExecutable({
   serverConfigMismatch = false,
   terminalStatus = "completed",
   turnStartStatus = "inProgress",
+  unterminatedAfterReadback = false,
   unapprovedCommand = null,
   version = "0.148.0",
 } = {}) {
   const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalText, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, serverConfigMismatch, terminalStatus, threadId, turnId, turnStartStatus, unapprovedCommand, version };
+  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalText, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, serverConfigMismatch, terminalStatus, threadId, turnId, turnStartStatus, unterminatedAfterReadback, unapprovedCommand, version };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
@@ -153,6 +154,7 @@ rl.on("line", (line) => {
     if (fixture.readbackExtraTurn) turns.push({ error: null, id: "019fb8b4-ebd0-7c20-8ba1-041ed6836210", items: [], status: "completed" });
     const response = { id: 3, result: { thread: { cwd: process.cwd(), id: fixture.threadId, turns } } };
     if (fixture.duplicateReadback) process.stdout.write(JSON.stringify(response) + "\\n" + JSON.stringify(response) + "\\n");
+    else if (fixture.unterminatedAfterReadback) process.stdout.write(JSON.stringify(response) + "\\n{\\\"id\\\":3");
     else if (fixture.exitAfterReadback) process.stdout.write(JSON.stringify(response) + "\\n", () => process.exit(7));
     else send(response);
   }
@@ -364,6 +366,7 @@ try {
   await assert.rejects(() => run({ serverConfigMismatch: true }), /did not confirm requested authority configuration/);
   await assert.rejects(() => run({ duplicateInitialize: true }), /duplicate response id/);
   await assert.rejects(() => run({ duplicateReadback: true }), /duplicate response id/);
+  await assert.rejects(() => run({ unterminatedAfterReadback: true }), /unterminated frame/);
   await assert.rejects(() => run({ exitEarly: true }), /exited before terminal receipt/);
   await assert.rejects(() => run({ exitAfterReadback: true }), /exited before terminal receipt/);
 

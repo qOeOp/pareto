@@ -6,7 +6,7 @@ import { chmod, copyFile, lstat, mkdtemp, readFile, realpath, rm } from "node:fs
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
-import { promisify } from "node:util";
+import { promisify, TextDecoder } from "node:util";
 import { pathToFileURL } from "node:url";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
 
@@ -170,7 +170,6 @@ async function executeNativeTask({
     fail("app-server process transport is unavailable");
   }
   child.stderr.resume();
-  const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
   const responseIds = new Set();
   const items = new Map();
   const approvals = new Map();
@@ -190,6 +189,8 @@ async function executeNativeTask({
   let pendingLines = 0;
   let successSealScheduled = false;
   let wireSequence = 0;
+  let framingRemainder = "";
+  const stdoutDecoder = new TextDecoder("utf-8", { fatal: true });
 
   const send = (message) => {
     if (!child.stdin.write(`${JSON.stringify(message)}\n`)) child.stdin.once("drain", () => {});
@@ -219,6 +220,10 @@ async function executeNativeTask({
               setImmediate(attempt);
               return;
             }
+            if (framingRemainder.length !== 0) {
+              finish(reject, new Error("app-server response ended with an unterminated frame"));
+              return;
+            }
             if (child.exitCode !== null || child.signalCode !== null) {
               finish(reject, new Error(`app-server exited before terminal receipt: code=${child.exitCode} signal=${child.signalCode}`));
               return;
@@ -232,8 +237,6 @@ async function executeNativeTask({
 
     const handle = async (line, receiveWireSequence) => {
       if (settled) return;
-      stdoutBytes += Buffer.byteLength(line) + 1;
-      if (stdoutBytes > 16 * 1024 * 1024) fail("app-server response exceeded 16 MiB");
       rejectDuplicateJsonObjectMembers(line, "app-server response");
       const message = JSON.parse(line);
       if (!message || Array.isArray(message) || typeof message !== "object") fail("app-server message is malformed");
@@ -460,13 +463,41 @@ async function executeNativeTask({
     };
 
     let chain = Promise.resolve();
-    lines.on("line", (line) => {
+    const enqueueLine = (line) => {
       const receiveWireSequence = ++wireSequence;
       pendingLines += 1;
       chain = chain.then(() => handle(line, receiveWireSequence)).then(
         () => { pendingLines -= 1; },
         (error) => { pendingLines -= 1; finish(reject, error); },
       );
+    };
+    child.stdout.on("data", (chunk) => {
+      if (settled) return;
+      stdoutBytes += chunk.length;
+      if (stdoutBytes > 16 * 1024 * 1024) {
+        finish(reject, new Error("app-server response exceeded 16 MiB"));
+        return;
+      }
+      try {
+        framingRemainder += stdoutDecoder.decode(chunk, { stream: true });
+      } catch {
+        finish(reject, new Error("app-server response is not valid UTF-8"));
+        return;
+      }
+      let newlineIndex = framingRemainder.indexOf("\n");
+      while (newlineIndex !== -1) {
+        const framed = framingRemainder.slice(0, newlineIndex);
+        framingRemainder = framingRemainder.slice(newlineIndex + 1);
+        enqueueLine(framed.endsWith("\r") ? framed.slice(0, -1) : framed);
+        newlineIndex = framingRemainder.indexOf("\n");
+      }
+    });
+    child.stdout.once("end", () => {
+      try {
+        framingRemainder += stdoutDecoder.decode();
+      } catch {
+        finish(reject, new Error("app-server response is not valid UTF-8"));
+      }
     });
     child.once("error", () => finish(reject, new Error("app-server process failed")));
     child.once("exit", (code, signal) => {
@@ -483,7 +514,6 @@ async function executeNativeTask({
   try {
     await terminal;
   } finally {
-    lines.close();
     child.stdin.end();
     try {
       await stopChild(child);
