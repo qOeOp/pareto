@@ -173,6 +173,8 @@ async function executeNativeTask({
   let terminalTurn = null;
   let terminalReadback = false;
   let terminalAnswerItemId = null;
+  let readbackFinalItemId = null;
+  let readbackAuthorityItemsReceipt = [];
   let serverConfiguration = null;
   let settled = false;
 
@@ -267,14 +269,21 @@ async function executeNativeTask({
           const readbackAuthorityItems = readbackItems.filter((item) => ["commandExecution", "fileChange"].includes(item?.type));
           if (readbackAuthorityItems.length !== streamedAuthorityItems.length || streamedAuthorityItems.some((streamed, index) => {
             const readbackItem = readbackAuthorityItems[index];
-            return readbackItem?.id !== streamed.item.id || readbackItem.type !== streamed.type || readbackItem.status !== streamed.item.status
+            return readbackItem?.type !== streamed.type || readbackItem.status !== streamed.item.status
               || !sameCanonical(authoritySubject(readbackItem), streamed.subject);
           })) fail("thread/read did not confirm the exact authority items");
+          readbackAuthorityItemsReceipt = readbackAuthorityItems.map((item) => canonical({
+            readback_item_id: item.id,
+            status: item.status,
+            subject_sha256: digest(JSON.stringify(authoritySubject(item))),
+            type: item.type,
+          }));
           const readbackFinals = readbackItems.filter((item) => item?.type === "agentMessage" && item?.phase === "final_answer");
-          if (terminalTurn.status === "completed" && (readbackFinals.length !== 1 || readbackFinals[0].id !== terminalAnswerItemId || readbackFinals[0].text !== finalMessages[0])) {
+          if (terminalTurn.status === "completed" && (readbackFinals.length !== 1 || readbackFinals[0].text !== finalMessages[0])) {
             fail("thread/read did not confirm the exact terminal answer");
           }
           if (terminalTurn.status === "completed" && readbackItems.at(-1) !== readbackFinals[0]) fail("thread/read terminal answer is not the last item");
+          readbackFinalItemId = readbackFinals[0]?.id ?? null;
           terminalReadback = true;
           finish(resolve);
           return;
@@ -424,7 +433,7 @@ async function executeNativeTask({
 
   const finalText = finalMessages[0] ?? null;
   const authorityItems = completionOrder.map((id) => items.get(id)).filter((item) => item.subject !== null).map((item) => canonical({
-    id: item.item.id,
+    event_item_id: item.item.id,
     status: item.item.status,
     subject_sha256: digest(JSON.stringify(item.subject)),
     type: item.type,
@@ -432,10 +441,17 @@ async function executeNativeTask({
   const payload = canonical({
     approvals: [...approvals.values()].map(canonical),
     authority_items: authorityItems,
+    readback_authority_items: readbackAuthorityItemsReceipt,
     requested_configuration: { approval_policy: approvalPolicy, cwd: taskCwd, model, sandbox },
     server_configuration: serverConfiguration,
     executable,
-    final: finalText === null ? null : { bytes: Buffer.byteLength(finalText), item_id: terminalAnswerItemId, sha256: digest(finalText), text: finalText },
+    final: finalText === null ? null : {
+      bytes: Buffer.byteLength(finalText),
+      event_item_id: terminalAnswerItemId,
+      readback_item_id: readbackFinalItemId,
+      sha256: digest(finalText),
+      text: finalText,
+    },
     items: { completed: [...items.values()].filter((item) => item.state === "completed").length },
     prompt_sha256: digest(prompt),
     schema: "rbm-native-task-terminal/v1",

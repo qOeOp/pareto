@@ -165,7 +165,8 @@ try {
   assert.equal(receipt.payload.turn.id, turnId);
   assert.equal(receipt.payload.turn.status, "completed");
   assert.equal(receipt.payload.final.text, finalText);
-  assert.equal(receipt.payload.final.item_id, "agent-1");
+  assert.equal(receipt.payload.final.event_item_id, "agent-1");
+  assert.equal(receipt.payload.final.readback_item_id, "agent-1");
   assert.equal(receipt.payload.final.sha256, digest(finalText));
   assert.equal(receipt.payload.prompt_sha256, digest(prompt));
   assert.deepEqual(receipt.payload.requested_configuration, {
@@ -188,7 +189,13 @@ try {
   assert.match(approved.payload.approvals[0].request_sha256, /^sha256:[a-f0-9]{64}$/);
   assert.match(approved.payload.approvals[0].subject_sha256, /^sha256:[a-f0-9]{64}$/);
   assert.deepEqual(approved.payload.authority_items, [{
-    id: "command-1",
+    event_item_id: "command-1",
+    status: "completed",
+    subject_sha256: approved.payload.approvals[0].subject_sha256,
+    type: "commandExecution",
+  }]);
+  assert.deepEqual(approved.payload.readback_authority_items, [{
+    readback_item_id: "command-1",
     status: "completed",
     subject_sha256: approved.payload.approvals[0].subject_sha256,
     type: "commandExecution",
