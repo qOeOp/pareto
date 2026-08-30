@@ -40,11 +40,17 @@ For role=hub, additionally require:
 - every approved or attempted node and its exact disposition;
 - an acyclic current DAG with immutable relation locators;
 - one registered active-task set and exact cursor per continued target;
-- consumed terminal/needs-attention locators and component conflict dispositions;
+- consumed terminal/needs-attention locators, consumed native-node merge receipts with exact
+  repository/PR/head/tree/merge identities, exact task-bound pending archive attempts and their
+  effect/readback receipts, terminal artifact/archive dispositions, and component conflict dispositions;
 - one current window and one next observation action.
 
 Recovery does not adopt a same-title task, retry an ambiguous create/send, or infer no change from an
-omitted target. Callback unavailability does not erase native Task custody.
+omitted target. An advanced canonical branch alone never proves that its matching node was consumed;
+until the indivisible merged-readback transition is present, preserve that exact node in native Task
+custody and forbid duplicate investigation, Task, branch, or PR creation. Callback unavailability does
+not erase native Task custody. An ambiguous pending archive attempt is never reissued or treated as
+closure; recover it only through authoritative readback of that exact effect target.
 
 Bind each user control event once by its exact locator in `Authority / Stop / Resume`. A finite pause
 remains armed until a strictly later authenticated native control receipt or user confirmation resumes

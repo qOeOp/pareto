@@ -486,6 +486,32 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedTaskWorkflow,
     /snapshot advanced to a successor turn and omitted that payload, treat it as incomplete transport\s+evidence, not carrier-only/);
   assert.match(installedTaskWorkflow, /retain the prior cursor and failure key/);
+  assert.match(installedTaskWorkflow,
+    /exact merged PR readback closes through one indivisible Hub node transition, not progress/);
+  assert.match(installedTaskWorkflow,
+    /consumed merge\s+receipt keyed by all of those Git\/GitHub identities/);
+  assert.match(installedTaskWorkflow,
+    /Mark\s+that row pending, replace the checkpoint with one exact task-bound pending archive attempt/);
+  assert.match(installedTaskWorkflow,
+    /terminal\s+custody disposition except the exact Task archive row selected/);
+  assert.match(installedTaskWorkflow,
+    /authoritative readback terminalizes that final row/);
+  assert.match(installedTaskWorkflow,
+    /Response loss or ambiguous success never authorizes reissue, Task recovery, or replacement/);
+  assert.match(installedTaskWorkflow,
+    /removes that\s+exact Task, cursor, pending attempt, and transport-failure state from the native active set/);
+  assert.match(installedTaskWorkflow,
+    /later identical merged readback is a deduplicated no-op/);
+  assert.match(installedTaskWorkflow,
+    /never recovers, replaces, or continues the terminal Task before or after consuming the merge receipt/);
+  assert.match(installedTaskWorkflow,
+    /`agentThreadId` and agent-lane state never participate in this native-node transition/);
+  assert.match(installedRecoveryOwner,
+    /consumed native-node merge receipts with exact\s+repository\/PR\/head\/tree\/merge identities/);
+  assert.match(installedRecoveryOwner,
+    /exact task-bound pending archive attempts and their\s+effect\/readback receipts/);
+  assert.match(installedRecoveryOwner,
+    /advanced canonical branch alone never proves that its matching node was consumed/);
   assert.match(installedRecoveryOwner, /Compaction preserves turn identity and consumed observation admission/);
   assert.match(installedTaskWorkflow,
     /An asynchronous Hub may bind it only while a runnable operation or the checkpointed active-task\s+wait below exists/);

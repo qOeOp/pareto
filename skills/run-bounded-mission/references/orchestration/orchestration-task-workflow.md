@@ -141,6 +141,24 @@ member accepted, rejected, or superseded_by. Replace one private checkpoint for 
 if recovery permits, and release every newly ready nonconflicting direct successor in the same turn.
 One receipt never repeats global passes.
 
+An exact merged PR readback closes through one indivisible Hub node transition, not progress. Match it
+to exactly one immutable native DAG node by native Task identity, repository and PR, admitted endpoint,
+candidate head/tree, and current merge commit/tree. First give every task-owned artifact a terminal
+custody disposition except the exact Task archive row selected for an already-authorized effect. Mark
+that row pending, replace the checkpoint with one exact task-bound pending archive attempt, and keep the
+node in the native active set. Issue it once. Its authoritative readback terminalizes that final row.
+Response loss or ambiguous success never authorizes reissue, Task recovery, or replacement; a later
+admitted action may only reconcile the pending attempt by authoritative archive readback.
+
+After every required archive effect has an exact receipt/readback, one replacement checkpoint records
+the consumed merge receipt keyed by all of those Git/GitHub identities; marks the node terminal; removes that
+exact Task, cursor, pending attempt, and transport-failure state from the native active set; and releases
+its newly ready successors. Commit none of this closing transition while any match, custody disposition,
+or effect receipt is missing, stale, ambiguous, or unknown. Keep the exact node and pending attempt in
+custody as `needs_attention`, perform no successor effect, and never create, recover, or publish duplicate
+work from the unconsumed outcome. A later identical merged readback is a deduplicated no-op by its
+consumed merge receipt. `agentThreadId` and agent-lane state never participate in this native-node transition.
+
 ## Critical-path and endpoints
 
 At each Plan or reconciliation, partition nodes by owner, write surface, contract, external effect
@@ -149,8 +167,9 @@ one blocked writer cannot hold frozen-input review, delivery preparation, consum
 preparation, or successor investigation. Serialize only overlaps and unknown independence. Bind
 shared non-repository mutation targets before dispatch. A predecessor that changes the canonical
 source freezes only the successor's dependency-consuming and final identity-bound slices. After exact
-merged evidence, recover the same Task, integrate once, and revalidate changed inputs; never replace
-it.
+merged evidence, the Hub reconciles the same immutable node through the authoritative readbacks above;
+it never recovers, replaces, or continues the terminal Task before or after consuming the merge receipt.
+Revalidate only the released successors' changed inputs.
 
 One native Task owns at most one candidate branch and one PR. GitHub Delivery owns publication,
 merge-readiness, and guarded-merge procedure. PR endpoints are:
