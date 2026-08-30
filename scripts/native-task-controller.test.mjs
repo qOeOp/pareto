@@ -108,9 +108,11 @@ async function fixtureExecutable({
   readbackAuthorityBeforePrompt = false,
   readbackPromptMismatch = false,
   serverConfigMismatch = false,
+  serverWritableRoots = [],
   splitUtf8Readback = false,
   sameChunkEarlyThreadResponse = false,
   terminalStatus = "completed",
+  turnStartFile = null,
   turnStartStatus = "inProgress",
   unterminatedAfterReadback = false,
   unsolicitedThreadResponse = false,
@@ -120,7 +122,7 @@ async function fixtureExecutable({
   versionPidFile = null,
 } = {}) {
   const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, delayedDuplicateReadback, delayedFailureAfterReadback, delayedInheritedVersionStdout, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalForNonCompleted, finalText: fixtureFinalText, hangAfterTurnStart, ignoreSigterm, ignoreVersionSigterm, incompleteUtf8AfterReadback, invocationFile, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, pidFile, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalForNonCompleted, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, sameChunkEarlyThreadResponse, serverConfigMismatch, splitUtf8Readback, terminalStatus, threadId, turnId, turnStartStatus, unterminatedAfterReadback, unsolicitedThreadResponse, unapprovedCommand, version, versionDelayMs, versionPidFile };
+  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, delayedDuplicateReadback, delayedFailureAfterReadback, delayedInheritedVersionStdout, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalForNonCompleted, finalText: fixtureFinalText, hangAfterTurnStart, ignoreSigterm, ignoreVersionSigterm, incompleteUtf8AfterReadback, invocationFile, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, pidFile, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalForNonCompleted, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, sameChunkEarlyThreadResponse, serverConfigMismatch, serverWritableRoots, splitUtf8Readback, terminalStatus, threadId, turnId, turnStartFile, turnStartStatus, unterminatedAfterReadback, unsolicitedThreadResponse, unapprovedCommand, version, versionDelayMs, versionPidFile };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
@@ -169,11 +171,14 @@ rl.on("line", (line) => {
       approvalPolicy: fixture.serverConfigMismatch ? "untrusted" : message.params.approvalPolicy,
       cwd: message.params.cwd,
       model: message.params.model || "fixture-model",
-      sandbox: { type: sandboxTypes[message.params.sandbox] },
+      sandbox: message.params.sandbox === "workspace-write"
+        ? { excludeSlashTmp: false, excludeTmpdirEnvVar: false, type: "workspaceWrite", writableRoots: fixture.serverWritableRoots }
+        : { type: sandboxTypes[message.params.sandbox] },
       thread: { cwd: message.params.cwd, id: fixture.threadId },
     } });
   }
   if (message.method === "turn/start") {
+    if (fixture.turnStartFile) require("node:fs").writeFileSync(fixture.turnStartFile, "turn started\\n");
     turnInput = message.params.input;
     if (fixture.itemStartedBeforeTurnResponse) send({ method: "item/started", params: { item: { command: "pwd", commandActions: [], cwd: process.cwd(), id: "early-command", status: "inProgress", type: "commandExecution" }, threadId: fixture.threadId, turnId: null } });
     send({ id: 2, result: { turn: { id: fixture.turnId, status: fixture.turnStartStatus, items: [] } } });
@@ -313,6 +318,21 @@ async function cliJson(arguments_) {
 }
 
 try {
+  const forbiddenTurnStart = path.join(temporaryRoot, "forbidden-turn-start.txt");
+  await assert.rejects(
+    () => run({
+      serverWritableRoots: [path.join(os.homedir(), ".codex")],
+      turnStartFile: forbiddenTurnStart,
+    }, {
+      sandbox: "workspace-write",
+      onConfigured: async (configuration) => assertDetachedReceiptIsolation(
+        authorityReceipt, resolvedTemporaryRoot, "workspace-write", configuration.sandbox,
+      ),
+    }),
+    /writable by the Task sandbox/,
+  );
+  assert.equal(await readFile(forbiddenTurnStart, "utf8").catch(() => null), null);
+
   let asynchronousFailureUnref = false;
   const asynchronousFailure = await launchDetachedWorker(["worker"], () => {
     const child = new EventEmitter();

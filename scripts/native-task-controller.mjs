@@ -256,6 +256,7 @@ async function executeNativeTask({
   model = null,
   signal = null,
   timeoutMs = 7_200_000,
+  onConfigured = null,
   onStarted = null,
 }, approvalDecisionSource) {
   if (typeof prompt !== "string" || prompt.length === 0 || Buffer.byteLength(prompt) > 1024 * 1024) fail("prompt must contain between 1 byte and 1 MiB");
@@ -265,6 +266,7 @@ async function executeNativeTask({
   if (!new Set(["client_handler", "interactive_stdin_after_request"]).has(approvalDecisionSource)) fail("internal approval decision source is invalid");
   if (!(model === null || (typeof model === "string" && model.length > 0 && model.length <= 200))) fail("model is invalid");
   if (!(signal === null || (typeof signal === "object" && typeof signal.aborted === "boolean" && typeof signal.addEventListener === "function" && typeof signal.removeEventListener === "function"))) fail("abort signal is invalid");
+  if (!(onConfigured === null || typeof onConfigured === "function")) fail("server configuration handler is invalid");
   if (!(onStarted === null || typeof onStarted === "function")) fail("start receipt handler is invalid");
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 86_400_000) fail("timeout must be between 1000 and 86400000 ms");
 
@@ -432,6 +434,7 @@ async function executeNativeTask({
             model: started.model,
             sandbox: started.sandbox,
           });
+          if (onConfigured) await onConfigured(serverConfiguration);
           threadId = started.thread.id;
           send({ method: "turn/start", id: 2, params: { input: [{ type: "text", text: prompt }], threadId } });
           return;
@@ -1019,10 +1022,8 @@ async function main() {
       sandbox: options.sandbox,
       signal: abortController.signal,
       timeoutMs: options["timeout-ms"] === undefined ? undefined : Number(options["timeout-ms"]),
-      onStarted: root ? async (payload) => {
-        await assertDetachedReceiptIsolation(root, options.cwd, options.sandbox, payload.server_configuration.sandbox);
-        await atomicJson(path.join(root, "start.json"), sealed({ attempt_id: options["attempt-id"], start: payload }, "rbm-native-task-start-envelope/v1"));
-      } : null,
+      onConfigured: root ? async (configuration) => assertDetachedReceiptIsolation(root, options.cwd, options.sandbox, configuration.sandbox) : null,
+      onStarted: root ? async (payload) => atomicJson(path.join(root, "start.json"), sealed({ attempt_id: options["attempt-id"], start: payload }, "rbm-native-task-start-envelope/v1")) : null,
     }, command === "run" ? "interactive_stdin_after_request" : "client_handler");
     if (unexpectedApprovalInput) throw unexpectedApprovalInput;
     if (root) await atomicJson(path.join(root, "terminal.json"), sealed({ attempt_id: options["attempt-id"], terminal: receipt }, "rbm-native-task-detached-terminal-envelope/v1"));
