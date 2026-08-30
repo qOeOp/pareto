@@ -448,6 +448,14 @@ try {
   ]);
   assert.equal(failedDispatch.payload.state, "needs_attention");
   assert.match(failedDispatch.payload.failure.payload.error, /did not confirm requested authority configuration/);
+  await writeFile(path.join(failedReceiptDir, "terminal.json"), terminalReceiptSource);
+  const conflictingInspect = spawn(process.execPath, [path.resolve("scripts/native-task-controller.mjs"), "inspect", "--receipt-dir", failedReceiptDir], { stdio: ["ignore", "pipe", "pipe"] });
+  let conflictingStderr = "";
+  conflictingInspect.stdout.resume();
+  conflictingInspect.stderr.setEncoding("utf8").on("data", (chunk) => { conflictingStderr += chunk; });
+  const [conflictingCode] = await once(conflictingInspect, "exit");
+  assert.notEqual(conflictingCode, 0);
+  assert.match(conflictingStderr, /terminal and failure receipts conflict/);
 
   const mismatchedPrompt = path.join(temporaryRoot, "different-prompt.txt");
   await writeFile(mismatchedPrompt, "different prompt");
