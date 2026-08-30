@@ -177,6 +177,8 @@ async function executeNativeTask({
   let readbackAuthorityItemsReceipt = [];
   let serverConfiguration = null;
   let settled = false;
+  let pendingLines = 0;
+  let successSealScheduled = false;
 
   const send = (message) => {
     if (!child.stdin.write(`${JSON.stringify(message)}\n`)) child.stdin.once("drain", () => {});
@@ -189,6 +191,16 @@ async function executeNativeTask({
       settled = true;
       clearTimeout(timer);
       callback(value);
+    };
+    const scheduleSuccessSeal = () => {
+      if (successSealScheduled) return;
+      successSealScheduled = true;
+      const attempt = () => {
+        if (settled) return;
+        if (pendingLines === 0) finish(resolve);
+        else setImmediate(attempt);
+      };
+      setImmediate(attempt);
     };
 
     const handle = async (line) => {
@@ -285,7 +297,7 @@ async function executeNativeTask({
           if (terminalTurn.status === "completed" && readbackItems.at(-1) !== readbackFinals[0]) fail("thread/read terminal answer is not the last item");
           readbackFinalItemId = readbackFinals[0]?.id ?? null;
           terminalReadback = true;
-          finish(resolve);
+          scheduleSuccessSeal();
           return;
         }
         fail("app-server returned an unknown client response id");
@@ -405,7 +417,11 @@ async function executeNativeTask({
 
     let chain = Promise.resolve();
     lines.on("line", (line) => {
-      chain = chain.then(() => handle(line)).catch((error) => finish(reject, error));
+      pendingLines += 1;
+      chain = chain.then(() => handle(line)).then(
+        () => { pendingLines -= 1; },
+        (error) => { pendingLines -= 1; finish(reject, error); },
+      );
     });
     child.once("error", () => finish(reject, new Error("app-server process failed")));
     child.once("exit", (code, signal) => {

@@ -26,6 +26,7 @@ async function fixtureExecutable({
   completedWithError = false,
   completedWithoutStarted = false,
   duplicateInitialize = false,
+  duplicateReadback = false,
   exitEarly = false,
   fileApproval = false,
   finalCompletedMismatch = false,
@@ -44,7 +45,7 @@ async function fixtureExecutable({
   version = "0.148.0",
 } = {}) {
   const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completedWithError, completedWithoutStarted, duplicateInitialize, executable, exitEarly, fileApproval, finalCompletedMismatch, finalText, omitResolved, postFinalAuthority, postTerminalItem, readbackDuplicateItemId, readbackExtraTurn, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, serverConfigMismatch, terminalStatus, threadId, turnId, turnStartStatus, unapprovedCommand, version };
+  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completedWithError, completedWithoutStarted, duplicateInitialize, duplicateReadback, executable, exitEarly, fileApproval, finalCompletedMismatch, finalText, omitResolved, postFinalAuthority, postTerminalItem, readbackDuplicateItemId, readbackExtraTurn, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, serverConfigMismatch, terminalStatus, threadId, turnId, turnStartStatus, unapprovedCommand, version };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
@@ -120,7 +121,9 @@ rl.on("line", (line) => {
     const error = fixture.completedWithError || fixture.terminalStatus === "failed" ? { message: "fixture failed" } : null;
     const turns = [{ error, id: fixture.turnId, items, status: fixture.terminalStatus }];
     if (fixture.readbackExtraTurn) turns.push({ error: null, id: "019fb8b4-ebd0-7c20-8ba1-041ed6836210", items: [], status: "completed" });
-    send({ id: 3, result: { thread: { cwd: process.cwd(), id: fixture.threadId, turns } } });
+    const response = { id: 3, result: { thread: { cwd: process.cwd(), id: fixture.threadId, turns } } };
+    if (fixture.duplicateReadback) process.stdout.write(JSON.stringify(response) + "\\n" + JSON.stringify(response) + "\\n");
+    else send(response);
   }
 });
 function finish() {
@@ -305,6 +308,7 @@ try {
   await assert.rejects(() => run({ authorityCompletedStatus: "inProgress", unapprovedCommand: "pwd" }), /completed with a non-terminal status/);
   await assert.rejects(() => run({ serverConfigMismatch: true }), /did not confirm requested authority configuration/);
   await assert.rejects(() => run({ duplicateInitialize: true }), /duplicate response id/);
+  await assert.rejects(() => run({ duplicateReadback: true }), /duplicate response id/);
   await assert.rejects(() => run({ exitEarly: true }), /exited before terminal receipt/);
 
   const wrongHash = await fixtureExecutable();
