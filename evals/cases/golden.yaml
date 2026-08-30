@@ -1881,6 +1881,46 @@
         whole_goal_blocked: false
         visible_goal_rebind: none
 
+- description: "[full] exact merged readback atomically consumes one native DAG node"
+  metadata:
+    observations: { capability: { id: ORC-08, scenario: positive, case_id: orc-08-positive }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state, github_state] }
+  vars:
+    prompt: >-
+      Use $run-bounded-mission. After compaction, a Hub reads back one receipt-admitted Native Task's PR as
+      merged. The immutable node endpoint, native identity, repository/PR, candidate head/tree, merge
+      commit/tree, and terminal artifact dispositions all match exactly. Archival of that exact terminal Task
+      is already authorized. Its exact task-bound pending archive attempt was checkpointed before one issuance;
+      the response was lost, and a later authoritative readback now proves that exact Task archived. The
+      canonical branch advanced to the merge, but the recovered checkpoint omitted node consumption and still
+      treats the delivered capability as missing. A stale or ambiguous node/Git match and a missing or ambiguous
+      archive readback are the fail-closed controls. Return exactly the reconciliation and controls below; do not
+      repeat or reissue anything, create a Task, branch, or PR, recover the terminal Task, or alter agent lanes.
+  assert:
+    - type: skill-used
+      value: run-bounded-mission
+    - type: equals
+      value: |-
+        merge_readback_match: exact_single_native_node
+        stale_or_ambiguous_merge_match: needs_attention_no_effect_no_duplicate
+        pre_archive_artifact_custody: all_other_rows_terminal_exact_task_archive_pending
+        pre_archive_checkpoint: exact_task_bound_pending_attempt
+        archive_effect_attempts: one
+        missing_or_ambiguous_archive_readback: pending_attempt_no_reissue_no_closure
+        archive_response_loss_recovery: authoritative_readback_only
+        archive_readback: terminalizes_exact_task_row
+        ambiguous_archive_reissue_or_task_recovery: forbidden
+        merge_receipt_key: repository_pr_head_head_tree_merge_commit_merge_tree
+        reconciliation: one_indivisible_checkpoint_transition
+        node_state: terminal
+        native_active_set: exact_task_removed
+        cursor_and_transport_failure: removed_with_task
+        artifact_custody: terminal_dispositions_recorded
+        authorized_task_archive: readback_receipt_consumed
+        successor_release: same_transition
+        pre_or_post_consumption_task_recovery_or_continuation: forbidden
+        duplicate_investigation_task_branch_or_pr: forbidden
+        agent_lane_state: unchanged
+
 - description: "[full] successor snapshot cannot erase a completed turn"
   metadata:
     observations: { capability: { id: ORC-08, scenario: negative, case_id: orc-08-negative }, behavioral_oracle: deterministic_text, skill_activation: { status: dynamic_heuristic, expected: used }, required_raw_item_types: [command_execution], unavailable: [host_native_skill_route, native_task_state] }
