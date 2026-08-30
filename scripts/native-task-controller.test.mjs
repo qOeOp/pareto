@@ -28,6 +28,8 @@ async function fixtureExecutable({
   authorityStartedStatus = "inProgress",
   completedWithError = false,
   completedWithoutStarted = false,
+  delayedDuplicateReadback = false,
+  delayedInheritedVersionStdout = false,
   duplicateInitialize = false,
   duplicateReadback = false,
   exitAfterReadback = false,
@@ -68,7 +70,7 @@ async function fixtureExecutable({
   versionPidFile = null,
 } = {}) {
   const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalForNonCompleted, finalText: fixtureFinalText, hangAfterTurnStart, ignoreSigterm, ignoreVersionSigterm, incompleteUtf8AfterReadback, invocationFile, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, pidFile, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalForNonCompleted, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, sameChunkEarlyThreadResponse, serverConfigMismatch, splitUtf8Readback, terminalStatus, threadId, turnId, turnStartStatus, unterminatedAfterReadback, unsolicitedThreadResponse, unapprovedCommand, version, versionDelayMs, versionPidFile };
+  const fixture = { approval, approvalAfterFinal, approvalCommandMismatch, approvalMissingId, approvalWithoutStarted, authorityCompletedStatus, authorityStartedStatus, availableDecisions, completeBeforeApprovalResponse, completedWithError, completedWithoutStarted, delayedDuplicateReadback, delayedInheritedVersionStdout, duplicateInitialize, duplicateReadback, executable, exitAfterReadback, exitEarly, expectedApprovalDecision, fileApproval, finalCompletedMismatch, finalForNonCompleted, finalText: fixtureFinalText, hangAfterTurnStart, ignoreSigterm, ignoreVersionSigterm, incompleteUtf8AfterReadback, invocationFile, itemStartedBeforeThreadResponse, itemStartedBeforeTurnResponse, mutateProbe, omitResolved, pidFile, postFinalAuthority, postTerminalItem, readbackAuthorityBeforePrompt, readbackDuplicateItemId, readbackExtraTurn, readbackFinalForNonCompleted, readbackFinalMismatch, readbackOmitAuthority, readbackPromptMismatch, sameChunkEarlyThreadResponse, serverConfigMismatch, splitUtf8Readback, terminalStatus, threadId, turnId, turnStartStatus, unterminatedAfterReadback, unsolicitedThreadResponse, unapprovedCommand, version, versionDelayMs, versionPidFile };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
@@ -82,6 +84,9 @@ if (process.argv[2] === "--version") {
     require("node:fs").writeFileSync(process.argv[1], "#!/usr/bin/env node\\nprocess.exit(19);\\n");
   }
   if (!fixture.ignoreVersionSigterm) {
+    if (fixture.delayedInheritedVersionStdout) {
+      require("node:child_process").spawn(process.execPath, ["-e", "setTimeout(() => process.stdout.write(' delayed-extra'), 75)"], { stdio: ["ignore", "inherit", "ignore"] }).unref();
+    }
     const finishVersion = () => { process.stdout.write("codex-cli " + fixture.version + "\\n"); process.exit(0); };
     if (fixture.versionDelayMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, fixture.versionDelayMs);
     finishVersion();
@@ -190,6 +195,7 @@ rl.on("line", (line) => {
     if (fixture.readbackExtraTurn) turns.push({ error: null, id: "019fb8b4-ebd0-7c20-8ba1-041ed6836210", items: [], status: "completed" });
     const response = { id: 3, result: { thread: { cwd: process.cwd(), id: fixture.threadId, turns } } };
     if (fixture.duplicateReadback) process.stdout.write(JSON.stringify(response) + "\\n" + JSON.stringify(response) + "\\n");
+    else if (fixture.delayedDuplicateReadback) { send(response); setTimeout(() => send(response), 100); }
     else if (fixture.splitUtf8Readback) {
       const encoded = Buffer.from(JSON.stringify(response) + "\\n");
       const marker = encoded.indexOf(Buffer.from([0xc3, 0xa9]));
@@ -471,6 +477,7 @@ try {
   await assert.rejects(() => run({ sameChunkEarlyThreadResponse: true }), /response arrived before its matching request was sent/);
   await assert.rejects(() => run({ duplicateInitialize: true }), /duplicate response id/);
   await assert.rejects(() => run({ duplicateReadback: true }), /duplicate response id/);
+  await assert.rejects(() => run({ delayedDuplicateReadback: true, ignoreSigterm: true }), /duplicate response id/);
   await assert.rejects(() => run({ incompleteUtf8AfterReadback: true }), /unterminated frame/);
   await assert.rejects(() => run({ unterminatedAfterReadback: true }), /unterminated frame/);
   await assert.rejects(() => run({ exitEarly: true }), /exited before terminal receipt/);
@@ -487,6 +494,7 @@ try {
     sandbox: "read-only",
   }), /sha256 mismatch/);
   await assert.rejects(() => run({}, { expectedServerVersion: "0.149.0" }), /version mismatch/);
+  await assert.rejects(() => run({ delayedInheritedVersionStdout: true }), /version mismatch/);
   await assert.rejects(() => run({}, { approvalPolicy: "invalid" }), /approval policy is unsupported/);
   await assert.rejects(() => run({}, { sandbox: "invalid" }), /sandbox mode is unsupported/);
 

@@ -93,12 +93,12 @@ async function readVersionProbe(executable, signal) {
     if (stdoutBytes > 1024 * 1024) interrupt(new Error("codex version probe output exceeded 1 MiB"));
     else chunks.push(chunk);
   });
-  const exited = new Promise((resolve) => {
+  const closed = new Promise((resolve) => {
     child.once("error", (error) => resolve({ error }));
-    child.once("exit", (code, childSignal) => resolve({ childSignal, code }));
+    child.once("close", (code, childSignal) => resolve({ childSignal, code }));
   });
   const outcome = await Promise.race([
-    exited.then((value) => ({ type: "exit", value })),
+    closed.then((value) => ({ type: "close", value })),
     interrupted.then((error) => ({ error, type: "interrupt" })),
   ]);
   clearTimeout(timer);
@@ -261,6 +261,7 @@ async function executeNativeTask({
   let settled = false;
   let pendingLines = 0;
   let successSealScheduled = false;
+  let successShutdownStarted = false;
   let wireSequence = 0;
   let framingRemainder = Buffer.alloc(0);
   const frameDecoder = new TextDecoder("utf-8", { fatal: true });
@@ -289,14 +290,14 @@ async function executeNativeTask({
     const scheduleSuccessSeal = () => {
       if (successSealScheduled) return;
       successSealScheduled = true;
-      const attempt = () => {
+      const attempt = async () => {
         if (settled) return;
         if (pendingLines !== 0) {
           setImmediate(attempt);
           return;
         }
         setImmediate(() => {
-          setTimeout(() => {
+          setTimeout(async () => {
             if (settled) return;
             if (pendingLines !== 0) {
               setImmediate(attempt);
@@ -308,6 +309,26 @@ async function executeNativeTask({
             }
             if (child.exitCode !== null || child.signalCode !== null) {
               finish(reject, new Error(`app-server exited before terminal receipt: code=${child.exitCode} signal=${child.signalCode}`));
+              return;
+            }
+            successShutdownStarted = true;
+            const closed = once(child, "close");
+            child.stdin.end();
+            try {
+              await stopChild(child);
+              await closed;
+              await chain;
+            } catch (error) {
+              finish(reject, error);
+              return;
+            }
+            if (settled) return;
+            if (pendingLines !== 0) {
+              finish(reject, new Error("app-server response queue did not drain before shutdown"));
+              return;
+            }
+            if (framingRemainder.length !== 0) {
+              finish(reject, new Error("app-server response ended with an unterminated frame"));
               return;
             }
             finish(resolve);
@@ -582,7 +603,7 @@ async function executeNativeTask({
     });
     child.once("error", () => finish(reject, new Error("app-server process failed")));
     child.once("exit", (code, signal) => {
-      if (!settled) finish(reject, new Error(`app-server exited before terminal receipt: code=${code} signal=${signal}`));
+      if (!settled && !successShutdownStarted) finish(reject, new Error(`app-server exited before terminal receipt: code=${code} signal=${signal}`));
     });
   });
 
