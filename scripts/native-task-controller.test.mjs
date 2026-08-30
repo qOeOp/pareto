@@ -2,24 +2,35 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { runNativeTask } from "./native-task-controller.mjs";
 
 const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "native-task-controller-test-"));
+const resolvedTemporaryRoot = await realpath(temporaryRoot);
 const threadId = "019fb8b4-ebd0-7c20-8ba1-041ed6836204";
 const turnId = "019fb8b4-ebd0-7c20-8ba1-041ed6836207";
 const prompt = "Return exactly: controller fixture passed";
 const finalText = "controller fixture passed";
 const digest = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 
-async function fixtureExecutable({ approval = false, duplicateInitialize = false, omitResolved = false, terminalStatus = "completed", exitEarly = false, version = "0.148.0" } = {}) {
+async function fixtureExecutable({
+  approval = false,
+  approvalWithoutStarted = false,
+  completedWithoutStarted = false,
+  duplicateInitialize = false,
+  exitEarly = false,
+  omitResolved = false,
+  terminalStatus = "completed",
+  version = "0.148.0",
+} = {}) {
   const executable = path.join(temporaryRoot, `codex-${Math.random().toString(16).slice(2)}`);
-  const fixture = { approval, duplicateInitialize, exitEarly, finalText, omitResolved, terminalStatus, threadId, turnId, version };
+  const fixture = { approval, approvalWithoutStarted, completedWithoutStarted, duplicateInitialize, executable, exitEarly, finalText, omitResolved, terminalStatus, threadId, turnId, version };
   const program = `#!/usr/bin/env node
 const readline = require("node:readline");
 const fixture = ${JSON.stringify(fixture)};
+if (process.argv[1] === fixture.executable) process.exit(5);
 if (process.argv[2] === "--version") { process.stdout.write("codex-cli " + fixture.version + "\\n"); process.exit(0); }
 if (process.argv[2] !== "app-server" || process.argv[3] !== "--stdio") process.exit(9);
 const send = (value) => process.stdout.write(JSON.stringify(value) + "\\n");
@@ -36,8 +47,11 @@ rl.on("line", (line) => {
   if (message.method === "turn/start") {
     send({ id: 2, result: { turn: { id: fixture.turnId, status: "inProgress", items: [] } } });
     if (fixture.approval) {
-      send({ method: "item/started", params: { item: { id: "command-1", type: "commandExecution" }, threadId: fixture.threadId, turnId: fixture.turnId } });
+      if (!fixture.approvalWithoutStarted) send({ method: "item/started", params: { item: { id: "command-1", type: "commandExecution" }, threadId: fixture.threadId, turnId: fixture.turnId } });
       send({ id: "approval-1", method: "item/commandExecution/requestApproval", params: { itemId: "command-1", threadId: fixture.threadId, turnId: fixture.turnId } });
+    }
+    else if (fixture.completedWithoutStarted) {
+      send({ method: "item/completed", params: { item: { id: "command-1", type: "commandExecution", status: "completed" }, threadId: fixture.threadId, turnId: fixture.turnId } });
     }
     else finish();
   }
@@ -46,6 +60,9 @@ rl.on("line", (line) => {
     if (!fixture.omitResolved) send({ method: "serverRequest/resolved", params: { requestId: "approval-1", threadId: fixture.threadId } });
     send({ method: "item/completed", params: { item: { id: "command-1", type: "commandExecution", status: "completed" }, threadId: fixture.threadId, turnId: fixture.turnId } });
     finish();
+  }
+  if (message.method === "thread/read" && message.id === 3) {
+    send({ id: 3, result: { thread: { id: fixture.threadId, turns: [{ id: fixture.turnId, status: fixture.terminalStatus }] } } });
   }
 });
 function finish() {
@@ -66,7 +83,7 @@ async function run(fixture = {}, overrides = {}) {
   return runNativeTask({
     approvalPolicy: "never",
     codexExecutable: identity.executable,
-    cwd: temporaryRoot,
+    cwd: resolvedTemporaryRoot,
     expectedExecutableSha256: identity.sha256,
     expectedServerVersion: fixture.version ?? "0.148.0",
     prompt,
@@ -86,11 +103,18 @@ try {
   assert.equal(receipt.payload.final.text, finalText);
   assert.equal(receipt.payload.final.sha256, digest(finalText));
   assert.equal(receipt.payload.prompt_sha256, digest(prompt));
+  assert.deepEqual(receipt.payload.configuration, {
+    approval_policy: "never",
+    cwd: resolvedTemporaryRoot,
+    model: null,
+    sandbox: "read-only",
+  });
   assert.equal(receipt.content_sha256, digest(JSON.stringify(receipt.payload)));
 
   const approved = await run({ approval: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" });
-  assert.deepEqual(approved.payload.approvals, [{ decision: "accept", itemId: "command-1", method: "item/commandExecution/requestApproval" }]);
-  assert.equal(approved.payload.items.started, 2);
+  assert.equal(approved.payload.approvals[0].decision, "accept");
+  assert.equal(approved.payload.approvals[0].decision_source, "client_handler");
+  assert.match(approved.payload.approvals[0].request_sha256, /^sha256:[a-f0-9]{64}$/);
   assert.equal(approved.payload.items.completed, 2);
 
   const cliFixture = await fixtureExecutable({ approval: true });
@@ -111,12 +135,36 @@ try {
   let cliStderr = "";
   cli.stdout.setEncoding("utf8").on("data", (chunk) => { cliStdout += chunk; });
   cli.stderr.setEncoding("utf8").on("data", (chunk) => { cliStderr += chunk; });
+  const approvalDisplayed = new Promise((resolve) => {
+    cli.stderr.on("data", () => { if (cliStderr.includes("approval decision")) resolve(); });
+  });
+  await approvalDisplayed;
   cli.stdin.end("accept\n");
   const [cliCode] = await once(cli, "exit");
   assert.equal(cliCode, 0);
   assert.match(cliStderr, /approval_request/);
   assert.match(cliStderr, /approval decision/);
   assert.equal(JSON.parse(cliStdout).payload.approvals[0].decision, "accept");
+  assert.equal(JSON.parse(cliStdout).payload.approvals[0].decision_source, "interactive_stdin_after_request");
+
+  const earlyFixture = await fixtureExecutable({ approval: true });
+  const earlyCli = spawn(process.execPath, [
+    path.resolve("scripts/native-task-controller.mjs"), "run",
+    "--codex-executable", earlyFixture.executable,
+    "--expected-sha256", earlyFixture.sha256,
+    "--expected-version", "0.148.0",
+    "--cwd", temporaryRoot,
+    "--prompt-file", promptFile,
+    "--approval-policy", "on-request",
+    "--sandbox", "read-only",
+    "--timeout-ms", "2000",
+  ], { stdio: ["pipe", "pipe", "pipe"] });
+  let earlyStderr = "";
+  earlyCli.stderr.setEncoding("utf8").on("data", (chunk) => { earlyStderr += chunk; });
+  earlyCli.stdin.end("accept\n");
+  const [earlyCode] = await once(earlyCli, "exit");
+  assert.notEqual(earlyCode, 0);
+  assert.match(earlyStderr, /approval decision arrived before a displayed request/);
 
   const failed = await run({ terminalStatus: "failed" });
   assert.equal(failed.payload.turn.status, "failed");
@@ -125,7 +173,9 @@ try {
 
   await assert.rejects(() => run({ approval: true }), /approval requested without an explicit handler/);
   await assert.rejects(() => run({ approval: true }, { approvalHandler: async () => "invalid", approvalPolicy: "on-request" }), /unsupported decision/);
-  await assert.rejects(() => run({ approval: true, omitResolved: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /unresolved approval/);
+  await assert.rejects(() => run({ approval: true, omitResolved: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /before its approval was resolved/);
+  await assert.rejects(() => run({ approval: true, approvalWithoutStarted: true }, { approvalHandler: async () => "accept", approvalPolicy: "on-request" }), /approval request lacks its matching started item/);
+  await assert.rejects(() => run({ completedWithoutStarted: true }), /item\/completed lacks its matching started item/);
   await assert.rejects(() => run({ duplicateInitialize: true }), /duplicate response id/);
   await assert.rejects(() => run({ exitEarly: true }), /exited before terminal receipt/);
 

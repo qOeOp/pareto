@@ -2,7 +2,8 @@ import { spawn, execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { createReadStream } from "node:fs";
-import { lstat, readFile, realpath } from "node:fs/promises";
+import { chmod, copyFile, lstat, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
 import { promisify } from "node:util";
@@ -14,7 +15,7 @@ const shaPattern = /^sha256:[a-f0-9]{64}$/;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const approvalPolicies = new Set(["untrusted", "on-request", "never"]);
 const sandboxModes = new Set(["read-only", "workspace-write", "danger-full-access"]);
-const approvalDecisions = new Set(["accept", "acceptForSession", "decline", "cancel"]);
+const approvalDecisions = new Set(["accept", "decline", "cancel"]);
 
 function fail(message) {
   throw new Error(message);
@@ -32,7 +33,7 @@ function canonical(value) {
   return value;
 }
 
-async function executableIdentity(executable, expectedSha256, expectedVersion) {
+async function materializeExecutable(executable, expectedSha256, expectedVersion) {
   if (!path.isAbsolute(executable)) fail("codex executable must be one absolute path");
   if (!shaPattern.test(expectedSha256)) fail("expected executable sha256 is invalid");
   if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(expectedVersion)) fail("expected server version is invalid");
@@ -41,13 +42,28 @@ async function executableIdentity(executable, expectedSha256, expectedVersion) {
   if (!info?.isFile() || info.isSymbolicLink() || (process.platform !== "win32" && (info.mode & 0o111) === 0)) {
     fail("codex executable is missing or unsafe");
   }
-  const hash = createHash("sha256");
-  for await (const chunk of createReadStream(resolved)) hash.update(chunk);
-  const sha256 = `sha256:${hash.digest("hex")}`;
-  if (sha256 !== expectedSha256) fail("codex executable sha256 mismatch");
-  const { stdout } = await execFileAsync(resolved, ["--version"], { encoding: "utf8", timeout: 10_000 });
-  if (stdout.trim() !== `codex-cli ${expectedVersion}`) fail("codex executable version mismatch");
-  return { path: resolved, sha256, version: expectedVersion };
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "native-task-controller-exec-"));
+  const runtimePath = path.join(temporaryRoot, process.platform === "win32" ? "codex.exe" : "codex");
+  try {
+    await copyFile(resolved, runtimePath);
+    if (process.platform !== "win32") await chmod(runtimePath, 0o500);
+    const runtimeInfo = await lstat(runtimePath);
+    if (!runtimeInfo.isFile() || runtimeInfo.isSymbolicLink()) fail("materialized codex executable is unsafe");
+    const hash = createHash("sha256");
+    for await (const chunk of createReadStream(runtimePath)) hash.update(chunk);
+    const sha256 = `sha256:${hash.digest("hex")}`;
+    if (sha256 !== expectedSha256) fail("codex executable sha256 mismatch");
+    const { stdout } = await execFileAsync(runtimePath, ["--version"], { encoding: "utf8", timeout: 10_000 });
+    if (stdout.trim() !== `codex-cli ${expectedVersion}`) fail("codex executable version mismatch");
+    return {
+      identity: { path: resolved, sha256, version: expectedVersion },
+      runtimePath,
+      cleanup: () => rm(temporaryRoot, { force: true, recursive: true }),
+    };
+  } catch (error) {
+    await rm(temporaryRoot, { force: true, recursive: true });
+    throw error;
+  }
 }
 
 async function directoryIdentity(cwd) {
@@ -84,6 +100,7 @@ export async function runNativeTask({
   approvalPolicy,
   sandbox,
   approvalHandler = null,
+  approvalDecisionSource = "client_handler",
   model = null,
   timeoutMs = 7_200_000,
 }) {
@@ -91,18 +108,28 @@ export async function runNativeTask({
   if (!approvalPolicies.has(approvalPolicy)) fail("approval policy is unsupported");
   if (!sandboxModes.has(sandbox)) fail("sandbox mode is unsupported");
   if (!(approvalHandler === null || typeof approvalHandler === "function")) fail("approval handler is invalid");
+  if (!new Set(["client_handler", "interactive_stdin_after_request"]).has(approvalDecisionSource)) fail("approval decision source is invalid");
   if (!(model === null || (typeof model === "string" && model.length > 0 && model.length <= 200))) fail("model is invalid");
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 86_400_000) fail("timeout must be between 1000 and 86400000 ms");
 
-  const executable = await executableIdentity(codexExecutable, expectedExecutableSha256, expectedServerVersion);
   const taskCwd = await directoryIdentity(cwd);
-  const child = spawn(executable.path, ["app-server", "--stdio"], { cwd: taskCwd, stdio: ["pipe", "pipe", "pipe"] });
-  if (!child.stdin || !child.stdout || !child.stderr) fail("app-server process transport is unavailable");
+  const materialized = await materializeExecutable(codexExecutable, expectedExecutableSha256, expectedServerVersion);
+  const executable = materialized.identity;
+  let child;
+  try {
+    child = spawn(materialized.runtimePath, ["app-server", "--stdio"], { cwd: taskCwd, stdio: ["pipe", "pipe", "pipe"] });
+  } catch (error) {
+    await materialized.cleanup();
+    throw error;
+  }
+  if (!child.stdin || !child.stdout || !child.stderr) {
+    await materialized.cleanup();
+    fail("app-server process transport is unavailable");
+  }
   child.stderr.resume();
   const lines = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
   const responseIds = new Set();
-  const startedItems = new Map();
-  const completedItems = new Map();
+  const items = new Map();
   const approvals = new Map();
   const resolvedApprovals = new Set();
   const finalMessages = [];
@@ -110,6 +137,7 @@ export async function runNativeTask({
   let turnId = null;
   let stdoutBytes = 0;
   let terminalTurn = null;
+  let terminalReadback = false;
   let settled = false;
 
   const send = (message) => {
@@ -168,6 +196,16 @@ export async function runNativeTask({
           turnId = started.turn.id;
           return;
         }
+        if (message.id === 3) {
+          const readback = responseResult(message, 3, "thread/read");
+          const matchingTurns = Array.isArray(readback.thread?.turns) ? readback.thread.turns.filter((turn) => turn?.id === turnId) : [];
+          if (readback.thread?.id !== threadId || matchingTurns.length !== 1 || matchingTurns[0].status !== terminalTurn?.status) {
+            fail("thread/read did not confirm the exact terminal turn");
+          }
+          terminalReadback = true;
+          finish(resolve);
+          return;
+        }
         fail("app-server returned an unknown client response id");
       }
 
@@ -183,10 +221,19 @@ export async function runNativeTask({
         const key = JSON.stringify(message.id);
         if (approvals.has(key)) fail("app-server returned a duplicate approval request id");
         const expectedItemType = message.method === "item/commandExecution/requestApproval" ? "commandExecution" : "fileChange";
-        if (startedItems.get(params.itemId) !== expectedItemType) fail("approval request lacks its matching started item");
+        if (items.get(params.itemId)?.state !== "started" || items.get(params.itemId)?.type !== expectedItemType) {
+          fail("approval request lacks its matching started item");
+        }
         const decision = await approvalHandler({ method: message.method, params: canonical(params) });
         if (!approvalDecisions.has(decision)) fail("approval handler returned an unsupported decision");
-        approvals.set(key, { decision, itemId: params.itemId, method: message.method });
+        if ([...approvals.values()].some((approval) => approval.itemId === params.itemId)) fail("item has more than one approval request");
+        approvals.set(key, {
+          decision,
+          decision_source: approvalDecisionSource,
+          itemId: params.itemId,
+          method: message.method,
+          request_sha256: digest(JSON.stringify(canonical({ method: message.method, params }))),
+        });
         send({ id: message.id, result: { decision } });
         return;
       }
@@ -197,9 +244,16 @@ export async function runNativeTask({
         if (params.threadId !== threadId || params.turnId !== turnId || typeof params.item?.id !== "string" || typeof params.item?.type !== "string") {
           fail(`${message.method} identity is malformed`);
         }
-        const target = message.method === "item/started" ? startedItems : completedItems;
-        if (target.has(params.item.id)) fail(`${message.method} duplicated an item`);
-        target.set(params.item.id, params.item.type);
+        const current = items.get(params.item.id);
+        if (message.method === "item/started") {
+          if (current) fail("item/started duplicated or reversed an item lifecycle");
+          items.set(params.item.id, { state: "started", type: params.item.type });
+        } else {
+          if (current?.state !== "started" || current.type !== params.item.type) fail("item/completed lacks its matching started item");
+          const approvalKey = [...approvals].find(([, approval]) => approval.itemId === params.item.id)?.[0];
+          if (approvalKey !== undefined && !resolvedApprovals.has(approvalKey)) fail("item completed before its approval was resolved");
+          items.set(params.item.id, { state: "completed", type: params.item.type });
+        }
         if (message.method === "item/completed" && params.item.type === "agentMessage" && params.item.phase === "final_answer") {
           if (typeof params.item.text !== "string" || Buffer.byteLength(params.item.text) > 1024 * 1024) fail("terminal agent message is malformed or exceeds 1 MiB");
           finalMessages.push(params.item.text);
@@ -217,13 +271,12 @@ export async function runNativeTask({
         if (!threadId || !turnId || params.threadId !== threadId || params.turn?.id !== turnId || !["completed", "interrupted", "failed"].includes(params.turn?.status)) {
           fail("turn/completed identity or status is malformed");
         }
+        if (terminalTurn) fail("app-server emitted more than one terminal turn");
         if (approvals.size !== resolvedApprovals.size) fail("turn completed with unresolved approval requests");
-        if (startedItems.size !== completedItems.size || [...startedItems].some(([id, type]) => completedItems.get(id) !== type)) {
-          fail("turn completed with an incomplete or mismatched item lifecycle");
-        }
+        if ([...items.values()].some((item) => item.state !== "completed")) fail("turn completed with an incomplete item lifecycle");
         if (params.turn.status === "completed" && finalMessages.length !== 1) fail("completed turn lacks one terminal agent message");
         terminalTurn = params.turn;
-        finish(resolve);
+        send({ method: "thread/read", id: 3, params: { includeTurns: true, threadId } });
         return;
       }
       if (message.method === "error" && (!params.threadId || params.threadId === threadId)) fail("app-server emitted an error notification");
@@ -235,7 +288,7 @@ export async function runNativeTask({
     });
     child.once("error", () => finish(reject, new Error("app-server process failed")));
     child.once("exit", (code, signal) => {
-      if (!terminalTurn) finish(reject, new Error(`app-server exited before terminal receipt: code=${code} signal=${signal}`));
+      if (!terminalReadback) finish(reject, new Error(`app-server exited before terminal receipt: code=${code} signal=${signal}`));
     });
   });
 
@@ -250,15 +303,20 @@ export async function runNativeTask({
   } finally {
     lines.close();
     child.stdin.end();
-    await stopChild(child);
+    try {
+      await stopChild(child);
+    } finally {
+      await materialized.cleanup();
+    }
   }
 
   const finalText = finalMessages[0] ?? null;
   const payload = canonical({
     approvals: [...approvals.values()].map(canonical),
+    configuration: { approval_policy: approvalPolicy, cwd: taskCwd, model, sandbox },
     executable,
     final: finalText === null ? null : { bytes: Buffer.byteLength(finalText), sha256: digest(finalText), text: finalText },
-    items: { completed: completedItems.size, started: startedItems.size },
+    items: { completed: [...items.values()].filter((item) => item.state === "completed").length },
     prompt_sha256: digest(prompt),
     schema: "rbm-native-task-terminal/v1",
     thread: { id: threadId },
@@ -299,29 +357,38 @@ async function readPrompt(promptFile) {
 async function main() {
   const options = parseArguments(process.argv.slice(2));
   const approvalInput = readline.createInterface({ input: process.stdin, crlfDelay: Infinity, terminal: process.stdin.isTTY });
-  const decisions = [];
-  const decisionWaiters = [];
+  let decisionWaiter = null;
+  let unexpectedApprovalInput = null;
   let approvalInputClosed = false;
   approvalInput.on("line", (line) => {
     const decision = line.trim();
-    const waiter = decisionWaiters.shift();
-    if (waiter) waiter.resolve(decision);
-    else decisions.push(decision);
+    if (decisionWaiter) {
+      const waiter = decisionWaiter;
+      decisionWaiter = null;
+      waiter.resolve(decision);
+    } else {
+      unexpectedApprovalInput = new Error("approval decision arrived before a displayed request");
+    }
   });
   approvalInput.on("close", () => {
     approvalInputClosed = true;
-    for (const waiter of decisionWaiters.splice(0)) waiter.reject(new Error("approval input closed before a decision"));
+    if (decisionWaiter) {
+      decisionWaiter.reject(new Error("approval input closed before a decision"));
+      decisionWaiter = null;
+    }
   });
   const approvalHandler = async ({ method, params }) => {
+    if (unexpectedApprovalInput) throw unexpectedApprovalInput;
+    if (decisionWaiter) fail("more than one approval request is awaiting a decision");
     process.stderr.write(`${JSON.stringify({ approval_request: { availableDecisions: params.availableDecisions ?? null, command: params.command ?? null, cwd: params.cwd ?? null, itemId: params.itemId, method, reason: params.reason ?? null } })}\n`);
-    process.stderr.write("approval decision (accept|acceptForSession|decline|cancel): ");
-    if (decisions.length > 0) return decisions.shift();
+    process.stderr.write("approval decision (accept|decline|cancel): ");
     if (approvalInputClosed) fail("approval input closed before a decision");
-    return new Promise((resolve, reject) => decisionWaiters.push({ reject, resolve }));
+    return new Promise((resolve, reject) => { decisionWaiter = { reject, resolve }; });
   };
   try {
     const receipt = await runNativeTask({
       approvalHandler,
+      approvalDecisionSource: "interactive_stdin_after_request",
       approvalPolicy: options["approval-policy"],
       codexExecutable: options["codex-executable"],
       cwd: options.cwd,
@@ -332,6 +399,7 @@ async function main() {
       sandbox: options.sandbox,
       timeoutMs: options["timeout-ms"] === undefined ? undefined : Number(options["timeout-ms"]),
     });
+    if (unexpectedApprovalInput) throw unexpectedApprovalInput;
     process.stdout.write(`${JSON.stringify(receipt)}\n`);
     if (receipt.payload.turn.status !== "completed") process.exitCode = 1;
   } finally {
