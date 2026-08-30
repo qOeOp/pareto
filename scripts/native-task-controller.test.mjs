@@ -280,7 +280,7 @@ try {
   await assert.rejects(() => run({ completedWithoutStarted: true }), /item\/completed lacks its matching started item/);
   await assert.rejects(() => run({ postTerminalItem: true }), /event after the terminal turn/);
   await assert.rejects(() => run({ postFinalAuthority: true }), /item event after the terminal answer/);
-  await assert.rejects(() => run({ finalCompletedMismatch: true }), /changed its terminal answer/);
+  await assert.rejects(() => run({ finalCompletedMismatch: true }), /did not confirm the exact terminal answer/);
   let postFinalApprovalHandled = false;
   await assert.rejects(() => run({ approval: true, approvalAfterFinal: true }, {
     approvalHandler: async () => { postFinalApprovalHandled = true; return "accept"; },

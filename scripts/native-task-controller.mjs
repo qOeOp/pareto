@@ -60,7 +60,7 @@ function authoritySubject(item) {
 
 function terminalAnswerSubject(item) {
   if (item.type !== "agentMessage" || item.phase !== "final_answer") return null;
-  return typeof item.text === "string" ? canonical({ phase: item.phase, text: item.text, type: item.type }) : null;
+  return canonical({ phase: item.phase, type: item.type });
 }
 
 async function materializeExecutable(executable, expectedSha256, expectedVersion) {
