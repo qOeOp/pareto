@@ -812,7 +812,7 @@ async function inspectReceipt(receiptDir) {
     }
     return sealed({ attempt, start, state: "terminal", terminal }, "rbm-native-task-inspection-envelope/v1");
   }
-  if (failure) return sealed({ attempt, failure, state: "needs_attention" }, "rbm-native-task-inspection-envelope/v1");
+  if (failure) return sealed({ attempt, failure, start, state: "needs_attention" }, "rbm-native-task-inspection-envelope/v1");
   return sealed({ attempt, start, state: start ? "running" : "starting" }, "rbm-native-task-inspection-envelope/v1");
 }
 

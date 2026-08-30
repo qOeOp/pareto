@@ -479,6 +479,28 @@ try {
   assert.notEqual(conflictingCode, 0);
   assert.match(conflictingStderr, /terminal and failure receipts conflict/);
 
+  const postStartFailureInvocations = path.join(temporaryRoot, "post-start-failure-invocations.txt");
+  const postStartFailureFixture = await fixtureExecutable({ invocationFile: postStartFailureInvocations, readbackFinalMismatch: true });
+  const postStartFailureDir = path.join(temporaryRoot, "post-start-failure-receipt");
+  const postStartFailureArguments = [
+    "dispatch", "--codex-executable", postStartFailureFixture.executable,
+    "--expected-sha256", postStartFailureFixture.sha256, "--expected-version", "0.148.0",
+    "--cwd", temporaryRoot, "--prompt-file", promptFile, "--sandbox", "read-only",
+    "--receipt-dir", postStartFailureDir, "--timeout-ms", "2000", "--start-timeout-ms", "2000",
+  ];
+  const postStartDispatch = await cliJson(postStartFailureArguments);
+  assert.ok(["running", "needs_attention"].includes(postStartDispatch.payload.state));
+  await waitForFile(path.join(postStartFailureDir, "failure.json"));
+  const postStartFailure = await cliJson(["inspect", "--receipt-dir", postStartFailureDir]);
+  assert.equal(postStartFailure.payload.state, "needs_attention");
+  assert.equal(postStartFailure.payload.start.payload.start.thread.id, threadId);
+  assert.equal(postStartFailure.payload.start.payload.start.turn.id, turnId);
+  const postStartInvocationsBeforeRetry = await readFile(postStartFailureInvocations, "utf8");
+  const postStartRetry = await cliJson(postStartFailureArguments);
+  assert.equal(postStartRetry.payload.state, "needs_attention");
+  assert.equal(postStartRetry.payload.start.payload.start.thread.id, threadId);
+  assert.equal(await readFile(postStartFailureInvocations, "utf8"), postStartInvocationsBeforeRetry);
+
   const mismatchedPrompt = path.join(temporaryRoot, "different-prompt.txt");
   await writeFile(mismatchedPrompt, "different prompt");
   const mismatch = spawn(process.execPath, [
