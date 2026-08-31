@@ -6,9 +6,11 @@ archive, cache removal, and remote mutation require authority for each exact tar
 artifacts created, adopted, or used by the Mission. Never infer names, scan unrelated history, use
 globs, or remove a raw worktree path.
 
-Bind the endpoint, task identity, canonical remote commit/tree, applicable merged PR/head/tree, and
-every task-owned remote branch, local branch, worktree, cache, tag, registration, and continuing source
-checkout. Classify each row:
+Every Mission registers an artifact row when it creates, adopts, or first uses the artifact. The row
+remains in the retained-artifact set independently of Task scheduling or wait state until this owner
+records an exact terminal disposition. Bind the endpoint, task identity, canonical remote commit/tree,
+applicable merged PR/head/tree, and every task-owned remote branch, local branch, worktree, cache, tag,
+registration, and continuing source checkout. Classify each row:
 
 - **Remote/local branch:** with exact authority, delete only the unchanged ref whose candidate is
   absorbed by the verified merge and read back absence; otherwise preserve its owner and endpoint.
@@ -30,6 +32,12 @@ reason, recovery locator, and whether it may keep supplying runtime instructions
 or unowned state returns `needs_attention` and keeps the Mission or Hub node open. Lack of destructive
 authority is not loss: emit one compact approval boundary or explicit preserve disposition instead of
 waiting for the user to rediscover the artifact.
+
+Record closed rows in one content-addressed custody receipt bound to the Mission and exact artifact
+identities. The checkpoint may replace those rows with that receipt locator, but neither an empty active
+set nor a Task/PR endpoint may replace it. A missing or stale receipt restores the affected rows to
+retained custody before any overwrite, duplicate candidate, publication, merge, cleanup, or overall
+completion effect.
 
 Read back every issued effect and the continuing source checkout. Report each row as `cleaned`,
 `already_equal`, `preserved`, `partial`, or `unknown`. One failed row stops dependent rows and never

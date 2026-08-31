@@ -26,7 +26,9 @@ or single Main returns a further native-only outcome as one ready proposal.
 
 ## Keep one compact DAG
 
-The Hub checkpoint is the only active-run projection. Each approved node retains its exact identity,
+The Hub checkpoint is the only active-run projection. It holds two disjoint indexes: the native
+active-task set used for scheduling and waiting, and the retained-artifact set used only for candidate
+custody. Each approved node retains its exact identity,
 owner/write surface, endpoint, candidate or terminal locator, and non-empty slices:
 
 ```text
@@ -49,6 +51,14 @@ native Task owns Frame through Finalize. Before integrating its separate candida
 terminal evidence and scope; otherwise recover that Task or freeze its node. Intra-Mission writable
 lanes instead mutate only Main's leased paths; Main inspects their return and owns the resulting
 candidate.
+
+At creation or adoption, register each Mission-owned candidate, branch, worktree, PR, cache, and
+continuing checkout in the retained-artifact set with exact identity and owner. This set is not a wait
+target, slot consumer, native Task, history ledger, or business-progress record. A Task endpoint may remove
+that Task from the active set only after every artifact row has either moved into retained custody or gained
+an exact terminal custody receipt. Terminal, rejected, superseded, closed, unpublished, dirty, or
+needs-attention state never drops a row by itself. Remove a retained row only when artifact custody proves
+its exact terminal disposition; preserve the receipt locator through overall Mission Finalize.
 
 ## Admit one native Task message
 
@@ -163,7 +173,9 @@ those operations may inspect but never adopt, mutate, accept, or merge the froze
 admitted operation through its native owner. Repeated identical automatic continuations establish only
 that a predicate recurred; they do not prove that these routes are absent. Whole-Goal blocked is eligible
 only after the proof records no running or runnable operation, no admitted active-target wait, and no
-safe owner action that can change the decision.
+safe owner action that can change the decision. The same proof must reconcile the retained-artifact set;
+an unpublished or unresolved candidate is a custody action, not an active wait target and not evidence of
+whole-Goal completion.
 
 For each continued target require cursor continuity, target/host identity, and non-regressing
 revision. An early wake may omit a target; retain its prior facts but do not call it unchanged.

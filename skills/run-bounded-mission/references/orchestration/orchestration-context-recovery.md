@@ -9,12 +9,14 @@ Git/GitHub, and user facts, not authority.
 Mission checkpoint
 Scope: <language; role=hub|native_task|single; exact Mission and current native-task locators; Goal locator when applicable; exact consumer/acceptance locator; exact Origin and immutable candidate/change-set locators or unavailable>
 Control: <decision-relevant issued or unissued effects with exact receipts when issued; exact authority, Stop, and Resume locators or unavailable>
-State: <unresolved findings and decisive evidence locators; exact active writable lanes/path leases; only for role=hub, exact active native Tasks, DAG, cursors, and wait-transport failure key/count>
+State: <unresolved findings and decisive evidence locators; exact active writable lanes/path leases; retained-artifact set or its exact custody-receipt locator; only for role=hub, exact active native Tasks, DAG, cursors, and wait-transport failure key/count>
 Next: <stage; owner; predicate; one operation; terminal condition>
 ```
 
-Lines hold decisions, not history. Omit inventories, stable nonclaims, completed steps, and
-artifact-recoverable facts. Group checks by one locator. Mutable names cannot replace exact Mission, task,
+Lines hold decisions, not history. Omit inventories, stable nonclaims, completed steps, and artifact facts
+already closed by an exact terminal custody receipt. A Mission-owned candidate or artifact without such a
+receipt is decision state, even when its Task is inactive, terminal, rejected, superseded, or absent from the
+native active set. Group checks by one locator. Mutable names cannot replace exact Mission, task,
 consumer/acceptance, Origin/candidate, or authority/effect locators. Missing, conflicting,
 stale, duplicate, unavailable, or candidate-controlled identity, acceptance, or authority freezes its
 action. Native packets bind immutable producer identity/send receipt; never copy bytes. Retain only
@@ -38,6 +40,9 @@ leases, next owner, and effect boundary.
 For role=hub, additionally require:
 
 - every approved or attempted node and its exact disposition;
+- one retained-artifact set, separate from the native active-task set, containing every Mission-created,
+  adopted, or used candidate/worktree/branch/PR/cache/continuing checkout that lacks an exact terminal
+  custody disposition; a content-addressed custody receipt may replace only the rows it closes;
 - an acyclic current DAG with immutable relation locators;
 - one registered active-task set and exact cursor per continued target;
 - consumed terminal/needs-attention locators, consumed native-node merge receipts with exact
@@ -51,6 +56,13 @@ until the indivisible merged-readback transition is present, preserve that exact
 custody and forbid duplicate investigation, Task, branch, or PR creation. Callback unavailability does
 not erase native Task custody. An ambiguous pending archive attempt is never reissued or treated as
 closure; recover it only through authoritative readback of that exact effect target.
+
+An empty active-task set, missing callback, terminal Task, closed PR, or elapsed time never empties the
+retained-artifact set. Before mutation after recovery, reconcile every retained row against its exact
+worktree registration, path, branch/ref, candidate head/tree or dirty digest, PR/effect locator, owner, and
+next disposition. If the checkpoint omitted a known Mission-owned row, freeze only effects that could
+overwrite, duplicate, publish, merge, or delete it and recover that exact row from its recorded locator.
+Never scan unrelated repository history or adopt name-similar artifacts to repair the omission.
 
 Bind each user control event once by its exact locator in `Authority / Stop / Resume`. A finite pause
 remains armed until a strictly later authenticated native control receipt or user confirmation resumes
