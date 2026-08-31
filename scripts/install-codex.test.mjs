@@ -763,7 +763,23 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedReviewerHandoffOwner,
     /filling a missing\s+binding is packet correction, not a new identity/);
   assert.match(installedReviewerHandoffOwner,
-    /Only changing an already complete candidate, neutral\s+control, or lens after replan creates a new review identity/);
+    /Only changing an already\s+complete candidate, neutral control, or lens after replan creates a new review identity/);
+  assert.match(installedReviewerHandoffOwner,
+    /Host-authenticated model capacity, rate limiting, dispatch transport failure, or reviewer process loss/);
+  assert.match(installedReviewerHandoffOwner,
+    /A reviewer return exists only when a host-authenticated terminal-delivery receipt binds\s+the emitted terminal payload to the exact dispatch/);
+  assert.match(installedReviewerHandoffOwner,
+    /produces no reviewer return is `host_unavailable`, not `unsupported`, a finding, or a consumed\s+review identity/);
+  assert.match(installedReviewerHandoffOwner,
+    /partial reviewer activity or output followed by process loss is not a return unless the terminal-delivery\s+receipt exists/);
+  assert.match(installedReviewerHandoffOwner,
+    /cannot prove whether a terminal-delivery receipt was emitted remains unavailable and freezes\s+redispatch/);
+  assert.match(installedReviewerHandoffOwner,
+    /dispatch that same packet for the same identity once more/);
+  assert.match(installedReviewerHandoffOwner,
+    /A different model or other neutral-control change requires replan and a\s+new identity/);
+  assert.doesNotMatch(installedReviewerHandoffOwner,
+    /`unsupported`, invalid, or unavailable consumes that identity/);
   assert.match(installedAgentRoutingOwner,
     /Reviewer identity and succession are owned only\s+by reviewer handoff/);
   assert.match(installedAgentRoutingOwner,
@@ -774,6 +790,10 @@ const origin = join(root, "qOeOp", "skills.git");
     /changed question or frozen\s+candidate\/control\/lens binding creates one/);
   const installedEvaluatorProfile = await readFile(join(codexRoot, "agents", "mission-evaluator.toml"), "utf8");
   assert.match(installedEvaluatorProfile, /Never accept supplemental input for a\s+consumed identity/);
+  assert.match(installedEvaluatorProfile,
+    /Host capacity or transport loss is a Main-owned no-return state, never a reviewer\s+verdict/);
+  assert.match(installedEvaluatorProfile,
+    /partial activity is not a return without a host-authenticated terminal-delivery receipt/);
   await writeFile(installedSkillFile, "drift\n");
   result = spawnSync(process.execPath, [installedHook], {
     encoding: "utf8",

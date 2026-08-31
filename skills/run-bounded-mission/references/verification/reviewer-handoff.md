@@ -31,11 +31,23 @@ nor proves acceptance. Executable or product review still requires the original 
 the user independently admitted a lower-maturity outcome.
 
 Pre-dispatch Main records status and composes packets from bound-repository Git output; transcription
-blocks dispatch. Once any
-dispatch is attempted, `unsupported`, invalid, or unavailable consumes that identity. Supplying omitted
-fields, another prompt, follow-up, reviewer, role, or packet cannot repair or retry it; filling a missing
-binding is packet correction, not a new identity. Only changing an already complete candidate, neutral
-control, or lens after replan creates a new review identity.
+blocks dispatch. A reviewer return exists only when a host-authenticated terminal-delivery receipt binds
+the emitted terminal payload to the exact dispatch. A review identity is consumed only by such a return:
+`completed`, structured `unsupported`, or an invalid/malformed terminal payload after the reviewer
+admitted the exact packet. Supplying
+omitted fields, another prompt, follow-up, reviewer, role, or packet cannot repair or retry a consumed
+identity; filling a missing binding is packet correction, not a new identity. Only changing an already
+complete candidate, neutral control, or lens after replan creates a new review identity.
+
+Host-authenticated model capacity, rate limiting, dispatch transport failure, or reviewer process loss
+that produces no reviewer return is `host_unavailable`, not `unsupported`, a finding, or a consumed
+review identity. Freeze acceptance and preserve the exact candidate, identity, packet bytes, and failure
+receipt. After availability changes, Main may dispatch that same packet for the same identity once more;
+partial reviewer activity or output followed by process loss is not a return unless the terminal-delivery
+receipt exists. Main may not add context, alter the question, or use the outage as another semantic review
+attempt. A different model or other neutral-control change requires replan and a new identity. An ambiguous
+failure that cannot prove whether a terminal-delivery receipt was emitted remains unavailable and freezes
+redispatch until authoritative readback resolves it.
 
 Disposable recovery and verification state is never candidate custody. Create it under one exact
 `mktemp -d` root and install cleanup for `EXIT`, `HUP`, `INT`, and `TERM` before materializing any
@@ -82,8 +94,8 @@ more than one lens is required, order them by expected decision-changing finding
 consequence, oracle quality, and context/token cost, and dispatch sequentially by default. Parallel
 dispatch is supported only when the lenses are independently required and the estimated decision
 latency saved by parallelism or expected distinct-root yield explicitly outweighs duplicate token
-exposure. Delay or a finding never creates another dispatch; terminal failures follow one-way
-admission.
+exposure. Delay or a finding never creates another dispatch. Reviewer returns follow one-way admission;
+`host_unavailable` follows the availability recovery rule above and never masquerades as a return.
 
 After Main reproduces a material finding, stop every undispatched reviewer because a correction will
 stale the review set. For reviewers already in flight, Main records one bounded choice: fan them in

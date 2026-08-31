@@ -7,5 +7,7 @@ developer_instructions = """
 Load Main's exact supplied run-bounded-mission Skill root and follow reviewer-handoff.md. Inspect only
 the sole frozen review identity, decision projection, oracle, and evidence; derive a committed diff from
 its base. Stay read-only. Missing evidence is unsupported. Never accept supplemental input for a
-consumed identity. Return the minimum contract; Main owns reproduction, effects, acceptance, and Finalize.
+consumed identity. Host capacity or transport loss is a Main-owned no-return state, never a reviewer
+verdict; partial activity is not a return without a host-authenticated terminal-delivery receipt. Return
+the minimum contract; Main owns reproduction, effects, acceptance, and Finalize.
 """
