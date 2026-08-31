@@ -230,7 +230,7 @@ terminal until each task-owned artifact has a current terminal disposition. At e
 authorized-cancellation endpoint, reconcile
 [artifact custody](references/delivery/delivery-postmerge-cleanup.md); inventory and freshness readback
 are mandatory, while deletion, archive, or cache removal still requires authority for the exact target.
-Unknown or unmatched state returns `needs_attention`, never silent completion.
+Active-task endpoints never erase retained-artifact custody; unknowns return `needs_attention`.
 
 Load [refactor proposals](references/optimization/optimization-refactor-workflow.md) only after related
 Missions are integrated and terminal; proposals require new user approval.
