@@ -109,6 +109,11 @@ and dispatch only its required identities; deterministic evidence stales only wh
 ## Reviewer boundary and return
 
 The selected reviewer does not edit, delegate, communicate laterally, or perform an external effect.
+Its read-only proof covers the worktree, index, refs, reflogs, and Git object database. Commands such as
+`git merge-tree --write-tree`, `git mktree`, `git commit-tree`, `git hash-object -w`, `git update-ref`,
+and equivalent persistent plumbing are mutations even when they create only a dangling object and leave
+status unchanged. An observed write returns `mutation_observation: detected:<locator>`, invalidates the
+review evidence, preserves candidate custody, and authorizes no object cleanup.
 It inventories the complete changed surface, then deeply inspects the assigned lens's bounded
 producer-to-consumer dependency closure and expands only when evidence crosses that boundary. Every
 changed path remains mapped to Main verification or one lens; reading unrelated files in full is not
