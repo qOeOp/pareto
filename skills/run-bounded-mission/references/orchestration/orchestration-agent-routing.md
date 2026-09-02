@@ -94,6 +94,13 @@ inherited conversation is not a prompt. The sole launch message binds:
 - `return_and_budget`: exact output contract, interaction language, context/tool/token limits or
   `unavailable`, and finite Stop/fallback.
 
+For every read-only lane, `authority_and_non_goals` binds zero Git mutation across the worktree,
+index, refs, reflogs, and object database. The sole packet explicitly prohibits writing forms including
+`git merge-tree --write-tree`, `git mktree`, `git commit-tree`, `git hash-object -w`, `git update-ref`,
+and any plumbing, library, or equivalent command that persists an object or ref. A dangling object is
+still a write even when worktree, index, and refs remain unchanged. Use a non-writing observation or
+return the required evidence as unavailable; omission of this prohibition rejects dispatch.
+
 Reject the dispatch before a host effect when a required field is missing, contradictory, stale, or
 filled by phrases such as `review everything`, `find any issue`, or `use your judgment`. Do not paste
 an entire history, repository, diff, or log when an immutable locator and a bounded relevant excerpt
@@ -131,6 +138,10 @@ Immutable means content-addressed and drift-checked, not filesystem read-only; o
 neither invalidates the root nor requires a copy.
 
 One complete host dispatch is the effect. Supplemental input after an attempt cannot repair it.
+
+Any observed read-only-lane Git write invalidates that lane's evidence and routes the boundary breach
+to Main. Preserve candidate and worktree custody and do not clean a dangling object without separate
+authority; packet correction applies only to a later admissible lane identity.
 
 The selected role's configured model/effort is a route fact only when observed. Otherwise use the
 authorized current main or host-default route, retain all risk controls, and mark comparison evidence

@@ -650,6 +650,18 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedAgentRoutingOwner,
     /never derive one from repository cwd, an installation convention, inherited\s+context, or the candidate/);
   assert.match(installedAgentRoutingOwner,
+    /zero Git mutation across the worktree,\s+index, refs, reflogs, and object database/);
+  for (const command of [
+    "`git merge-tree --write-tree`",
+    "`git mktree`",
+    "`git commit-tree`",
+    "`git hash-object -w`",
+    "`git update-ref`",
+  ]) assert.ok(installedAgentRoutingOwner.includes(command));
+  assert.match(installedAgentRoutingOwner, /A dangling object is\s+still a write/);
+  assert.match(installedAgentRoutingOwner,
+    /Any observed read-only-lane Git write invalidates that lane's evidence/);
+  assert.match(installedAgentRoutingOwner,
     /Apply the selected route's Stop\/fallback: Main continues directly only\s+where that route permits; otherwise freeze the dependent decision/);
   assert.match(installedAgentRoutingOwner, /Use `fork_turns: none` for every admitted lane/);
   assert.match(installedAgentRoutingOwner, /Generic\/default implementation routes are unavailable/);
@@ -772,6 +784,9 @@ const origin = join(root, "qOeOp", "skills.git");
     /produces no reviewer return is `host_unavailable`, not `unsupported`, a finding, or a consumed\s+review identity/);
   assert.match(installedReviewerHandoffOwner,
     /partial reviewer activity or output followed by process loss is not a return unless the terminal-delivery\s+receipt exists/);
+  assert.match(installedReviewerHandoffOwner,
+    /Git object database[\s\S]+`git merge-tree --write-tree`[\s\S]+`mutation_observation: detected:<locator>`/);
+  assert.match(installedReviewerHandoffOwner, /authorizes no object cleanup/);
   assert.match(installedReviewerHandoffOwner,
     /cannot prove whether a terminal-delivery receipt was emitted remains unavailable and freezes\s+redispatch/);
   assert.match(installedReviewerHandoffOwner,
