@@ -15,6 +15,13 @@ outcome or wider effect still requires alignment.
 The native active set is peer-Task custody, not a lane gate. Never add `agentThreadId`, serialize lanes
 on native unavailability, or create a Task merely for parallelism.
 
+Resolve the exposed native Task tool and schema before calling; prefer its Codex app MCP tool over
+a legacy alias. Model availability does not establish tool availability. Only a read-only observation
+rejected as method-not-found with proven no effect may switch transport on the next admitted wake;
+preserve target/cursor and never retry this window. A retired alias is not a Task verdict. Create/send
+failure, response loss, or ambiguous effect remains frozen under single-release rules; switching
+transport never authorizes replay or a replacement Task.
+
 Before a Goal effect, reconcile the matching Goal and apply the kernel binding rule. It stores overall
 outcome and completion, not work cadence; absent capability or a nonmatching Goal freezes only that
 effect. An asynchronous Hub may bind it only while a runnable operation or the checkpointed active-task
