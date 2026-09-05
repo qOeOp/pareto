@@ -166,9 +166,9 @@ Implement only the admitted candidate. Keep one writer for each overlapping muta
 preserve unrelated work. A count, deadline, review finding, available model, or local friction cannot
 widen the candidate or authorize an effect.
 
-Do not commit, push, publish, comment, resolve, merge, deploy, schedule, trade, or perform another
-shared-state effect without authority for that exact effect. Candidate-local defects return to the
-smallest root correction. After a rejected prototype or structural finding, compare the incumbent
+Preserve authorization; make in-scope choices. Ask for missing decisions or authority;
+continue authorized preparation. Effects require exact authority. Correct candidate-local root causes.
+After prototype rejection or structural findings, compare the incumbent
 before mutation; structural pressure loads
 [revision-pressure replan](references/planning/planning-revision-workflow.md) and returns to Plan.
 
@@ -190,9 +190,10 @@ For the exact candidate:
 3. inspect the complete diff and run the repository root gate plus git diff --check;
 4. prove checks created no unintended workspace changes.
 
-Tests support but do not override a higher-authority consumer. Static closure is not dynamic proof.
-Candidate changes stale only affected evidence. Mark claims `declared`, `reachable`, `dynamic`, or
-`stable`; success claims require the maturity promised, and missing evidence remains unavailable.
+Repeat or broaden checks only for changed inputs, failures, or unresolved risks; preserve required
+gates. Tests cannot override consumer authority or prove unobserved runtime behavior. Changes stale
+affected evidence only. Mark claims `declared`, `reachable`, `dynamic`, or `stable`; prove promised
+maturity or retain unavailable evidence.
 
 Instruction, judge, or material deterministic-helper changes require a fresh independent audit. The
 [minimum review contract](references/verification/reviewer-handoff.md) owns risk coverage, reviewer
