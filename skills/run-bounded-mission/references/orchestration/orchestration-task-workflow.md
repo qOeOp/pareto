@@ -39,8 +39,28 @@ custody. Each approved node retains its exact identity,
 owner/write surface, endpoint, candidate or terminal locator, and non-empty slices:
 
 ```text
-waiting | runnable | running | frozen | needs_attention | terminal
+waiting | runnable | dispatch_pending | running | frozen | needs_attention | terminal
 ```
+
+Once a Hub admits its first node or artifact, materialize every replacement projection through the
+installed Skill's `scripts/hub-state-receipt.mjs`, using one Mission-unique child of the installer-owned
+`<codex-root>/hub-state-receipts/` root and passing both absolute root and child paths. `advance` requires an absolute input, the exact prior digest (or
+`none` for the first receipt), the complete node and artifact sets, and one next operation. It validates
+the DAG, content-addresses the receipt, and compare-and-swaps `current.json`. `verify` must recover that
+exact digest before post-compaction mutation or an unissued effect. A stale digest, missing row, changed
+terminal row, missing current pointer in an initialized directory, duplicated dispatch or native identity,
+aliased artifact kind/locator custody, invalid dependency, cycle, symlink, or malformed receipt freezes the
+affected action.
+
+The receipt is current decision state, not telemetry or prose history. Keep terminal rows as compact
+outcome-deduplication keys; do not store progress. `dispatch_pending` requires a typed client-thread receipt;
+`running` requires a typed native-Task receipt in addition to its immutable dispatch custody; a runnable
+same-Task recovery retains both identities. `frozen`, `needs_attention`, and externally waiting nodes
+require state receipts; and `terminal` requires its exact terminal receipt. When any node is `runnable`, `next` must name
+one exact runnable node and be `dispatch`; the Hub cannot advance to observe, fan-in, mutation, review,
+gate, or Finalize first. After each dispatch receipt, advance again and dispatch the remaining runnable
+frontier before waiting. Dispatch mode is `create` only without prior Task custody and `continue` with a
+retained native identity. A `clientThreadId` proves only `dispatch_pending`, never `running`.
 
 Admit only:
 
@@ -65,7 +85,11 @@ target, slot consumer, native Task, history ledger, or business-progress record.
 that Task from the active set only after every artifact row has either moved into retained custody or gained
 an exact terminal custody receipt. Terminal, rejected, superseded, closed, unpublished, dirty, or
 needs-attention state never drops a row by itself. Remove a retained row only when artifact custody proves
-its exact terminal disposition; preserve the receipt locator through overall Mission Finalize.
+its exact terminal disposition; preserve the receipt locator through overall Mission Finalize. Worktree,
+checkout, and cache locators are existing absolute physical canonical paths while retained; a lexical or
+symlink alias cannot create another custody row or reopen a terminal artifact. `verify` fails if a retained
+filesystem artifact disappears. `advance` may still preserve the old row and change that same row to
+`terminal` with an exact absence/custody receipt; historical liveness cannot prevent explicit reconciliation.
 
 ## Admit one native Task message
 
@@ -197,7 +221,8 @@ For a changed Hub window, reconcile all stable components once against current
 Goal/task/Git/GitHub/dependency/authority. Main reproduces decisive consumer conflicts and records each
 member accepted, rejected, or superseded_by. Replace one private checkpoint for the wave, publish only
 if recovery permits, and release every newly ready nonconflicting direct successor in the same turn.
-One receipt never repeats global passes.
+One receipt never repeats global passes. Do not handwrite a smaller projection around the currently visible
+Task or PR: advance the complete installed Hub state receipt first, then carry only its digest in prose.
 
 An exact merged PR readback closes through one indivisible Hub node transition, not progress. Match it
 to exactly one immutable native DAG node by native Task identity, repository and PR, admitted endpoint,
