@@ -50,6 +50,13 @@ For role=hub, additionally require:
   effect/readback receipts, terminal artifact/archive dispositions, and component conflict dispositions;
 - one current window and one next observation action.
 
+When a Hub has nodes or artifacts, its checkpoint names the current digest from the installed
+`scripts/hub-state-receipt.mjs`. After recovery, `verify --expect-prior` precedes every effect. Reconcile
+external identities without deleting rows or rewriting terminal ones. The canonical receipt, not a
+compaction summary or active-task listing, is prior-state authority. A missing, stale, locked, malformed,
+incomplete, duplicate dispatch/native identity, or aliased artifact kind/locator receipt freezes overwrite,
+duplication, publication, merge, archive, and cleanup; never synthesize a new first receipt.
+
 Recovery does not adopt a same-title task, retry an ambiguous create/send, or infer no change from an
 omitted target. An advanced canonical branch alone never proves that its matching node was consumed;
 until the indivisible merged-readback transition is present, preserve that exact node in native Task

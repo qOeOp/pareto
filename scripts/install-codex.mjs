@@ -438,7 +438,7 @@ async function verify(sourceSkill, destinationSkill, sourceAgents, destinationAg
   if (mismatches.length > 0) throw new Error(`Codex install mismatch: ${mismatches.join(", ")}`);
 }
 
-async function ensureReceiptRoot(receiptRoot, check) {
+async function ensureReceiptRoot(receiptRoot, check, label) {
   let stat = await lstat(receiptRoot).catch((error) => {
     if (error.code === "ENOENT") return null;
     throw error;
@@ -447,9 +447,9 @@ async function ensureReceiptRoot(receiptRoot, check) {
     await mkdir(receiptRoot, { recursive: true, mode: 0o700 });
     stat = await lstat(receiptRoot);
   }
-  if (!stat?.isDirectory() || stat.isSymbolicLink()) throw new Error("Codex native task receipt root is missing or unsafe");
+  if (!stat?.isDirectory() || stat.isSymbolicLink()) throw new Error(`Codex ${label} receipt root is missing or unsafe`);
   if (process.platform !== "win32" && (stat.mode & 0o777) !== 0o700) {
-    if (check) throw new Error("Codex native task receipt root permissions mismatch");
+    if (check) throw new Error(`Codex ${label} receipt root permissions mismatch`);
     await chmod(receiptRoot, 0o700);
   }
 }
@@ -466,6 +466,7 @@ const destinationAgents = join(options.codexRoot, "agents");
 const destinationHook = join(options.codexRoot, "hooks", ownedHook);
 const destinationController = join(options.codexRoot, "native-task-controller");
 const destinationReceiptRoot = join(options.codexRoot, "native-task-receipts");
+const destinationHubStateRoot = join(options.codexRoot, "hub-state-receipts");
 const hooksConfig = join(options.codexRoot, "hooks.json");
 const installReceipt = join(options.codexRoot, "run-bounded-mission-install.json");
 const receipt = {
@@ -488,7 +489,8 @@ if (!options.check) {
     await replaceBytes(`${JSON.stringify(receipt, null, 2)}\n`, installReceipt);
   }
 }
-await ensureReceiptRoot(destinationReceiptRoot, options.check);
+await ensureReceiptRoot(destinationReceiptRoot, options.check, "native task");
+await ensureReceiptRoot(destinationHubStateRoot, options.check, "Hub state");
 await verify(
   sourceSkill,
   destinationSkill,

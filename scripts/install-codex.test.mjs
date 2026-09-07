@@ -42,6 +42,11 @@ async function makeReadOnly(path) {
 }
 
 try {
+  const hubStateReceiptTest = spawnSync(process.execPath,
+    [join(projectRoot, "skills", "run-bounded-mission", "scripts", "hub-state-receipt.test.mjs")],
+    { encoding: "utf8" });
+  assert.equal(hubStateReceiptTest.status, 0, hubStateReceiptTest.stderr);
+
   const contextBudgetSkill = join(root, "context-budget", "run-bounded-mission");
   await cp(join(projectRoot, "skills", "run-bounded-mission"), contextBudgetSkill, { recursive: true });
   const skillPath = join(contextBudgetSkill, "SKILL.md");
@@ -282,6 +287,11 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.equal(installedReceiptRootStat.isDirectory(), true);
   assert.equal(installedReceiptRootStat.isSymbolicLink(), false);
   if (process.platform !== "win32") assert.equal(installedReceiptRootStat.mode & 0o777, 0o700);
+  const installedHubStateRoot = join(codexRoot, "hub-state-receipts");
+  const installedHubStateRootStat = await lstat(installedHubStateRoot);
+  assert.equal(installedHubStateRootStat.isDirectory(), true);
+  assert.equal(installedHubStateRootStat.isSymbolicLink(), false);
+  if (process.platform !== "win32") assert.equal(installedHubStateRootStat.mode & 0o777, 0o700);
   await writeFile(installedController, "drifted controller\n");
   result = spawnSync(process.execPath, [...lockedArgv, "--check"], { encoding: "utf8" });
   assert.notEqual(result.status, 0);
