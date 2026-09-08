@@ -175,6 +175,8 @@ before mutation; structural pressure loads
 A test, fixture, migration, or cleanup carries its real effects. A default, runtime, shared, fallback,
 or otherwise unverified target is unavailable, not a test target.
 
+Before Rust/Cargo builds/reruns/recovery, apply [verification-isolation](references/execution/execution-verification-isolation.md).
+
 Locate before dependency reads. Capture output silently. Admit pass only from a finished zero-status
 invocation on the unchanged candidate; output is optional. Progress, incomplete/truncated terminal receipt,
 or nonzero/unknown status is unavailable. Return byte-bounded excerpts and a terminal summary. Retain launch/session custody

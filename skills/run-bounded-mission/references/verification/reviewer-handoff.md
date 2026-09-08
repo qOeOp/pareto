@@ -49,14 +49,9 @@ attempt. A different model or other neutral-control change requires replan and a
 failure that cannot prove whether a terminal-delivery receipt was emitted remains unavailable and freezes
 redispatch until authoritative readback resolves it.
 
-Disposable recovery and verification state is never candidate custody. Create it under one exact
-`mktemp -d` root and install cleanup for `EXIT`, `HUP`, `INT`, and `TERM` before materializing any
-candidate bytes. A Rust replay sets `CARGO_INCREMENTAL=0` and keeps `CARGO_TARGET_DIR` inside that
-root unless the repository's current check authority binds a stricter disposable target. Before a
-long compile, run the repository's disk-budget gate when one exists; unavailable or failed disk
-measurement freezes that compile rather than bypassing the gate. On interruption, terminate the
-owned child first, remove the disposable root, and verify its absence. A reviewer return with a live
-replay checkout, target directory, or unbounded external build cache is unsupported.
+Apply the shared [verification isolation](../execution/execution-verification-isolation.md) to disposable recovery and verification state,
+including Rust replay. A reviewer return with a live replay checkout, target directory, or unbounded
+external build cache is unsupported.
 
 From a Main-observed execution boundary, select exactly one consumer: native `mission_evaluator` when
 available, otherwise one fresh generic reviewer. No compatibility packet or persistent record sits
