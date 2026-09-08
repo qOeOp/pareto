@@ -777,17 +777,19 @@ const origin = join(root, "qOeOp", "skills.git");
     "execution-verification-isolation.md",
   ), "utf8");
   assert.match(installedVerificationIsolationOwner,
-    /Before each local Rust\/Cargo[\s\S]+first runs, reruns, and recovery/);
+    /Disposable recovery and verification state is never candidate custody\.[\s\S]+Main and every execution\/review[\s\S]+exact owned `mktemp -d` root[\s\S]+cleanup for `EXIT`, `HUP`, `INT`, and[\s\S]+`TERM` before materializing any disposable bytes or launching children/);
   assert.match(installedVerificationIsolationOwner,
-    /Missing,\s+empty, relative, inherited-but-unverified,[\s\S]+shared\/worktree-local,[\s\S]+escaping targets freeze launch/);
+    /Before each local Rust\/Cargo[\s\S]+first runs, reruns, and recovery,[\s\S]+explicit absolute[\s\S]+`CARGO_TARGET_DIR` inside that root and set `CARGO_INCREMENTAL=0` in the launched process/);
   assert.match(installedVerificationIsolationOwner,
-    /overrides \(including `--target-dir`\) and symlinks cannot redirect writes outside the[\s\S]+bound root/);
+    /Missing,\s+empty, relative, inherited-but-unverified,[\s\S]+shared\/worktree-local,[\s\S]+escaping targets freeze launch;[\s\S]+never let Cargo choose its default `target`/);
+  assert.match(installedVerificationIsolationOwner,
+    /Check the effective command, wrapper, Cargo configuration,[\s\S]+and resolved path:[\s\S]+overrides \(including `--target-dir`\) and symlinks cannot redirect writes outside the[\s\S]+bound root/);
   assert.match(installedVerificationIsolationOwner,
     /A stricter current repository check authority still applies;[\s\S]+incompatible required target[\s\S]+freezes the invocation rather than silently weakening either gate/);
   assert.match(installedVerificationIsolationOwner,
     /Before a long compile,[\s\S]+disk-budget gate[\s\S]+failed or unavailable measurement[\s\S]+freezes compile/);
   assert.match(installedVerificationIsolationOwner,
-    /wait for or terminate owned children before removing[\s\S]+only the owned disposable root,[\s\S]+verify its absence/);
+    /On success, failure, or interruption,[\s\S]+wait for or terminate owned children before removing[\s\S]+only the owned disposable root,[\s\S]+verify its absence, and measure disk again/);
   assert.match(installedVerificationIsolationOwner,
     /Failed cleanup retains exact[\s\S]+path\/process custody and blocks completion; a retry must pass the same launch gate/);
   assert.match(installedReviewerHandoffOwner,
