@@ -782,6 +782,10 @@ const origin = join(root, "qOeOp", "skills.git");
     /Missing,[\s\S]+inherited-but-unverified,[\s\S]+shared\/worktree-local,[\s\S]+escaping targets freeze launch/);
   assert.match(installedVerificationIsolationOwner,
     /overrides \(including `--target-dir`\) and symlinks cannot redirect writes outside the[\s\S]+bound root/);
+  assert.match(installedVerificationIsolationOwner,
+    /Before a long compile,[\s\S]+disk-budget gate[\s\S]+failed or unavailable measurement[\s\S]+freezes compile/);
+  assert.match(installedVerificationIsolationOwner,
+    /wait for or terminate owned children before removing[\s\S]+only the owned disposable root,[\s\S]+verify its absence/);
   assert.match(installedReviewerHandoffOwner,
     /One review identity is `\(repository, base\/Origin, candidate commit\/tree or snapshot digest, neutral\s+control, lens\)`/);
   assert.match(installedReviewerHandoffOwner, /dispatch sequentially by default/);
