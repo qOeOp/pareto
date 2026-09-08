@@ -450,6 +450,8 @@ const origin = join(root, "qOeOp", "skills.git");
     /Blocked requires proof\s+no admitted owner or independent-slice operation can change the decision/);
   assert.match(installedSkillSource, /unverified target is unavailable, not a test target/);
   assert.match(installedSkillSource,
+    /Before Rust\/Cargo builds\/reruns\/recovery, apply \[verification-isolation\]/);
+  assert.match(installedSkillSource,
     /Admit pass only from a finished zero-status\s+invocation on the unchanged candidate/);
   assert.match(installedSkillSource, /output is optional/);
   assert.match(installedSkillSource,
@@ -764,6 +766,22 @@ const origin = join(root, "qOeOp", "skills.git");
     "verification",
     "reviewer-handoff.md",
   ), "utf8");
+  assert.match(installedReviewerHandoffOwner,
+    /Apply the shared \[verification isolation\]\(\.\.\/execution\/execution-verification-isolation\.md\)/);
+  const installedVerificationIsolationOwner = await readFile(join(
+    agentsRoot,
+    "skills",
+    "run-bounded-mission",
+    "references",
+    "execution",
+    "execution-verification-isolation.md",
+  ), "utf8");
+  assert.match(installedVerificationIsolationOwner,
+    /Before each local Rust\/Cargo[\s\S]+first runs, reruns, and recovery/);
+  assert.match(installedVerificationIsolationOwner,
+    /Missing,[\s\S]+inherited-but-unverified,[\s\S]+shared\/worktree-local,[\s\S]+escaping targets freeze launch/);
+  assert.match(installedVerificationIsolationOwner,
+    /overrides \(including `--target-dir`\) and symlinks cannot redirect writes outside the[\s\S]+bound root/);
   assert.match(installedReviewerHandoffOwner,
     /One review identity is `\(repository, base\/Origin, candidate commit\/tree or snapshot digest, neutral\s+control, lens\)`/);
   assert.match(installedReviewerHandoffOwner, /dispatch sequentially by default/);
