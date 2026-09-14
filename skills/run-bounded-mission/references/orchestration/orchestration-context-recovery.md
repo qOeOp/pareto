@@ -56,6 +56,9 @@ external identities without deleting rows or rewriting terminal ones. The canoni
 compaction summary or active-task listing, is prior-state authority. A missing, stale, locked, malformed,
 incomplete, duplicate dispatch/native identity, or aliased artifact kind/locator receipt freezes overwrite,
 duplication, publication, merge, archive, and cleanup; never synthesize a new first receipt.
+If the current receipt is legacy `hub-state-receipt/v1`, use its exact digest only as the prior of one
+`advance` to a complete v2 projection containing active targets/cursors and observation state. Until that
+compare-and-swap succeeds and the v2 digest verifies, every dependent effect remains frozen.
 
 Recovery does not adopt a same-title task, retry an ambiguous create/send, or infer no change from an
 omitted target. An advanced canonical branch alone never proves that its matching node was consumed;
