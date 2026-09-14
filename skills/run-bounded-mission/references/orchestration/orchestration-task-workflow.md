@@ -52,6 +52,18 @@ terminal row, missing current pointer in an initialized directory, duplicated di
 aliased artifact kind/locator custody, invalid dependency, cycle, symlink, or malformed receipt freezes the
 affected action.
 
+Use `hub-state-receipt/v2`. Alongside nodes and retained artifacts, it requires `activeTargets` rows with
+exact `node`, `threadId`, `hostId`, and either the last transport `cursor` or explicit `null` before the
+first observation. It also requires one `observation` object whose `window` is the current wake locator or
+`null` and whose `transportFailure` is either `null` or the exact `{ key, count }`, with count saturated at
+three. In v2, each node's `nativeTaskReceipt` also carries exact `threadId` and `hostId`, and its active-target
+row must match them. The structured thread/host identity is unique across every node retaining that Task,
+including terminal rows, so a different locator cannot reclaim a consumed endpoint. Every nonterminal node
+holding native-Task custody has exactly one active-target row; terminal nodes have none. A known cursor cannot return to `null`. A repeated transport-failure key may
+increment only once in a different observation window; target change clears it. A pre-v2 receipt may be read
+only as the prior of one compare-and-swap migration to a complete v2 projection; it cannot pass `verify` for
+a later effect.
+
 The receipt is current decision state, not telemetry or prose history. Keep terminal rows as compact
 outcome-deduplication keys; do not store progress. `dispatch_pending` requires a typed client-thread receipt;
 `running` requires a typed native-Task receipt in addition to its immutable dispatch custody; a runnable
@@ -61,6 +73,8 @@ one exact runnable node and be `dispatch`; the Hub cannot advance to observe, fa
 gate, or Finalize first. After each dispatch receipt, advance again and dispatch the remaining runnable
 frontier before waiting. Dispatch mode is `create` only without prior Task custody and `continue` with a
 retained native identity. A `clientThreadId` proves only `dispatch_pending`, never `running`.
+An already-runnable node cannot be relabeled `waiting` to defer dispatch; a consumed dispatch failure may
+still move it to `frozen` or `needs_attention` with the exact state receipt.
 
 Admit only:
 

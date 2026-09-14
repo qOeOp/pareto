@@ -75,12 +75,18 @@ function uniqueRows(rows, label) {
   return ids;
 }
 
-function validateDispatchReceipt(value, label, requiredKind) {
-  const keys = new Set(["kind", "locator"]);
+function validateDispatchReceipt(value, label, requiredKind, requireTargetIdentity = false) {
+  const keys = requireTargetIdentity
+    ? new Set(["kind", "locator", "threadId", "hostId"])
+    : new Set(["kind", "locator"]);
   exactKeys(value, keys, keys, label);
   if (!dispatchKinds.has(value.kind)) fail(`${label}.kind: invalid dispatch identity`);
   if (requiredKind && value.kind !== requiredKind) fail(`${label}.kind: expected ${requiredKind}`);
   nonempty(value.locator, `${label}.locator`);
+  if (requireTargetIdentity) {
+    nonempty(value.threadId, `${label}.threadId`);
+    nonempty(value.hostId, `${label}.hostId`);
+  }
 }
 
 async function validateFilesystemLocator(locator, label, allowMissing) {
@@ -103,10 +109,23 @@ async function validateFilesystemLocator(locator, label, allowMissing) {
   }
 }
 
-async function validateReceipt(receipt, { requireRetainedFilesystem = false } = {}) {
-  const receiptKeys = new Set(["schema", "mission", "origin", "nodes", "artifacts", "next"]);
-  exactKeys(receipt, receiptKeys, receiptKeys, "receipt");
-  if (receipt.schema !== "hub-state-receipt/v1") fail("receipt: wrong schema");
+async function validateReceipt(receipt, { requireRetainedFilesystem = false, allowLegacy = false } = {}) {
+  const legacy = receipt?.schema === "hub-state-receipt/v1";
+  const receiptKeys = new Set([
+    "schema",
+    "mission",
+    "origin",
+    "nodes",
+    "artifacts",
+    "activeTargets",
+    "observation",
+    "next",
+  ]);
+  const legacyReceiptKeys = new Set(["schema", "mission", "origin", "nodes", "artifacts", "next"]);
+  const selectedReceiptKeys = legacy ? legacyReceiptKeys : receiptKeys;
+  exactKeys(receipt, selectedReceiptKeys, selectedReceiptKeys, "receipt");
+  if (legacy && !allowLegacy) fail("receipt: legacy v1 requires advance to v2 before effects");
+  if (!legacy && receipt.schema !== "hub-state-receipt/v2") fail("receipt: wrong schema");
   nonempty(receipt.mission, "receipt.mission");
   const originKeys = new Set(["repository", "commit", "tree"]);
   exactKeys(receipt.origin, originKeys, originKeys, "origin");
@@ -136,7 +155,7 @@ async function validateReceipt(receipt, { requireRetainedFilesystem = false } = 
     }
     if (node.dispatchReceipt !== undefined) validateDispatchReceipt(node.dispatchReceipt, `node ${node.id}.dispatchReceipt`);
     if (node.nativeTaskReceipt !== undefined) {
-      validateDispatchReceipt(node.nativeTaskReceipt, `node ${node.id}.nativeTaskReceipt`, "native_task");
+      validateDispatchReceipt(node.nativeTaskReceipt, `node ${node.id}.nativeTaskReceipt`, "native_task", !legacy);
       if (node.dispatchReceipt === undefined) fail(`node ${node.id}: native Task receipt requires dispatch custody`);
     }
     if (node.state === "dispatch_pending" && node.dispatchReceipt?.kind !== "client_thread") {
@@ -185,6 +204,7 @@ async function validateReceipt(receipt, { requireRetainedFilesystem = false } = 
 
   const dispatchCustody = new Map();
   const nativeCustody = new Map();
+  const nativeIdentityCustody = new Map();
   const terminalCustody = new Map();
   for (const node of receipt.nodes) {
     if (node.dispatchReceipt) {
@@ -199,10 +219,59 @@ async function validateReceipt(receipt, { requireRetainedFilesystem = false } = 
       terminalCustody.set(node.terminalReceipt, node.id);
     }
     if (!node.nativeTaskReceipt) continue;
-    const identity = canonical(node.nativeTaskReceipt);
+    const identity = canonical({ kind: node.nativeTaskReceipt.kind, locator: node.nativeTaskReceipt.locator });
     const prior = nativeCustody.get(identity);
     if (prior) fail(`native Task receipt reused by nodes: ${prior}, ${node.id}`);
     nativeCustody.set(identity, node.id);
+    if (!legacy) {
+      const nativeIdentity = canonical({ threadId: node.nativeTaskReceipt.threadId, hostId: node.nativeTaskReceipt.hostId });
+      const identityPrior = nativeIdentityCustody.get(nativeIdentity);
+      if (identityPrior) fail(`native Task identity reused by nodes: ${identityPrior}, ${node.id}`);
+      nativeIdentityCustody.set(nativeIdentity, node.id);
+    }
+  }
+
+  if (!legacy) {
+    if (!Array.isArray(receipt.activeTargets)) fail("activeTargets: expected array");
+    const targetNodes = new Set();
+    const targetIdentities = new Set();
+    for (const target of receipt.activeTargets) {
+      const keys = new Set(["node", "threadId", "hostId", "cursor"]);
+      exactKeys(target, keys, keys, "active target");
+      for (const key of ["node", "threadId", "hostId"]) nonempty(target[key], `active target.${key}`);
+      if (target.cursor !== null) nonempty(target.cursor, "active target.cursor");
+      const node = nodeById.get(target.node);
+      if (!node || node.state === "terminal" || node.nativeTaskReceipt?.kind !== "native_task") {
+        fail(`active target ${target.node}: expected nonterminal node with native Task custody`);
+      }
+      if (target.threadId !== node.nativeTaskReceipt.threadId || target.hostId !== node.nativeTaskReceipt.hostId) {
+        fail(`active target ${target.node}: native Task identity does not match node custody`);
+      }
+      if (targetNodes.has(target.node)) fail(`activeTargets: duplicate node ${target.node}`);
+      targetNodes.add(target.node);
+      const identity = canonical({ threadId: target.threadId, hostId: target.hostId });
+      if (targetIdentities.has(identity)) fail(`activeTargets: duplicate native identity ${target.threadId}`);
+      targetIdentities.add(identity);
+    }
+    for (const node of receipt.nodes) {
+      if (node.state !== "terminal" && node.nativeTaskReceipt?.kind === "native_task" && !targetNodes.has(node.id)) {
+        fail(`activeTargets: missing native Task node ${node.id}`);
+      }
+    }
+    const observationKeys = new Set(["window", "transportFailure"]);
+    exactKeys(receipt.observation, observationKeys, observationKeys, "observation");
+    if (receipt.observation.window !== null) nonempty(receipt.observation.window, "observation.window");
+    const failure = receipt.observation.transportFailure;
+    if (failure !== null) {
+      const failureKeys = new Set(["key", "count"]);
+      exactKeys(failure, failureKeys, failureKeys, "observation.transportFailure");
+      nonempty(failure.key, "observation.transportFailure.key");
+      if (!Number.isInteger(failure.count) || failure.count < 1 || failure.count > 3) {
+        fail("observation.transportFailure.count: expected integer from 1 through 3");
+      }
+      if (receipt.activeTargets.length === 0) fail("observation.transportFailure: active target required");
+      if (receipt.observation.window === null) fail("observation.transportFailure: window required");
+    }
   }
 
   const artifactIds = uniqueRows(receipt.artifacts, "artifacts");
@@ -295,7 +364,7 @@ async function readCurrent(receiptDir) {
   const source = `${canonical(receipt)}\n`;
   const digest = `sha256:${createHash("sha256").update(source).digest("hex")}`;
   if (digest !== pointer.digest) fail("current pointer: digest mismatch");
-  await validateReceipt(receipt);
+  await validateReceipt(receipt, { allowLegacy: true });
   return { pointer, receipt, source };
 }
 
@@ -310,13 +379,31 @@ function validateTransition(prior, next) {
     if (successor.owner !== node.owner || canonical(successor.dependsOn) !== canonical(node.dependsOn)) {
       fail(`transition: node ownership or dependencies changed: ${node.id}`);
     }
-    for (const key of ["dispatchReceipt", "nativeTaskReceipt"]) {
-      if (node[key] !== undefined && canonical(successor[key]) !== canonical(node[key])) {
-        fail(`transition: consumed dispatch custody changed: ${node.id}.${key}`);
+    if (node.dispatchReceipt !== undefined && canonical(successor.dispatchReceipt) !== canonical(node.dispatchReceipt)) {
+      fail(`transition: consumed dispatch custody changed: ${node.id}.dispatchReceipt`);
+    }
+    if (node.nativeTaskReceipt !== undefined) {
+      const migratedNativeReceipt = prior.schema === "hub-state-receipt/v1"
+        ? { kind: successor.nativeTaskReceipt?.kind, locator: successor.nativeTaskReceipt?.locator }
+        : successor.nativeTaskReceipt;
+      if (canonical(migratedNativeReceipt) !== canonical(node.nativeTaskReceipt)) {
+        fail(`transition: consumed dispatch custody changed: ${node.id}.nativeTaskReceipt`);
       }
     }
-    if (node.state === "terminal" && canonical(successor) !== canonical(node)) {
-      fail(`transition: terminal node changed: ${node.id}`);
+    if (node.state === "terminal") {
+      const migratedTerminal = prior.schema === "hub-state-receipt/v1" && successor.nativeTaskReceipt
+        ? {
+            ...successor,
+            nativeTaskReceipt: {
+              kind: successor.nativeTaskReceipt.kind,
+              locator: successor.nativeTaskReceipt.locator,
+            },
+          }
+        : successor;
+      if (canonical(migratedTerminal) !== canonical(node)) fail(`transition: terminal node changed: ${node.id}`);
+    }
+    if (node.state === "runnable" && successor.state === "waiting") {
+      fail(`transition: runnable node returned to waiting before dispatch: ${node.id}`);
     }
   }
   const nextArtifacts = new Map(next.artifacts.map((artifact) => [artifact.id, artifact]));
@@ -328,6 +415,52 @@ function validateTransition(prior, next) {
     }
     if (artifact.disposition === "terminal" && canonical(successor) !== canonical(artifact)) {
       fail(`transition: terminal artifact changed: ${artifact.id}`);
+    }
+  }
+  if (prior.schema === "hub-state-receipt/v2") {
+    const nextTargets = new Map(next.activeTargets.map((target) => [target.node, target]));
+    for (const target of prior.activeTargets) {
+      const successorNode = nextNodes.get(target.node);
+      if (successorNode?.state === "terminal") continue;
+      const successor = nextTargets.get(target.node);
+      if (!successor || successor.threadId !== target.threadId || successor.hostId !== target.hostId) {
+        fail(`transition: active native Task identity changed: ${target.node}`);
+      }
+      if (target.cursor !== null && successor.cursor === null) {
+        fail(`transition: active native Task cursor regressed to null: ${target.node}`);
+      }
+    }
+    const continuity = (targets, includeCursor) => canonical(
+      targets
+        .map((target) => ({
+          node: target.node,
+          threadId: target.threadId,
+          hostId: target.hostId,
+          ...(includeCursor ? { cursor: target.cursor } : {}),
+        }))
+        .sort((left, right) => left.node.localeCompare(right.node)),
+    );
+    const sameTargetSet = continuity(prior.activeTargets, false) === continuity(next.activeTargets, false);
+    const nextFailure = next.observation.transportFailure;
+    if (!sameTargetSet && nextFailure !== null) {
+      fail("transition: transport failure must clear after active target change");
+    }
+    if (sameTargetSet && nextFailure !== null) {
+      if (continuity(prior.activeTargets, true) !== continuity(next.activeTargets, true)) {
+        fail("transition: transport failure cannot advance a cursor");
+      }
+      const priorFailure = prior.observation.transportFailure;
+      if (priorFailure === null || priorFailure.key !== nextFailure.key) {
+        if (nextFailure.count !== 1) fail("transition: new transport failure count must start at one");
+      } else {
+        const maximum = Math.min(priorFailure.count + 1, 3);
+        if (nextFailure.count < priorFailure.count || nextFailure.count > maximum) {
+          fail("transition: transport failure count must be retained or incremented once");
+        }
+        if (nextFailure.count > priorFailure.count && next.observation.window === prior.observation.window) {
+          fail("transition: transport failure count cannot increment in the same window");
+        }
+      }
     }
   }
 }
