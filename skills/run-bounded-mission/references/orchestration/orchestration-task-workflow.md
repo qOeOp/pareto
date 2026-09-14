@@ -62,7 +62,12 @@ including terminal rows, so a different locator cannot reclaim a consumed endpoi
 holding native-Task custody has exactly one active-target row; terminal nodes have none. A known cursor cannot return to `null`. A repeated transport-failure key may
 increment only once in a different observation window; target change clears it. A pre-v2 receipt may be read
 only as the prior of one compare-and-swap migration to a complete v2 projection; it cannot pass `verify` for
-a later effect.
+a later effect. When a v1 row used `nativeTaskReceipt` for an internal lane and therefore has no real peer
+`threadId`/`hostId`, migrate that exact two-field receipt once to `legacyV1TaskReceipt`. Such a row must be
+`frozen`, `needs_attention`, or `terminal`, never enters `activeTargets`, and cannot be introduced without
+matching predecessor custody from the v1 receipt. This records unavailable historical transport without
+inventing a peer Task identity or making the lane runnable. Every later v2 transition preserves that exact
+legacy receipt; it cannot remove it or replace it with native Task custody.
 
 The receipt is current decision state, not telemetry or prose history. Keep terminal rows as compact
 outcome-deduplication keys; do not store progress. `dispatch_pending` requires a typed client-thread receipt;

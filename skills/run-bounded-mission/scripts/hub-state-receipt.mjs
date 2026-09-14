@@ -18,6 +18,7 @@ const artifactKinds = new Set(["candidate", "worktree", "branch", "pr", "cache",
 const filesystemArtifactKinds = new Set(["worktree", "cache", "checkout"]);
 const dispatchKinds = new Set(["client_thread", "native_task"]);
 const dispatchModes = new Set(["create", "continue"]);
+const inactiveLegacyStates = new Set(["frozen", "needs_attention", "terminal"]);
 
 function fail(message) {
   throw new Error(message);
@@ -140,7 +141,7 @@ async function validateReceipt(receipt, { requireRetainedFilesystem = false, all
   for (const node of receipt.nodes) {
     exactKeys(
       node,
-      new Set(["id", "state", "owner", "dependsOn", "dispatchReceipt", "nativeTaskReceipt", "stateReceipt", "terminalReceipt"]),
+      new Set(["id", "state", "owner", "dependsOn", "dispatchReceipt", "nativeTaskReceipt", "legacyV1TaskReceipt", "stateReceipt", "terminalReceipt"]),
       new Set(["id", "state", "owner", "dependsOn"]),
       `node ${node.id}`,
     );
@@ -157,6 +158,15 @@ async function validateReceipt(receipt, { requireRetainedFilesystem = false, all
     if (node.nativeTaskReceipt !== undefined) {
       validateDispatchReceipt(node.nativeTaskReceipt, `node ${node.id}.nativeTaskReceipt`, "native_task", !legacy);
       if (node.dispatchReceipt === undefined) fail(`node ${node.id}: native Task receipt requires dispatch custody`);
+    }
+    if (node.legacyV1TaskReceipt !== undefined) {
+      if (legacy) fail(`node ${node.id}: legacy v1 receipt cannot contain a migration receipt`);
+      if (node.nativeTaskReceipt !== undefined) fail(`node ${node.id}: duplicate native and legacy Task custody`);
+      validateDispatchReceipt(node.legacyV1TaskReceipt, `node ${node.id}.legacyV1TaskReceipt`, "native_task");
+      if (node.dispatchReceipt === undefined) fail(`node ${node.id}: legacy v1 Task receipt requires dispatch custody`);
+      if (!inactiveLegacyStates.has(node.state)) {
+        fail(`node ${node.id}: legacy v1 Task receipt must be inactive`);
+      }
     }
     if (node.state === "dispatch_pending" && node.dispatchReceipt?.kind !== "client_thread") {
       fail(`node ${node.id}: dispatch-pending node requires client thread receipt`);
@@ -218,12 +228,13 @@ async function validateReceipt(receipt, { requireRetainedFilesystem = false, all
       if (terminalPrior) fail(`terminal receipt reused by nodes: ${terminalPrior}, ${node.id}`);
       terminalCustody.set(node.terminalReceipt, node.id);
     }
-    if (!node.nativeTaskReceipt) continue;
-    const identity = canonical({ kind: node.nativeTaskReceipt.kind, locator: node.nativeTaskReceipt.locator });
+    const taskReceipt = node.nativeTaskReceipt ?? node.legacyV1TaskReceipt;
+    if (!taskReceipt) continue;
+    const identity = canonical({ kind: taskReceipt.kind, locator: taskReceipt.locator });
     const prior = nativeCustody.get(identity);
     if (prior) fail(`native Task receipt reused by nodes: ${prior}, ${node.id}`);
     nativeCustody.set(identity, node.id);
-    if (!legacy) {
+    if (!legacy && node.nativeTaskReceipt) {
       const nativeIdentity = canonical({ threadId: node.nativeTaskReceipt.threadId, hostId: node.nativeTaskReceipt.hostId });
       const identityPrior = nativeIdentityCustody.get(nativeIdentity);
       if (identityPrior) fail(`native Task identity reused by nodes: ${identityPrior}, ${node.id}`);
@@ -369,7 +380,13 @@ async function readCurrent(receiptDir) {
 }
 
 function validateTransition(prior, next) {
-  if (!prior) return;
+  if (!prior) {
+    const invented = next.nodes.find((node) => node.legacyV1TaskReceipt);
+    if (invented) {
+      fail(`transition: legacy v1 Task receipt lacks exact predecessor custody: ${invented.id}`);
+    }
+    return;
+  }
   if (prior.mission !== next.mission) fail("transition: mission changed");
   if (canonical(prior.origin) !== canonical(next.origin)) fail("transition: origin changed");
   const nextNodes = new Map(next.nodes.map((node) => [node.id, node]));
@@ -383,27 +400,46 @@ function validateTransition(prior, next) {
       fail(`transition: consumed dispatch custody changed: ${node.id}.dispatchReceipt`);
     }
     if (node.nativeTaskReceipt !== undefined) {
+      const successorTaskReceipt = successor.legacyV1TaskReceipt ?? successor.nativeTaskReceipt;
       const migratedNativeReceipt = prior.schema === "hub-state-receipt/v1"
-        ? { kind: successor.nativeTaskReceipt?.kind, locator: successor.nativeTaskReceipt?.locator }
+        ? { kind: successorTaskReceipt?.kind, locator: successorTaskReceipt?.locator }
         : successor.nativeTaskReceipt;
       if (canonical(migratedNativeReceipt) !== canonical(node.nativeTaskReceipt)) {
         fail(`transition: consumed dispatch custody changed: ${node.id}.nativeTaskReceipt`);
       }
     }
+    if (node.legacyV1TaskReceipt !== undefined &&
+        canonical(successor.legacyV1TaskReceipt) !== canonical(node.legacyV1TaskReceipt)) {
+      fail(`transition: consumed dispatch custody changed: ${node.id}.legacyV1TaskReceipt`);
+    }
     if (node.state === "terminal") {
-      const migratedTerminal = prior.schema === "hub-state-receipt/v1" && successor.nativeTaskReceipt
-        ? {
-            ...successor,
-            nativeTaskReceipt: {
-              kind: successor.nativeTaskReceipt.kind,
-              locator: successor.nativeTaskReceipt.locator,
-            },
-          }
-        : successor;
+      let migratedTerminal = successor;
+      if (prior.schema === "hub-state-receipt/v1") {
+        migratedTerminal = { ...successor };
+        const successorTaskReceipt = successor.legacyV1TaskReceipt ?? successor.nativeTaskReceipt;
+        if (successorTaskReceipt) {
+          migratedTerminal.nativeTaskReceipt = {
+            kind: successorTaskReceipt.kind,
+            locator: successorTaskReceipt.locator,
+          };
+        }
+        delete migratedTerminal.legacyV1TaskReceipt;
+      }
       if (canonical(migratedTerminal) !== canonical(node)) fail(`transition: terminal node changed: ${node.id}`);
     }
     if (node.state === "runnable" && successor.state === "waiting") {
       fail(`transition: runnable node returned to waiting before dispatch: ${node.id}`);
+    }
+  }
+  const priorNodes = new Map(prior?.nodes?.map((node) => [node.id, node]) ?? []);
+  for (const node of next.nodes) {
+    if (!node.legacyV1TaskReceipt) continue;
+    const predecessor = priorNodes.get(node.id);
+    const admitted = prior?.schema === "hub-state-receipt/v1"
+      ? predecessor?.nativeTaskReceipt
+      : predecessor?.legacyV1TaskReceipt;
+    if (canonical(admitted) !== canonical(node.legacyV1TaskReceipt)) {
+      fail(`transition: legacy v1 Task receipt lacks exact predecessor custody: ${node.id}`);
     }
   }
   const nextArtifacts = new Map(next.artifacts.map((artifact) => [artifact.id, artifact]));
