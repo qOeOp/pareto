@@ -134,6 +134,116 @@ await setInput(migratedTerminal);
 const migratedTerminalDigest = run("advance", "--receipt-dir", legacyTerminalReceiptDir, "--input", input, "--expect-prior", legacyTerminalDigest);
 assert.equal(run("verify", "--receipt-dir", legacyTerminalReceiptDir), migratedTerminalDigest);
 
+const legacyLaneReceiptDir = join(receiptRoot, "legacy-lane-receipts");
+await mkdir(legacyLaneReceiptDir);
+await writeFile(join(legacyLaneReceiptDir, legacyTerminalName), legacyTerminalSource, "utf8");
+await writeFile(
+  join(legacyLaneReceiptDir, "current.json"),
+  `${canonical({ schema: "hub-state-pointer/v1", digest: legacyTerminalDigest, receipt: legacyTerminalName })}\n`,
+  "utf8",
+);
+const legacyLaneReceipt = {
+  ...legacyTerminal,
+  schema: "hub-state-receipt/v2",
+  nodes: [{
+    ...legacyTerminal.nodes[0],
+    nativeTaskReceipt: undefined,
+    legacyV1TaskReceipt: legacyTerminal.nodes[0].nativeTaskReceipt,
+  }],
+  activeTargets: [],
+  observation: { window: null, transportFailure: null },
+};
+await setInput(legacyLaneReceipt);
+const legacyLaneDigest = run("advance", "--receipt-dir", legacyLaneReceiptDir, "--input", input, "--expect-prior", legacyTerminalDigest);
+assert.equal(run("verify", "--receipt-dir", legacyLaneReceiptDir), legacyLaneDigest);
+
+const legacyRunningReceiptDir = join(receiptRoot, "legacy-running-lane-receipts");
+await mkdir(legacyRunningReceiptDir);
+await writeFile(join(legacyRunningReceiptDir, legacyName), legacySource, "utf8");
+await writeFile(
+  join(legacyRunningReceiptDir, "current.json"),
+  `${canonical({ schema: "hub-state-pointer/v1", digest: legacyDigest, receipt: legacyName })}\n`,
+  "utf8",
+);
+const legacyUnavailable = {
+  ...legacyLaneReceipt,
+  artifacts: legacy.artifacts,
+  nodes: [
+    {
+      ...legacy.nodes[0],
+      state: "needs_attention",
+      nativeTaskReceipt: undefined,
+      legacyV1TaskReceipt: legacy.nodes[0].nativeTaskReceipt,
+      stateReceipt: "historical internal lane has no peer Task identity",
+    },
+    legacy.nodes[1],
+  ],
+  next: { kind: "gate", owner: "hub", predicate: "recover historical lane evidence" },
+};
+await setInput(legacyUnavailable);
+const legacyUnavailableDigest = run("advance", "--receipt-dir", legacyRunningReceiptDir, "--input", input, "--expect-prior", legacyDigest);
+assert.equal(run("verify", "--receipt-dir", legacyRunningReceiptDir), legacyUnavailableDigest);
+
+await setInput({
+  ...legacyUnavailable,
+  nodes: [{ ...legacyUnavailable.nodes[0], legacyV1TaskReceipt: undefined }, legacyUnavailable.nodes[1]],
+});
+rejects(
+  /consumed dispatch custody changed: a\.legacyV1TaskReceipt/,
+  "advance",
+  "--receipt-dir",
+  legacyRunningReceiptDir,
+  "--input",
+  input,
+  "--expect-prior",
+  legacyUnavailableDigest,
+);
+
+await setInput({
+  ...legacyUnavailable,
+  nodes: [{
+    ...legacyUnavailable.nodes[0],
+    state: "running",
+    legacyV1TaskReceipt: undefined,
+    nativeTaskReceipt: { kind: "native_task", locator: "thread:replacement", threadId: "replacement", hostId: "host" },
+    stateReceipt: undefined,
+  }, legacyUnavailable.nodes[1]],
+  activeTargets: [{ node: "a", threadId: "replacement", hostId: "host", cursor: null }],
+  next: { kind: "observe", owner: "hub", predicate: "observe fabricated replacement" },
+});
+rejects(
+  /consumed dispatch custody changed: a\.legacyV1TaskReceipt/,
+  "advance",
+  "--receipt-dir",
+  legacyRunningReceiptDir,
+  "--input",
+  input,
+  "--expect-prior",
+  legacyUnavailableDigest,
+);
+
+const inventedLegacy = {
+  ...legacyLaneReceipt,
+  mission: "invented-legacy",
+};
+await setInput(inventedLegacy);
+rejects(
+  /legacy v1 Task receipt lacks exact predecessor custody/,
+  "advance",
+  "--receipt-dir",
+  join(receiptRoot, "invented-legacy"),
+  "--input",
+  input,
+  "--expect-prior",
+  "none",
+);
+
+await setInput({
+  ...legacyLaneReceipt,
+  nodes: [{ ...legacyLaneReceipt.nodes[0], state: "running", terminalReceipt: undefined }],
+});
+rejects(/legacy v1 Task receipt must be inactive/, "advance", "--receipt-dir", join(receiptRoot, "active-legacy"), "--input", input, "--expect-prior", "none");
+
 await setInput({ ...base, activeTargets: [] });
 rejects(/activeTargets: missing native Task node a/, "advance", "--receipt-dir", join(receiptRoot, "missing-active-target"), "--input", input, "--expect-prior", "none");
 await setInput({
