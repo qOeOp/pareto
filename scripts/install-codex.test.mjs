@@ -46,6 +46,12 @@ try {
     [join(projectRoot, "skills", "run-bounded-mission", "scripts", "hub-state-receipt.test.mjs")],
     { encoding: "utf8" });
   assert.equal(hubStateReceiptTest.status, 0, hubStateReceiptTest.stderr);
+  for (const name of ["continuity-receipt", "review-dispatch-packet"]) {
+    const result = spawnSync(process.execPath,
+      [join(projectRoot, "skills", "run-bounded-mission", "scripts", `${name}.test.mjs`)],
+      { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  }
 
   const contextBudgetSkill = join(root, "context-budget", "run-bounded-mission");
   await cp(join(projectRoot, "skills", "run-bounded-mission"), contextBudgetSkill, { recursive: true });
@@ -569,13 +575,13 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedLifecycleQa,
     /Admit one finite Goal-unbound session/);
   assert.match(installedLifecycleQa,
-    /continuity receipt:[\s\S]+targets\/cursors[\s\S]+transport-failure[\s\S]+signal plus owner\/effect receipt/);
+    /Monitor continuity holds only targets\/cursors,[\s\S]+repeated transport failures,[\s\S]+unclosed signal\/receipts,[\s\S]+unfinished custody/);
   assert.match(installedLifecycleQa,
-    /Retain a signal only with authorized same-relationship closure observation/);
+    /content-addresses every removed or unknown[\s\S]+source member in a closure archive\/manifest/);
   assert.match(installedLifecycleQa,
-    /clear on terminal,[\s\S]+cancellation, drift, unavailability, authority loss, or closure/);
+    /Clear signals on terminal, cancellation, drift,[\s\S]+unavailability, authority loss, or closure/);
   assert.match(installedLifecycleQa,
-    /never a QA\/history\/telemetry\/recurrence ledger or\s+scheduler/);
+    /unfinished custody; never history or telemetry/);
   assert.match(installedLifecycleQa,
     /peer Tasks form the native set[\s\S]+agentThreadId[\s\S]+lane evidence/);
   assert.match(installedLifecycleQa,
@@ -794,6 +800,8 @@ const origin = join(root, "qOeOp", "skills.git");
     /Failed cleanup retains exact[\s\S]+path\/process custody and blocks completion; a retry must pass the same launch gate/);
   assert.match(installedReviewerHandoffOwner,
     /One review identity is `\(repository, base\/Origin, candidate commit\/tree or snapshot digest, neutral\s+control, lens\)`/);
+  assert.match(installedReviewerHandoffOwner,
+    /review-dispatch-packet\.mjs validate --packet[\s\S]+--identity-root[\s\S]+clean worktree and index[\s\S]+consumed identity,[\s\S]+`T166e30`, is never dispatched again/);
   assert.match(installedReviewerHandoffOwner, /dispatch sequentially by default/);
   assert.match(installedReviewerHandoffOwner,
     /estimated decision\s+latency saved by parallelism or expected distinct-root yield explicitly outweighs duplicate token\s+exposure/);

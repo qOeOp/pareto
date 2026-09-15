@@ -56,11 +56,17 @@ Use `hub-state-receipt/v2`. Alongside nodes and retained artifacts, it requires 
 exact `node`, `threadId`, `hostId`, and either the last transport `cursor` or explicit `null` before the
 first observation. It also requires one `observation` object whose `window` is the current wake locator or
 `null` and whose `transportFailure` is either `null` or the exact `{ key, count }`, with count saturated at
-three. In v2, each node's `nativeTaskReceipt` also carries exact `threadId` and `hostId`, and its active-target
+three. A non-null failure requires a non-null window, and every non-null window explicitly carries
+`transportFailure`; only an unchanged repeated failure with exact verified predecessor custody may omit its
+archived window; without verified predecessor custody, every failure starts at count one. Only the legacy
+no-observation/no-failure form may keep both null. In v2, each node's
+`nativeTaskReceipt` also carries exact `threadId` and `hostId`, and its active-target
 row must match them. The structured thread/host identity is unique across every node retaining that Task,
 including terminal rows, so a different locator cannot reclaim a consumed endpoint. Every nonterminal node
 holding native-Task custody has exactly one active-target row; terminal nodes have none. A known cursor cannot return to `null`. A repeated transport-failure key may
-increment only once in a different observation window; target change clears it. A pre-v2 receipt may be read
+increment only once in a different observation window. Adding or removing a target clears the hot failure,
+but does not authorize a surviving target's cursor to advance after a failed observation; that cursor needs
+a fresh explicit successful observation, even after intervening membership-only transitions. A pre-v2 receipt may be read
 only as the prior of one compare-and-swap migration to a complete v2 projection; it cannot pass `verify` for
 a later effect. When a v1 row used `nativeTaskReceipt` for an internal lane and therefore has no real peer
 `threadId`/`hostId`, migrate that exact two-field receipt once to `legacyV1TaskReceipt`. Such a row must be

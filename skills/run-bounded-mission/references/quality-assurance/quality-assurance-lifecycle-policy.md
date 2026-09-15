@@ -36,10 +36,10 @@ Stop at terminal, cancellation, drift, unavailability, or a handoff lacking clos
 Retain only cost or `unavailable`: waits/reads, context recovery, elapsed/tokens, and
 recheck. Repeated no-decision cost routes to Optimization without a ledger.
 
-Monitor may replace a continuity receipt: targets/cursors, transport-failure key/count,
-signal plus owner/effect receipt. It is dedupe state, never a QA/history/telemetry/recurrence ledger or
-scheduler. Retain a signal only with authorized same-relationship closure observation; clear on terminal,
-cancellation, drift, unavailability, authority loss, or closure.
+Monitor continuity holds only targets/cursors, repeated transport failures, unclosed signal/receipts,
+and unfinished custody; never history or telemetry. Its owner content-addresses every removed or unknown
+source member in a closure archive/manifest. Clear signals on terminal, cancellation, drift,
+unavailability, authority loss, or closure.
 
 For a Hub, peer Tasks form the native set; `agentThreadId`/`subAgentActivity` are lane evidence. Route an
 evidenced runnable, nonconflicting, undispatched lane to the orchestrator; empty slots alone are no-signal.
