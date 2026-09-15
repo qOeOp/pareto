@@ -51,14 +51,38 @@ For role=hub, additionally require:
 - one current window and one next observation action.
 
 When a Hub has nodes or artifacts, its checkpoint names the current digest from the installed
-`scripts/hub-state-receipt.mjs`. After recovery, `verify --expect-prior` precedes every effect. Reconcile
+`scripts/continuity-receipt.mjs`. Its `continuity-receipt/v2` hot state contains only identity, active
+targets/cursors, repeated transport failure, an unclosed signal with its owner/effect receipts,
+unfinished node/artifact custody, closure-manifest locator, and next action. Terminal history, business
+progress, run telemetry, and unknown source members live only in the content-addressed closure archive;
+the manifest binds source bytes, counts, classification, and the prior manifest. `verify --expect-prior`
+checks the hot size/content plus the complete archive chain before every effect; `restore --manifest`
+returns the exact archived source bytes.
+
+Each new transport observation supplied to `advance` carries the archive-only `observation.window` and
+`observation.transportFailure`; a failure is admitted only with a non-null window, and a successful
+observation records that field explicitly as `null`. The emitted hot receipt retains only failures at count two or three and
+omits the observation object. An unchanged persistence may submit that hot receipt without inventing a
+new observation only when the exact current verified predecessor retains the same repeated failure;
+validation recovers the last observation from the verified manifest chain. Without that predecessor,
+a failure starts at count one even when its first window is already known. A failure
+count may change only once in a new window, while an explicit successful observation records a new window
+with `transportFailure: null`. Adding or removing another target never substitutes for that success evidence
+when a surviving target's cursor advances, and membership-only transitions do not erase the binding between
+that target/cursor and the failed observation. This preserves one-off retry continuity without moving observation history
+back into hot state.
+
+Reconcile
 external identities without deleting rows or rewriting terminal ones. The canonical receipt, not a
 compaction summary or active-task listing, is prior-state authority. A missing, stale, locked, malformed,
 incomplete, duplicate dispatch/native identity, or aliased artifact kind/locator receipt freezes overwrite,
 duplication, publication, merge, archive, and cleanup; never synthesize a new first receipt.
-If the current receipt is legacy `hub-state-receipt/v1`, use its exact digest only as the prior of one
-`advance` to a complete v2 projection containing active targets/cursors and observation state. Until that
-compare-and-swap succeeds and the v2 digest verifies, every dependent effect remains frozen.
+If the current receipt is legacy `hub-state-receipt/v1` or `/v2`, use its exact digest only as the prior
+of one continuity `advance`. That compare-and-swap archives the complete legacy source before replacing
+the pointer and retains only unfinished custody in the hot receipt; it never drops an unknown member in
+place. A v1 receipt with an active native identity first requires the existing v1-to-v2 migration because
+v1 lacks the target identity/cursor needed for safe continuity. Until the new digest and closure manifest
+verify, every dependent effect remains frozen.
 
 Recovery does not adopt a same-title task, retry an ambiguous create/send, or infer no change from an
 omitted target. An advanced canonical branch alone never proves that its matching node was consumed;

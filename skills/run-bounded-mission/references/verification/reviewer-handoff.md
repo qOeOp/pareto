@@ -31,7 +31,21 @@ nor proves acceptance. Executable or product review still requires the original 
 the user independently admitted a lower-maturity outcome.
 
 Pre-dispatch Main records status and composes packets from bound-repository Git output; transcription
-blocks dispatch. A reviewer return exists only when a host-authenticated terminal-delivery receipt binds
+blocks dispatch. Before any reviewer host effect, Main runs the installed
+`scripts/review-dispatch-packet.mjs validate --packet <absolute> --identity-root <absolute>` against the
+exact packet and checkpoint-bound canonical review-identity root. The validator
+must observe a clean worktree and index with no replacement refs, assume-unchanged entries, or
+skip-worktree entries; resolve candidate commit/tree and exact `origin/main` commit/tree
+from that repository; resolve the immutable Origin Skill tree, required `SKILL.md` entrypoint, and
+neutral-control blob; verify every content-addressed gate-evidence file for this candidate and each
+focused/root/diff-check result's readable, content-addressed completed-execution receipt; and
+read the canonical pointer to a content-addressed full review-identity receipt.
+Missing or stale packet members, mutable locators, dirty state, a candidate-controlled Skill/control,
+or an identity already bound to a terminal-delivery receipt fails before dispatch. A consumed identity,
+including `T166e30`, is never dispatched again. The validator digest is dispatch admission, not a review
+return or a new identity/state authority.
+
+A reviewer return exists only when a host-authenticated terminal-delivery receipt binds
 the emitted terminal payload to the exact dispatch. A review identity is consumed only by such a return:
 `completed`, structured `unsupported`, or an invalid/malformed terminal payload after the reviewer
 admitted the exact packet. Supplying
