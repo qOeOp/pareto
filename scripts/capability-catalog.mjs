@@ -167,6 +167,83 @@ export function validateCapabilityCatalog(catalog, label = "catalog") {
   };
 }
 
+const retirementDecisionKeys = Object.freeze([
+  "slots", "reason", "reviewed_base", "reviewed_surfaces",
+]);
+const retiredEntryKeys = Object.freeze(["slot", "suite", "reason"]);
+const slotPattern = /^[A-Z]{3,4}-\d{2}\/(?:positive|negative|recovery)$/;
+
+function retirementSurfaces(decision, label) {
+  if (!Array.isArray(decision.reviewed_surfaces) || decision.reviewed_surfaces.length === 0 ||
+      decision.reviewed_surfaces.length > 64) {
+    fail(`${label} reviewed surfaces are invalid`);
+  }
+  const paths = new Set();
+  for (const surface of decision.reviewed_surfaces) {
+    exactKeys(surface, ["path", "blob"], `${label} reviewed surface`);
+    if (!repositoryPath(surface.path) || !objectIdPattern.test(surface.blob) || paths.has(surface.path)) {
+      fail(`${label} reviewed surface is invalid or duplicated`);
+    }
+    paths.add(surface.path);
+  }
+  return paths;
+}
+
+// Executable coverage is a monotonic ratchet: a scenario slot that once declared an executable suite
+// can only lose it through one admitted, permanently recorded retirement.
+export function validateRetirementAdmission(admission, catalog, label = "retirement admission") {
+  exactKeys(admission, ["schema_version", "decision", "retired"], label);
+  if (admission.schema_version !== 1) fail(`${label} schema is unsupported`);
+  const contract = validateCapabilityCatalog(catalog, `${label} catalog`);
+  if (!Array.isArray(admission.retired)) fail(`${label} retired ledger must be an array`);
+
+  const retired = new Map();
+  for (const entry of admission.retired) {
+    exactKeys(entry, retiredEntryKeys, `${label} retired entry`);
+    const slot = atom(entry.slot, `${label} retired slot`);
+    if (!slotPattern.test(slot) || retired.has(slot)) fail(`${label} retired slot is invalid or duplicated`);
+    if (!contract.rawRows.has(slot.split("/")[0])) fail(`${label} retired slot has no canonical capability`);
+    if (!["golden", "holdout"].includes(entry.suite)) fail(`${label} retired suite is invalid`);
+    atom(entry.reason, `${label} retired reason`);
+    retired.set(slot, entry);
+  }
+  if ([...retired.keys()].some((slot, index, all) => index > 0 && all[index - 1] > slot)) {
+    fail(`${label} retired ledger must stay sorted by slot`);
+  }
+  if (admission.decision === null) return { decision: null, retired, contract };
+
+  const decision = admission.decision;
+  exactKeys(decision, retirementDecisionKeys, `${label} decision`);
+  exactKeys(decision.reviewed_base, ["commit", "tree"], `${label} reviewed base`);
+  if (!objectIdPattern.test(decision.reviewed_base.commit) ||
+      !objectIdPattern.test(decision.reviewed_base.tree)) {
+    fail(`${label} reviewed base identity is invalid`);
+  }
+  atom(decision.reason, `${label} decision reason`);
+  if (!Array.isArray(decision.slots) || decision.slots.length === 0 || decision.slots.length > 64) {
+    fail(`${label} decision must retire between one and sixty-four slots`);
+  }
+  const slots = new Set();
+  for (const slot of decision.slots) {
+    atom(slot, `${label} decision slot`);
+    if (!slotPattern.test(slot) || slots.has(slot)) fail(`${label} decision slot is invalid or duplicated`);
+    if (!contract.rawRows.has(slot.split("/")[0])) fail(`${label} decision slot has no canonical capability`);
+    if (retired.has(slot)) fail(`${label} decision slot is already retired`);
+    slots.add(slot);
+  }
+  if (decision.slots.some((slot, index, all) => index > 0 && all[index - 1] > slot)) {
+    fail(`${label} decision slots must stay sorted`);
+  }
+  const surfaces = retirementSurfaces(decision, label);
+  const owners = new Set([...slots].map((slot) => contract.rawRows.get(slot.split("/")[0]).owner));
+  for (const owner of owners) {
+    if (![...surfaces].some((file) => file === owner || file.endsWith(`/${owner}`))) {
+      fail(`${label} does not bind the retired capability owner surface ${owner}`);
+    }
+  }
+  return { decision, slots, retired, contract };
+}
+
 export function validateAtomicityAdmission(admission, catalog, label = "atomicity admission") {
   exactKeys(admission, ["schema_version", "decision"], label);
   if (admission.schema_version !== 1) fail(`${label} schema is unsupported`);

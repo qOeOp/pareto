@@ -1,0 +1,131 @@
+{
+  "schema_version": 1,
+  "decision": null,
+  "retired": [
+    {
+      "slot": "ORC-01/negative",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-01/positive",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-01/recovery",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-02/negative",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-02/positive",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-02/recovery",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-03/negative",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-03/positive",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-03/recovery",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-04/recovery",
+      "suite": "holdout",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-06/negative",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-06/positive",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-06/recovery",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-07/negative",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-07/positive",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-07/recovery",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-08/negative",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-08/positive",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-08/recovery",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-09/negative",
+      "suite": "holdout",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-09/positive",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "ORC-09/recovery",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "QUA-03/positive",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "QUA-05/positive",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    },
+    {
+      "slot": "QUA-05/recovery",
+      "suite": "golden",
+      "reason": "native Task and Hub orchestration is removed; these cases assert a mechanism the Skill no longer owns"
+    }
+  ]
+}
