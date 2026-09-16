@@ -69,6 +69,8 @@ try {
   // current review decision into this isolated fixture.
   await writeFile(path.join(fixture, "evals/atomicity-admission.json"),
     `${JSON.stringify({ schema_version: 1, decision: null }, null, 2)}\n`);
+  await writeFile(path.join(fixture, "evals/retirement-admission.json"),
+    `${JSON.stringify({ schema_version: 1, decision: null, retired: [] }, null, 2)}\n`);
   // Keep one intentionally incomplete canonical slot in this isolated fixture so the
   // monotonic executable-case checks remain meaningful after the current corpus is complete.
   const fixtureDesignPath = path.join(fixture, "evals/scenarios.json");
@@ -721,6 +723,102 @@ try {
   });
   assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: topLevelScore }),
     /scenario design identity is invalid/);
+
+
+  // Executable coverage is a monotonic ratchet: withdrawing a suite needs one admitted,
+  // permanently recorded retirement, and nothing else may ride along with it.
+  const retirementPath = path.join(fixture, "evals/retirement-admission.json");
+  const retiredSlot = "ORC-11/recovery";
+  const retiredCaseId = "orc-11-recovery";
+  const retirementReason = "fixture mechanism no longer exists";
+  const routingSurface =
+    "skills/run-bounded-mission/references/orchestration/orchestration-agent-routing.md";
+  const retirementDecision = (origin) => ({
+    slots: [retiredSlot],
+    reason: retirementReason,
+    reviewed_base: { commit: origin, tree: runGit("rev-parse", `${origin}^{tree}`) },
+    reviewed_surfaces: [{ path: routingSurface, blob: runGit("rev-parse", `${origin}:${routingSurface}`) }],
+  });
+  const writeRetirement = async (decision, retired) =>
+    writeFile(retirementPath, `${JSON.stringify({ schema_version: 1, decision, retired }, null, 2)}\n`);
+  const withdrawSlot = async () => {
+    const design = JSON.parse(await readFile(designPath, "utf8"));
+    delete design.scenarios.find((row) =>
+      `${row.capability_id}/${row.scenario}` === retiredSlot).executable_suite;
+    await writeFile(designPath, `${JSON.stringify(design, null, 2)}\n`);
+  };
+  const dropRetiredCase = async () => {
+    const golden = (await import("yaml")).parse(await readFile(goldenPath, "utf8"));
+    await writeFile(goldenPath, stringifyYaml(golden.filter((testCase) =>
+      testCase.metadata.observations.capability.case_id !== retiredCaseId)));
+  };
+
+  const unadmittedWithdrawal = await commitMutation("unadmitted-withdrawal", async () => {
+    await withdrawSlot();
+    await dropRetiredCase();
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: unadmittedWithdrawal }),
+    /changed canonical ORC-11\/recovery executable suite/);
+
+  const retirementProposal = await commitMutation("retirement-proposal", async () => {
+    await writeRetirement(retirementDecision(base), []);
+  });
+  assert.ok(checkScenarioAuthority({ repo: fixture, base, candidate: retirementProposal }));
+
+  const crowdedProposal = await commitMutation("crowded-proposal", async () => {
+    await writeRetirement(retirementDecision(base), []);
+    await withdrawSlot();
+  });
+  assert.throws(() => checkScenarioAuthority({ repo: fixture, base, candidate: crowdedProposal }),
+    /retirement transition must use its isolated canonical write set/);
+
+  const retiredEntry = { slot: retiredSlot, suite: "golden", reason: retirementReason };
+  const retirementConsumed = await commitMutation("retirement-consumed", async () => {
+    await writeRetirement(null, [retiredEntry]);
+    await withdrawSlot();
+    await dropRetiredCase();
+  }, retirementProposal);
+  assert.ok(checkScenarioAuthority({ repo: fixture, base: retirementProposal, candidate: retirementConsumed }));
+
+  const unrecordedConsumption = await commitMutation("unrecorded-consumption", async () => {
+    await writeRetirement(null, []);
+    await withdrawSlot();
+    await dropRetiredCase();
+  }, retirementProposal);
+  assert.throws(() => checkScenarioAuthority({
+    repo: fixture, base: retirementProposal, candidate: unrecordedConsumption,
+  }), /consumed retirement must append exactly its admitted slots/);
+
+  const retainedCase = await commitMutation("retained-case", async () => {
+    await writeRetirement(null, [retiredEntry]);
+    await withdrawSlot();
+  }, retirementProposal);
+  assert.throws(() => checkScenarioAuthority({
+    repo: fixture, base: retirementProposal, candidate: retainedCase,
+  }), /retired executable case orc-11-recovery must leave the corpus/);
+
+  const misrecordedSuite = await commitMutation("misrecorded-suite", async () => {
+    await writeRetirement(null, [{ ...retiredEntry, suite: "holdout" }]);
+    await withdrawSlot();
+    await dropRetiredCase();
+  }, retirementProposal);
+  assert.throws(() => checkScenarioAuthority({
+    repo: fixture, base: retirementProposal, candidate: misrecordedSuite,
+  }), /does not record its withdrawn suite/);
+
+  const ledgerRewrite = await commitMutation("ledger-rewrite", async () => {
+    await writeRetirement(null, [{ ...retiredEntry, reason: "rewritten history" }]);
+  }, retirementConsumed);
+  assert.throws(() => checkScenarioAuthority({
+    repo: fixture, base: retirementConsumed, candidate: ledgerRewrite,
+  }), /rewrote the canonical retirement ledger/);
+
+  const unadmittedLedgerGrowth = await commitMutation("unadmitted-ledger-growth", async () => {
+    await writeRetirement(null, [retiredEntry, { slot: "QUA-01/positive", suite: "golden", reason: "no decision" }]);
+  }, retirementConsumed);
+  assert.throws(() => checkScenarioAuthority({
+    repo: fixture, base: retirementConsumed, candidate: unadmittedLedgerGrowth,
+  }), /appended retirements without an admitted decision/);
 
   const weakenedControl = await commitMutation("weakened-control", async () => {
     const workflowPath = path.join(fixture, ".github/workflows/scenario-authority.yml");

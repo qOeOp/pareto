@@ -7,6 +7,7 @@ import {
   capabilityScenarios,
   validateAtomicityAdmission,
   validateCapabilityCatalog,
+  validateRetirementAdmission,
 } from "./capability-catalog.mjs";
 import { parseAgentMessagePolicy } from "./agent-message-trajectory.mjs";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
@@ -577,7 +578,14 @@ const skills = await validateSkills();
 const capabilityCatalog = await readUniqueJson("evals/capabilities.json", "capability catalog");
 const atomicityAdmission = await readUniqueJson("evals/atomicity-admission.json", "atomicity admission");
 validateAtomicityAdmission(atomicityAdmission, capabilityCatalog);
+const retirementAdmission = await readUniqueJson("evals/retirement-admission.json", "retirement admission");
+const retirementPlan = validateRetirementAdmission(retirementAdmission, capabilityCatalog);
 const scenarioDesign = await readUniqueJson("evals/scenarios.json", "scenario design");
+for (const slot of retirementPlan.retired.keys()) {
+  const row = scenarioDesign.scenarios.find((entry) => `${entry.capability_id}/${entry.scenario}` === slot);
+  if (!row) fail(`retired slot ${slot} has no scenario design`);
+  if (row.executable_suite !== undefined) fail(`retired slot ${slot} still declares an executable suite`);
+}
 const goldenCases = parseYaml(await readFile(path.join(root, "evals/cases/golden.yaml"), "utf8"));
 const holdoutCases = parseYaml(await readFile(path.join(root, "evals/cases/holdout.yaml"), "utf8"));
 const goldenDescriptions = validatePromptfooCases(goldenCases, {

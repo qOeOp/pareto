@@ -6,6 +6,7 @@ import {
   atomicityRequiredStaticPaths,
   capabilityScenarios,
   compareCapabilityCatalogs,
+  validateRetirementAdmission,
 } from "./capability-catalog.mjs";
 import { parseAgentMessagePolicy } from "./agent-message-trajectory.mjs";
 import { rejectDuplicateJsonObjectMembers } from "./json.mjs";
@@ -168,6 +169,77 @@ function parseAtomicityAdmission(repo, oid, label, allowMissing = false) {
   } catch {
     fail(`${label} atomicity admission must be valid JSON`);
   }
+}
+
+function parseRetirementAdmission(repo, oid, label, allowMissing = false) {
+  const source = committedTextOptional(repo, oid, "evals/retirement-admission.json");
+  if (source === null) {
+    if (allowMissing) return { schema_version: 1, decision: null, retired: [] };
+    fail(`${label} retirement admission is missing`);
+  }
+  rejectDuplicateJsonObjectMembers(source, `${label} retirement admission`);
+  try {
+    return JSON.parse(source);
+  } catch {
+    fail(`${label} retirement admission must be valid JSON`);
+  }
+}
+
+function verifyRetirementReviewBinding(repo, decision, reviewedBase, label) {
+  if (decision.reviewed_base.commit !== reviewedBase ||
+      decision.reviewed_base.tree !== git(repo, ["rev-parse", `${reviewedBase}^{tree}`]).trim()) {
+    fail(`${label} retirement decision does not bind the exact reviewed base`);
+  }
+  for (const surface of decision.reviewed_surfaces) {
+    let blob = null;
+    try {
+      blob = git(repo, ["rev-parse", `${reviewedBase}:${surface.path}`]).trim();
+    } catch {
+      fail(`${label} retirement reviewed surface ${surface.path} is unavailable at its reviewed base`);
+    }
+    if (blob !== surface.blob) {
+      fail(`${label} retirement reviewed surface ${surface.path} does not bind its reviewed blob`);
+    }
+  }
+}
+
+function retirementTransition(repo, base, candidate, baseAdmission, candidateAdmission, baseCatalog, candidateCatalog) {
+  const basePlan = validateRetirementAdmission(baseAdmission, baseCatalog, "base retirement admission");
+  const candidatePlan = validateRetirementAdmission(candidateAdmission, candidateCatalog, "candidate retirement admission");
+  const baseLedger = [...basePlan.retired.keys()];
+  const candidateLedger = [...candidatePlan.retired.keys()];
+  if (baseLedger.some((slot, index) => candidateLedger[index] !== slot) ||
+      baseLedger.some((slot) => JSON.stringify(candidatePlan.retired.get(slot)) !==
+        JSON.stringify(basePlan.retired.get(slot)))) {
+    fail("candidate rewrote the canonical retirement ledger");
+  }
+  const appended = candidateLedger.slice(baseLedger.length);
+  if (basePlan.decision === null && candidatePlan.decision === null) {
+    if (appended.length > 0) fail("candidate appended retirements without an admitted decision");
+    return { transition: "unchanged", retiring: new Set() };
+  }
+  if (basePlan.decision === null) {
+    if (appended.length > 0) fail("retirement proposal cannot append to the ledger");
+    verifyRetirementReviewBinding(repo, candidatePlan.decision, base, "candidate");
+    return { transition: "proposed", retiring: new Set() };
+  }
+  if (candidatePlan.decision !== null) {
+    fail("candidate changed the pending retirement decision without consuming it");
+  }
+  const reviewedBase = basePlan.decision.reviewed_base.commit;
+  if (git(repo, ["merge-base", reviewedBase, base]).trim() !== reviewedBase) {
+    fail("base no longer descends from the reviewed retirement source");
+  }
+  verifyRetirementReviewBinding(repo, basePlan.decision, reviewedBase, "consumed");
+  if (JSON.stringify(appended) !== JSON.stringify([...basePlan.decision.slots].sort())) {
+    fail("consumed retirement must append exactly its admitted slots");
+  }
+  for (const slot of appended) {
+    if (candidatePlan.retired.get(slot).reason !== basePlan.decision.reason) {
+      fail(`consumed retirement ledger entry ${slot} does not carry its admitted reason`);
+    }
+  }
+  return { transition: "consumed", retiring: new Set(appended), plan: candidatePlan };
 }
 
 function atomicityOwnerPath(repo, commit, owner, label) {
@@ -383,6 +455,27 @@ export function checkScenarioAuthority({ repo = defaultRepo, base, candidate }) 
   const catalogEvolution = compareCapabilityCatalogs(
     baseCatalog, candidateCatalog, baseAdmission, candidateAdmission,
   );
+  const retirement = retirementTransition(
+    resolvedRepo, base, candidate, parseRetirementAdmission(resolvedRepo, base, "base", true),
+    parseRetirementAdmission(resolvedRepo, candidate, "candidate", true), baseCatalog, candidateCatalog,
+  );
+  if (retirement.transition !== "unchanged") {
+    if (catalogEvolution.atomicityTransition !== "unchanged") {
+      fail("retirement and atomicity transitions cannot share one candidate");
+    }
+    verifyDirectTransition(resolvedRepo, base, candidate);
+    const changedFiles = git(resolvedRepo, ["diff", "--name-only", base, candidate])
+      .trim().split(/\r?\n/).filter(Boolean);
+    const permitted = retirement.transition === "proposed"
+      ? new Set(["evals/retirement-admission.json"])
+      : new Set([
+        "evals/retirement-admission.json", "evals/scenarios.json",
+        "evals/cases/golden.yaml", "evals/cases/holdout.yaml",
+      ]);
+    if (changedFiles.length === 0 || changedFiles.some((file) => !permitted.has(file))) {
+      fail("retirement transition must use its isolated canonical write set");
+    }
+  }
   if (catalogEvolution.atomicityTransition === "proposed" ||
       catalogEvolution.atomicityTransition.startsWith("consumed_")) {
     verifyDirectTransition(resolvedRepo, base, candidate);
@@ -449,8 +542,14 @@ export function checkScenarioAuthority({ repo = defaultRepo, base, candidate }) 
     if (!authorityUnchanged && !admittedFixedObserver) {
       fail(`candidate changed canonical ${slot} authority without an admitted fixed observer`);
     }
-    if (baseRow.executable_suite !== undefined && candidateRow.executable_suite !== baseRow.executable_suite) {
+    const admittedRetirement = retirement.retiring.has(slot) &&
+      baseRow.executable_suite !== undefined && candidateRow.executable_suite === undefined;
+    if (baseRow.executable_suite !== undefined && candidateRow.executable_suite !== baseRow.executable_suite &&
+        !admittedRetirement) {
       fail(`candidate changed canonical ${slot} executable suite`);
+    }
+    if (admittedRetirement && retirement.plan.retired.get(slot).suite !== baseRow.executable_suite) {
+      fail(`retirement ledger entry ${slot} does not record its withdrawn suite`);
     }
     if (baseRow.executable_suite === undefined && candidateRow.executable_suite !== undefined &&
         !["golden", "holdout"].includes(candidateRow.executable_suite)) {
@@ -488,8 +587,14 @@ export function checkScenarioAuthority({ repo = defaultRepo, base, candidate }) 
         candidateCases.get(id)?.definition !== row.definition))) {
     fail("atomicity transition cannot change executable cases");
   }
+  const retiredCaseIds = new Set([...retirement.retiring]
+    .map((slot) => baseSlots.get(slot)?.case_id).filter(Boolean));
   for (const [caseId, baseCase] of baseCases) {
     const candidateCase = candidateCases.get(caseId);
+    if (retiredCaseIds.has(caseId)) {
+      if (candidateCase) fail(`retired executable case ${caseId} must leave the corpus`);
+      continue;
+    }
     if (!candidateCase || candidateCase.definition !== baseCase.definition) {
       fail(`candidate deleted or moved canonical executable case ${caseId}`);
     }
