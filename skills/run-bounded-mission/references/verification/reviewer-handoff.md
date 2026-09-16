@@ -149,4 +149,4 @@ mutation or identity drift invalidates that member.
 Every finding is only a lead until Main independently reproduces it through the smallest real consumer;
 Main exact-deduplicates the ordered union and resolves disagreement by current authority and reproduced
 impact, never reviewer count. Unsupported evidence remains explicit and cannot authorize delivery.
-Hub alone authorizes merge.
+Main alone authorizes merge.

@@ -42,11 +42,7 @@ async function makeReadOnly(path) {
 }
 
 try {
-  const hubStateReceiptTest = spawnSync(process.execPath,
-    [join(projectRoot, "skills", "run-bounded-mission", "scripts", "hub-state-receipt.test.mjs")],
-    { encoding: "utf8" });
-  assert.equal(hubStateReceiptTest.status, 0, hubStateReceiptTest.stderr);
-  for (const name of ["continuity-receipt", "review-dispatch-packet"]) {
+  for (const name of ["review-dispatch-packet"]) {
     const result = spawnSync(process.execPath,
       [join(projectRoot, "skills", "run-bounded-mission", "scripts", `${name}.test.mjs`)],
       { encoding: "utf8" });
@@ -83,7 +79,7 @@ try {
     "quality-assurance-lifecycle-policy.md");
   const observerPolicySource = await readFile(observerPolicyPath, "utf8");
   await writeFile(observerPolicyPath,
-    `${observerPolicySource}\n[oversized observer dependency](../orchestration/orchestration-task-workflow.md)\n`,
+    `${observerPolicySource}\n[oversized observer dependency](../orchestration/orchestration-agent-routing.md)\n`,
     "utf8");
   await assert.rejects(() => assertContextBudget(contextBudgetSkill),
     /observer sentinel context exceeds 2700 words/);
@@ -226,7 +222,6 @@ const origin = join(root, "qOeOp", "skills.git");
   await mkdir(join(root, "qOeOp"), { recursive: true });
   await cp("scripts/install-codex.mjs", join(repositoryRoot, "scripts", "install-codex.mjs"));
   await cp("scripts/json.mjs", join(repositoryRoot, "scripts", "json.mjs"));
-  await cp("scripts/native-task-controller.mjs", join(repositoryRoot, "scripts", "native-task-controller.mjs"));
   await cp("skills/run-bounded-mission", join(repositoryRoot, "skills", "run-bounded-mission"), { recursive: true });
   await cp("codex/agents", join(repositoryRoot, "codex", "agents"), { recursive: true });
   await cp("codex/hooks", join(repositoryRoot, "codex", "hooks"), { recursive: true });
@@ -286,22 +281,11 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.equal(result.status, 0, result.stderr);
   result = spawnSync(process.execPath, [...lockedArgv, "--check"], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
-  const installedController = join(codexRoot, "native-task-controller", "native-task-controller.mjs");
-  assert.equal(await readFile(installedController, "utf8"), await readFile(join(repositoryRoot, "scripts", "native-task-controller.mjs"), "utf8"));
-  const installedReceiptRoot = join(codexRoot, "native-task-receipts");
-  const installedReceiptRootStat = await lstat(installedReceiptRoot);
-  assert.equal(installedReceiptRootStat.isDirectory(), true);
-  assert.equal(installedReceiptRootStat.isSymbolicLink(), false);
-  if (process.platform !== "win32") assert.equal(installedReceiptRootStat.mode & 0o777, 0o700);
-  const installedHubStateRoot = join(codexRoot, "hub-state-receipts");
-  const installedHubStateRootStat = await lstat(installedHubStateRoot);
-  assert.equal(installedHubStateRootStat.isDirectory(), true);
-  assert.equal(installedHubStateRootStat.isSymbolicLink(), false);
-  if (process.platform !== "win32") assert.equal(installedHubStateRootStat.mode & 0o777, 0o700);
-  await writeFile(installedController, "drifted controller\n");
+  const installedAgentProfile = join(codexRoot, "agents", "mission-planner.toml");
+  await writeFile(installedAgentProfile, "drifted profile\n");
   result = spawnSync(process.execPath, [...lockedArgv, "--check"], { encoding: "utf8" });
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /controller:native-task-controller\.mjs/);
+  assert.match(result.stderr, /agent:mission-planner\.toml/);
   result = spawnSync(process.execPath, lockedArgv, { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
 
@@ -465,8 +449,6 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedSkillSource, /Return byte-bounded excerpts and a terminal summary/);
   assert.match(installedSkillSource, /Never publish their labels or fields as progress/);
   assert.match(installedSkillSource, /host requests it after context recovery/);
-  assert.match(installedSkillSource, /Choose session mode from execution custody, not outcome count/);
-  assert.match(installedSkillSource, /user-requested peer outcome that must outlive Hub cancellation/);
   assert.match(installedSkillSource,
     /agent routing[\s\S]+before any admitted evidence,\s+path-bounded implementation, mechanical, or review lane/);
   const installedRecoveryOwner = await readFile(join(
@@ -480,88 +462,15 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedRecoveryOwner, /Plan projection, a compaction summary, or recovery prose does not restore Execute/);
   assert.match(installedRecoveryOwner, /Before a later mutation or unissued effect/);
   assert.match(installedRecoveryOwner, /restore the checkpoint/);
-  assert.match(installedRecoveryOwner, /One checkpoint\s+admits a Hub wave/);
+  assert.match(installedRecoveryOwner, /One checkpoint\s+admits the Mission, never each lane/);
   assert.match(installedRecoveryOwner, /Publish once only on an explicit post-recovery\s+host request/);
   assert.match(installedRecoveryOwner,
     /Goal status follows only the kernel inherited-Goal transition/);
-  const installedTaskWorkflow = await readFile(join(
-    agentsRoot, "skills", "run-bounded-mission", "references", "orchestration",
-    "orchestration-task-workflow.md",
-  ), "utf8");
   const installedDeliveryWorkflow = await readFile(join(
     agentsRoot, "skills", "run-bounded-mission", "references", "delivery",
     "delivery-pullrequest-workflow.md",
   ), "utf8");
-  assert.match(installedTaskWorkflow, /Replace one private checkpoint for the wave/);
-  assert.match(installedTaskWorkflow, /publish only\s+if recovery permits/);
-  assert.match(installedTaskWorkflow, /release every newly ready nonconflicting direct successor/);
-  assert.match(installedTaskWorkflow,
-    /Native create\/reuse and send receipts alone\s+admit `threadId`\/`hostId` to the logical Hub DAG and active set/);
-  assert.match(installedTaskWorkflow, /`agentThreadId` never does/);
-  assert.match(installedTaskWorkflow, /Classify custody by receipt, never names or locators/);
-  assert.match(installedTaskWorkflow,
-    /Only a later admitted wake may re-arm the exact wait; a\s+source=goal\s+wake must match/);
-  assert.match(installedTaskWorkflow,
-    /An empty active set is a DAG scheduling event[\s\S]+Missing Finalize[\s\S]+repeated empty completion[\s\S]+kernel inherited-Goal transition/);
-  assert.match(installedTaskWorkflow, /One Hub turn owns at most one native cursor-bound wait/);
-  assert.match(installedTaskWorkflow, /Host wake admission consumes exactly one just-issued first observation/);
-  assert.match(installedTaskWorkflow,
-    /matching Goal continuation for a checkpointed non-empty active set/);
-  assert.match(installedTaskWorkflow, /due\s+tick from a product-native recurring monitor/);
-  assert.match(installedTaskWorkflow, /wake owner never owns the DAG,\s+authority, or candidate/);
-  assert.match(installedTaskWorkflow, /Task progress never is/);
-  assert.match(installedTaskWorkflow, /Progress\/expiry is silent waiting/);
-  assert.match(installedTaskWorkflow,
-    /checkpoint the exact target-set\/cursor\/failure-class key[\s\S]+saturated at three/);
-  assert.match(installedTaskWorkflow,
-    /clear it only after a successful cursor-bound wait or target-set change[\s\S]+Fallback reads never clear it/);
-  assert.match(installedTaskWorkflow, /exact\s+non-carrier user request/);
-  assert.match(installedTaskWorkflow,
-    /`turnCompleted` proves an endpoint only when the wake turn and its exact terminal payload are present/);
-  assert.match(installedTaskWorkflow,
-    /snapshot advanced to a successor turn and omitted that payload, treat it as incomplete transport\s+evidence, not carrier-only/);
-  assert.match(installedTaskWorkflow, /retain the prior cursor and failure key/);
-  assert.match(installedTaskWorkflow,
-    /exact merged PR readback closes through one indivisible Hub node transition, not progress/);
-  assert.match(installedTaskWorkflow,
-    /consumed merge\s+receipt keyed by all of those Git\/GitHub identities/);
-  assert.match(installedTaskWorkflow,
-    /Mark\s+that row pending, replace the checkpoint with one exact task-bound pending archive attempt/);
-  assert.match(installedTaskWorkflow,
-    /terminal\s+custody disposition except the exact Task archive row selected/);
-  assert.match(installedTaskWorkflow,
-    /authoritative readback terminalizes that final row/);
-  assert.match(installedTaskWorkflow,
-    /Response loss or ambiguous success never authorizes reissue, Task recovery, or replacement/);
-  assert.match(installedTaskWorkflow,
-    /removes that\s+exact Task, cursor, pending attempt, and transport-failure state from the native active set/);
-  assert.match(installedTaskWorkflow,
-    /later identical merged readback is a deduplicated no-op/);
-  assert.match(installedTaskWorkflow,
-    /never recovers, replaces, or continues the terminal Task before or after consuming the merge receipt/);
-  assert.match(installedTaskWorkflow,
-    /`agentThreadId` and agent-lane state never participate in this native-node transition/);
-  assert.match(installedRecoveryOwner,
-    /consumed native-node merge receipts with exact\s+repository\/PR\/head\/tree\/merge identities/);
-  assert.match(installedRecoveryOwner,
-    /exact task-bound pending archive attempts and their\s+effect\/readback receipts/);
-  assert.match(installedRecoveryOwner,
-    /advanced canonical branch alone never proves that its matching node was consumed/);
   assert.match(installedRecoveryOwner, /Compaction preserves turn identity and consumed observation admission/);
-  assert.match(installedTaskWorkflow,
-    /An asynchronous Hub may bind it only while a runnable operation or the checkpointed active-task\s+wait below exists/);
-  assert.match(installedTaskWorkflow, /Waiting never enters blocked audit/);
-  assert.match(installedTaskWorkflow,
-    /Before that transition can enter blocked audit, close one current schedulability proof/);
-  assert.match(installedTaskWorkflow,
-    /A duplicate-writer prohibition freezes only that writer effect/);
-  assert.match(installedTaskWorkflow,
-    /Repeated identical automatic continuations establish only[\s\S]+routes are absent/);
-  assert.match(installedTaskWorkflow,
-    /Whole-Goal blocked is eligible[\s\S]+no\s+safe owner action that can change the decision/);
-  assert.match(installedTaskWorkflow,
-    /count three is unavailable only when decision consumption is blocked[\s\S]+runnable node can progress/);
-  assert.match(installedRecoveryOwner, /wait-transport failure key\/count/);
   assert.match(installedRecoveryOwner,
     /An authenticated Resume invalidates the predecessor's no-route conclusion/);
   assert.match(installedRecoveryOwner,
@@ -583,57 +492,18 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedLifecycleQa,
     /unfinished custody; never history or telemetry/);
   assert.match(installedLifecycleQa,
-    /peer Tasks form the native set[\s\S]+agentThreadId[\s\S]+lane evidence/);
+    /`agentThreadId`\/`subAgentActivity` are lane evidence/);
   assert.match(installedLifecycleQa,
     /runnable, nonconflicting,[\s\S]+undispatched lane to the orchestrator/);
   assert.match(installedLifecycleQa,
     /separate normal RBM Mission[\s\S]+deduplicated by[\s\S]+existing task\/effect receipt/);
   assert.doesNotMatch(installedLifecycleQa, /task-table read/);
-  assert.match(installedTaskWorkflow, /Unavailable Goal capability freezes only Goal effects/);
-  assert.match(installedTaskWorkflow, /Never serialize Hub state or build a Skill-local clock/);
-  assert.match(installedTaskWorkflow,
-    /Goal-bound executable\s+Hub may carry only the exact checkpointed active-target wait/);
-  assert.doesNotMatch(installedTaskWorkflow,
-    /add an automation, reminder, daemon, heartbeat,\s+queue, or scheduler/);
-  assert.doesNotMatch(installedTaskWorkflow, /Only it has `threadId`\/`hostId`/);
-  assert.match(installedTaskWorkflow,
-    /A \*\*native Task\*\* is a peer user Task[\s\S]+explicit user[\s\S]+native-only need/);
-  assert.match(installedTaskWorkflow,
-    /Main owns\s+Frame, Plan[\s\S]+Intra-Mission writable\s+lanes instead mutate only Main's leased paths/);
-  assert.match(installedTaskWorkflow,
-    /native active set is peer-Task custody, not a lane gate/);
-  assert.match(installedTaskWorkflow,
-    /serialize lanes\s+on native unavailability/);
-  assert.match(installedTaskWorkflow,
-    /create a Task merely for parallelism/);
-  assert.doesNotMatch(installedTaskWorkflow, /owns primitive selection|Choose the execution primitive|outcome may need a user-owned Task/);
-  assert.match(installedTaskWorkflow,
-    /After a wait-handler capability failure, retain cursor and end the window\s+without retry/);
-  assert.match(installedTaskWorkflow,
-    /A native `wait_threads\.timeoutMs` bounds only its\s+event wait[\s\S]+trailing bounded progress snapshot may add latency/);
-  assert.match(installedTaskWorkflow,
-    /one `functions\.exec` cell and set that call's `yield\x5ftime\x5fms` earlier than\s+Stop/);
-  assert.match(installedTaskWorkflow,
-    /returns `Script running with cell ID`, immediately call `functions\.wait` once[\s\S]+exact `cell_id`[\s\S]+`terminate: true`[\s\S]+terminal cleanup receipt[\s\S]+discard late output[\s\S]+retain the cursor/);
-  assert.match(installedTaskWorkflow,
-    /promise race or yield without\s+exact cell termination\s+leaks the transport and is forbidden/);
-  assert.match(installedTaskWorkflow,
-    /cannot prove bounded yield, exact cell custody, and terminal\s+cleanup for the current call, do not invoke the wait; observation is unavailable/);
-  assert.match(installedTaskWorkflow,
-    /wrapper\s+deadline is\s+transport control, not a second scheduler, wake,\s+retry, fallback read, or state authority/);
-  assert.match(installedTaskWorkflow,
-    /`pending_wait_handler:\s+abandoned_at_caller_deadline` means its late receipt is abandoned after exact-cell termination/);
-  assert.match(installedTaskWorkflow,
-    /`live_host_hard_realtime_cancellation: unproved` preserves that evidence limit[\s\S]+does not weaken the mandatory cleanup path/);
-  assert.match(installedTaskWorkflow, /a new user\s+outcome or wider effect still requires alignment/);
   assert.doesNotMatch(installedRecoveryOwner, /complete current Frame|complete admitted Plan/);
   assert.match(installedRecoveryOwner, /inventories, stable nonclaims, completed steps/);
-  assert.match(installedRecoveryOwner, /role=hub\|native_task\|single/);
-  assert.match(installedRecoveryOwner,
-    /only for role=hub, exact active native Tasks, DAG, cursors, and wait-transport failure key\/count/);
+  assert.doesNotMatch(installedRecoveryOwner, /role=hub|native Task|\bDAG\b/);
   assert.match(installedRecoveryOwner, /exact active writable lanes\/path leases/);
-  assert.match(installedRecoveryOwner, /exact Mission and current native-task locators/);
-  assert.match(installedRecoveryOwner, /same Mission, current task/);
+  assert.match(installedRecoveryOwner, /exact Mission locator/);
+  assert.match(installedRecoveryOwner, /Require the same Mission, Origin\/candidate/);
   assert.match(installedRecoveryOwner, /exact consumer\/acceptance locator/);
   assert.match(installedRecoveryOwner, /immutable candidate\/change-set locators or unavailable/);
   assert.match(installedRecoveryOwner, /exact receipts when issued/);
@@ -693,12 +563,12 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedAgentRoutingOwner,
     /require the lane to load this owner plus its role load-map owners from that root before any\s+action/);
   assert.match(installedAgentRoutingOwner,
-    /freezes the lane and returns its custody predicate to Frame[\s\S]+only Frame may admit native Hub/);
+    /freezes the lane and returns its custody predicate to Main/);
   assert.match(installedAgentRoutingOwner,
     /While a writable lane uses Main's worktree[\s\S]+Main makes no repository, Git\/index, or\s+candidate mutation until terminal fan-in[\s\S]+Parallel writers require immutable inputs[\s\S]+exact distinct cwd\/worktree\/index/);
   assert.doesNotMatch(installedAgentRoutingOwner, /Task dispatch[^\n]+chooses the primitive/);
   assert.doesNotMatch(installedAgentRoutingOwner, /use native Tasks/);
-  assert.match(installedDeliveryWorkflow, /The native Task returns the exact PR\/head\/tree\/receipt locators/);
+  assert.match(installedDeliveryWorkflow, /Only the authority named by the admitted lifecycle may merge/);
   assert.doesNotMatch(installedDeliveryWorkflow, /The child returns/);
   assert.match(installedAgentRoutingOwner, /## Compile one complete lane prompt/);
   for (const field of [

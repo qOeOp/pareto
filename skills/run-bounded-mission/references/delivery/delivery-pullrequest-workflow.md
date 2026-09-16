@@ -2,7 +2,7 @@
 
 Load this owner before publishing or changing a pull request, declaring merge-ready, merging, or
 cleaning up. Delivery owns GitHub acceptance; it does not own candidate design, independent semantic
-review, CI implementation, or Hub DAG state.
+review, or CI implementation.
 
 ## Publish the exact candidate
 
@@ -67,13 +67,12 @@ Git replay. A failed create or verify is a delivery Stop, not permission to hand
 
 Immediately before merge, refresh the exact PR head/base, potential merge tree, mergeability, required
 checks, conversations, and drift evidence. Recreate and verify the compact receipt when any bound fact
-changes. Only the authority named by the admitted lifecycle may merge; in a Hub DAG the Hub alone owns
-merge and node closure. The native Task returns the exact PR/head/tree/receipt locators and does not merge.
+changes. Only the authority named by the admitted lifecycle may merge.
 
 After the effect, read back the terminal PR state and merge commit/tree. A non-terminal or mismatched
 readback is `partial` or `unknown`, never success.
 
 After every exact merged readback, load [artifact custody](delivery-postmerge-cleanup.md) in the same
 Finalize slice. Its reconciliation and source-freshness readback require no destructive effect; each
-delete, archive, or cache-removal target still requires exact authority. Do not close the task or Hub
-node while a task-owned artifact is `unknown`, unmatched, or lacks a named preserved owner.
+delete, archive, or cache-removal target still requires exact authority. Do not close the Mission
+while a Mission-owned artifact is `unknown`, unmatched, or lacks a named preserved owner.

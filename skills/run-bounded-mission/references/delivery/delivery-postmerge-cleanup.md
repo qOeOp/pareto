@@ -29,7 +29,7 @@ registration, and continuing source checkout. Classify each row:
 
 An already-equal row is terminal after readback. A preserved row is terminal only with an exact owner,
 reason, recovery locator, and whether it may keep supplying runtime instructions. `unknown`, unmatched,
-or unowned state returns `needs_attention` and keeps the Mission or Hub node open. Lack of destructive
+or unowned state returns `needs_attention` and keeps the Mission open. Lack of destructive
 authority is not loss: emit one compact approval boundary or explicit preserve disposition instead of
 waiting for the user to rediscover the artifact.
 

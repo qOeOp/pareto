@@ -2,97 +2,52 @@
 
 After a nontrivial Plan, keep one private effect-admission checkpoint. Replace it only when effect
 admission or retained decision state changes, and on recovery; Finalize produces none. One checkpoint
-admits a Hub wave, never each Task or lane. It indexes active writable-lane leases, native Tasks,
-Git/GitHub, and user facts, not authority.
+admits the Mission, never each lane. It indexes active writable-lane leases, Git/GitHub, and user
+facts, not authority.
 
 ```text
 Mission checkpoint
-Scope: <language; role=hub|native_task|single; exact Mission and current native-task locators; Goal locator when applicable; exact consumer/acceptance locator; exact Origin and immutable candidate/change-set locators or unavailable>
+Scope: <language; exact Mission locator; Goal locator when applicable; exact consumer/acceptance locator; exact Origin and immutable candidate/change-set locators or unavailable>
 Control: <decision-relevant issued or unissued effects with exact receipts when issued; exact authority, Stop, and Resume locators or unavailable>
-State: <unresolved findings and decisive evidence locators; exact active writable lanes/path leases; retained-artifact set or its exact custody-receipt locator; only for role=hub, exact active native Tasks, DAG, cursors, and wait-transport failure key/count>
+State: <unresolved findings and decisive evidence locators; exact active writable lanes/path leases; retained-artifact set or its exact custody-receipt locator>
 Next: <stage; owner; predicate; one operation; terminal condition>
 ```
 
 Lines hold decisions, not history. Omit inventories, stable nonclaims, completed steps, and artifact facts
 already closed by an exact terminal custody receipt. A Mission-owned candidate or artifact without such a
-receipt is decision state, even when its Task is inactive, terminal, rejected, superseded, or absent from the
-native active set. Group checks by one locator. Mutable names cannot replace exact Mission, task,
+receipt is decision state. Group checks by one locator. Mutable names cannot replace exact Mission,
 consumer/acceptance, Origin/candidate, or authority/effect locators. Missing, conflicting,
 stale, duplicate, unavailable, or candidate-controlled identity, acceptance, or authority freezes its
-action. Native packets bind immutable producer identity/send receipt; never copy bytes. Retain only
-the four lines.
+action. Retain only the four lines.
 
 ## Recovery gate
 
 A new turn, interruption, source drift, or user override freezes mutation and unissued
 effects. The Plan projection, a compaction summary, or recovery prose does not restore Execute
 admission. Before a later mutation or unissued effect, reconcile request/checkpoint with current Goal,
-task, Git/GitHub, effects, and owners; restore the checkpoint. Publish once only on an explicit post-recovery
+Git/GitHub, effects, and owners; restore the checkpoint. Publish once only on an explicit post-recovery
 host request.
 Compaction preserves turn identity and consumed observation admission; it authorizes no second wait,
-thread/status read, output, or effect.
+output, or effect.
 If the checkpoint cannot prove decision coverage through interruption, invalidate Plan and replay affected
 owner reads; replacement cannot heal omission. An unreadable affected identity freezes only its action and
 names the earliest useful read.
 
-For native_task or single, require the same Mission, current task, Origin/candidate, active writable-lane
-leases, next owner, and effect boundary.
-For role=hub, additionally require:
+Require the same Mission, Origin/candidate, active writable-lane leases, next owner, effect boundary,
+and one retained-artifact set containing every Mission-created, adopted, or used
+candidate/worktree/branch/PR/cache/continuing checkout that lacks an exact terminal custody
+disposition; a content-addressed custody receipt may replace only the rows it closes.
 
-- every approved or attempted node and its exact disposition;
-- one retained-artifact set, separate from the native active-task set, containing every Mission-created,
-  adopted, or used candidate/worktree/branch/PR/cache/continuing checkout that lacks an exact terminal
-  custody disposition; a content-addressed custody receipt may replace only the rows it closes;
-- an acyclic current DAG with immutable relation locators;
-- one registered active-task set and exact cursor per continued target;
-- consumed terminal/needs-attention locators, consumed native-node merge receipts with exact
-  repository/PR/head/tree/merge identities, exact task-bound pending archive attempts and their
-  effect/readback receipts, terminal artifact/archive dispositions, and component conflict dispositions;
-- one current window and one next observation action.
+Reconcile external identities without deleting rows or rewriting terminal ones. The checkpoint, not a
+compaction summary, is prior-state authority. A missing, stale, malformed, incomplete, duplicate, or
+aliased artifact kind/locator freezes overwrite, duplication, publication, merge, archive, and
+cleanup.
 
-When a Hub has nodes or artifacts, its checkpoint names the current digest from the installed
-`scripts/continuity-receipt.mjs`. Its `continuity-receipt/v2` hot state contains only identity, active
-targets/cursors, repeated transport failure, an unclosed signal with its owner/effect receipts,
-unfinished node/artifact custody, closure-manifest locator, and next action. Terminal history, business
-progress, run telemetry, and unknown source members live only in the content-addressed closure archive;
-the manifest binds source bytes, counts, classification, and the prior manifest. `verify --expect-prior`
-checks the hot size/content plus the complete archive chain before every effect; `restore --manifest`
-returns the exact archived source bytes.
+Recovery infers no change from an omitted target, and forbids duplicate investigation, branch, or PR
+creation. An ambiguous pending archive attempt is never reissued or treated as closure; recover it
+only through authoritative readback of that exact effect target.
 
-Each new transport observation supplied to `advance` carries the archive-only `observation.window` and
-`observation.transportFailure`; a failure is admitted only with a non-null window, and a successful
-observation records that field explicitly as `null`. The emitted hot receipt retains only failures at count two or three and
-omits the observation object. An unchanged persistence may submit that hot receipt without inventing a
-new observation only when the exact current verified predecessor retains the same repeated failure;
-validation recovers the last observation from the verified manifest chain. Without that predecessor,
-a failure starts at count one even when its first window is already known. A failure
-count may change only once in a new window, while an explicit successful observation records a new window
-with `transportFailure: null`. Adding or removing another target never substitutes for that success evidence
-when a surviving target's cursor advances, and membership-only transitions do not erase the binding between
-that target/cursor and the failed observation. This preserves one-off retry continuity without moving observation history
-back into hot state.
-
-Reconcile
-external identities without deleting rows or rewriting terminal ones. The canonical receipt, not a
-compaction summary or active-task listing, is prior-state authority. A missing, stale, locked, malformed,
-incomplete, duplicate dispatch/native identity, or aliased artifact kind/locator receipt freezes overwrite,
-duplication, publication, merge, archive, and cleanup; never synthesize a new first receipt.
-If the current receipt is legacy `hub-state-receipt/v1` or `/v2`, use its exact digest only as the prior
-of one continuity `advance`. That compare-and-swap archives the complete legacy source before replacing
-the pointer and retains only unfinished custody in the hot receipt; it never drops an unknown member in
-place. A v1 receipt with an active native identity first requires the existing v1-to-v2 migration because
-v1 lacks the target identity/cursor needed for safe continuity. Until the new digest and closure manifest
-verify, every dependent effect remains frozen.
-
-Recovery does not adopt a same-title task, retry an ambiguous create/send, or infer no change from an
-omitted target. An advanced canonical branch alone never proves that its matching node was consumed;
-until the indivisible merged-readback transition is present, preserve that exact node in native Task
-custody and forbid duplicate investigation, Task, branch, or PR creation. Callback unavailability does
-not erase native Task custody. An ambiguous pending archive attempt is never reissued or treated as
-closure; recover it only through authoritative readback of that exact effect target.
-
-An empty active-task set, missing callback, terminal Task, closed PR, or elapsed time never empties the
-retained-artifact set. Before mutation after recovery, reconcile every retained row against its exact
+A closed PR or elapsed time never empties the retained-artifact set. Before mutation after recovery, reconcile every retained row against its exact
 worktree registration, path, branch/ref, candidate head/tree or dirty digest, PR/effect locator, owner, and
 next disposition. If the checkpoint omitted a known Mission-owned row, freeze only effects that could
 overwrite, duplicate, publish, merge, or delete it and recover that exact row from its recorded locator.
@@ -101,14 +56,13 @@ Never scan unrelated repository history or adopt name-similar artifacts to repai
 Bind each user control event once by its exact locator in `Authority / Stop / Resume`. A finite pause
 remains armed until a strictly later authenticated native control receipt or user confirmation resumes
 that exact Goal and pause, with no newer conflict. `source=goal`, Goal status/text, or time alone prove
-no Resume or drift. Goal status follows only the kernel inherited-Goal transition; observation and an
-empty active set follow task dispatch. Only a matching continuation with checkpointed non-empty
-targets may carry its exact wait. Otherwise freeze dependent effects; do not load owners or observe.
+no Resume or drift. Goal status follows only the kernel inherited-Goal transition. Otherwise freeze
+dependent effects; do not load owners or observe.
 Once authenticated, consume the Goal and its next
 action once; only a new exact pause can arm another.
 
 An authenticated Resume invalidates the predecessor's no-route conclusion. Recompute current
-schedulability from owners, candidates, effects, and independent DAG slices before any new blocked audit;
+schedulability from owners, candidates, effects, and independent slices before any new blocked audit;
 the predecessor's repeated-turn count or duplicate-writer prohibition cannot be carried forward as
 whole-Mission impasse.
 
