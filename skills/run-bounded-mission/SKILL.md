@@ -74,7 +74,7 @@ Re-run admission after a decisive correction or new observation; never silently 
 reframe into normalization.
 
 Only an admitted projection may form Frame. Admission itself authorizes no mutation, candidate, branch,
-worktree, PR, commit, shared external effect, Goal, or native Task. Conditional evidence support remains
+worktree, PR, commit, shared external effect, or Goal. Conditional evidence support remains
 read-only and cannot choose the Outcome, generate Frame, or decide admission for Main.
 
 ## Frame
@@ -96,29 +96,14 @@ remain canonical. A material change to any field freezes mutation and unissued e
 the Plan, and requires a new projection; changing a user-owned field also requires alignment and
 re-admission.
 
-Choose session mode from execution custody, not outcome count:
-
-- default: keep one Mission in the current Task; work directly or use agent lanes for leased-path work;
-- native Hub: load [Codex task dispatch](references/orchestration/orchestration-task-workflow.md) only
-  for a user-requested peer outcome that must outlive Hub cancellation and needs a durable worktree,
-  branch/PR, effect custody, direct control, or asynchronous lifecycle.
-
-Native Task and agent-lane admission are independent and non-substitutable.
-
-Bind a Goal only while it has an admitted next operation or its continuation can carry one exact
-checkpointed non-empty active-target wait.
+Bind a Goal only while it has an admitted next operation.
 
 Observe Goal capability before a Goal effect; absence freezes only that effect. A Goal persists the
 overall outcome; it never supplies cadence. Passive observation uses a product-native recurring
-monitor and remains Goal-unbound. An inherited Goal with neither a runnable operation nor the exact
-wait emits one visible rebind decision and enters the host blocked audit; it never returns silence.
+monitor and remains Goal-unbound. An inherited Goal without a runnable operation emits one visible
+rebind decision and enters the host blocked audit; it never returns silence.
 
-For a native Task, bind one exact target, one complete message, required title/identity gates, and the
-observable native send receipt. Raw payload length or digest is producer identity, not proof of model
-receipt. Missing, duplicate, supplemental, or ambiguous delivery is host-defect/no-change; never repair
-it by retrying or creating a replacement task.
-
-Load [lifecycle QA](references/quality-assurance/quality-assurance-lifecycle-policy.md) only for a concrete lifecycle mismatch, an explicit complaint, or an explicit request to watch, observe, or diagnose one exact live Mission; QA owns bounded peer observation and classification, while orchestration owns Hub custody.
+Load [lifecycle QA](references/quality-assurance/quality-assurance-lifecycle-policy.md) only for a concrete lifecycle mismatch, an explicit complaint, or an explicit request to watch, observe, or diagnose one exact live Mission; QA owns bounded observation and classification.
 
 Patch pressure, repeated authority, unconsumed capability, implementation drift, or recurring
 no-decision rework activates Optimization for an integrated necessity test and subtraction.
@@ -210,30 +195,18 @@ unavailability may Resume only on a new observation for the same predicate.
 
 Accept only a verified exact candidate bound to a commit or preserved diff. Lead with the result and
 exact effect state; distinguish current external evidence, local inference, and unavailable evidence.
-
-A native Task terminal or needs-attention final is only:
-
-```text
-state: <terminal|needs_attention; endpoint or blocker>
-identity: <candidate/base/PR when action-relevant; Task only if transport identity is unavailable or ambiguous>
-decision: <decisive evidence locator or unavailable>
-next: <one Hub action; issued or unissued effects>
-```
-
-Use locators, not Frame, Plan, history, check inventories, or stable nonclaims. Missing or malformed
-handoff evidence is `unavailable` and freezes its dependent action.
+Use locators, not Frame, Plan, history, check inventories, or stable nonclaims.
 
 Load [GitHub delivery](references/delivery/delivery-pullrequest-workflow.md) before PR publication,
 merge-readiness, merge, or cleanup. It owns title validation, exact-head CI, conversations,
-mergeability, freshness, guarded merge, and conditional cleanup. A native Task ending at a merged endpoint
-hands off merge-ready evidence; Hub alone owns merge and node closure.
+mergeability, freshness, guarded merge, and conditional cleanup.
 
-A Mission that created a task, branch, worktree, PR, cache, or continuing source checkout is not
-terminal until each task-owned artifact has a current terminal disposition. At every terminal or
+A Mission that created a branch, worktree, PR, cache, or continuing source checkout is not
+terminal until each Mission-owned artifact has a current terminal disposition. At every terminal or
 authorized-cancellation endpoint, reconcile
 [artifact custody](references/delivery/delivery-postmerge-cleanup.md); inventory and freshness readback
 are mandatory, while deletion, archive, or cache removal still requires authority for the exact target.
-Active-task endpoints never erase retained-artifact custody; unknowns return `needs_attention`.
+Unknowns return `needs_attention`.
 
 Load [refactor proposals](references/optimization/optimization-refactor-workflow.md) only after related
 Missions are integrated and terminal; proposals require new user approval.

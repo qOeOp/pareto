@@ -5,8 +5,7 @@ or candidate lens after Frame selects an intra-Mission lane. Main retains Frame,
 ownership, fan-in, effects, acceptance, and Finalize; its lane returns evidence, a proposal, or a bounded diff.
 
 A lane answers only its dispatching Mission and cannot cross live parent or sibling state. No route here
-creates a Hub DAG node, active-task member, independent outcome, native Task replacement, branch, PR,
-or lane-owned or lane-authorized downstream effect.
+creates an independent outcome, branch, PR, or lane-owned or lane-authorized downstream effect.
 
 Native custody never gates lanes. While one slice waits, release every admissible nonconflicting lane;
 empty slots prove nothing.
@@ -165,7 +164,7 @@ verification: <real consumer; refuting and preservation oracle or unavailable>
 stop: <kill and effect gates>
 ```
 
-Use locators, not evidence prose, path/check inventories, state summaries, or the full DAG.
+Use locators, not evidence prose, path/check inventories, or state summaries.
 
 At an acceptance-ready coherence boundary, reviewer handoff may instead give one planner the frozen
 risk map for a scope challenge. It returns only missing, duplicate, or non-falsifiable risk proposals;
@@ -186,5 +185,5 @@ reproduces findings and fans in once.
 While a writable lane uses Main's worktree, it runs alone and Main makes no repository, Git/index, or
 candidate mutation until terminal fan-in. Parallel writers require immutable inputs, disjoint path leases,
 and exact distinct cwd/worktree/index, all Git state Main-owned. A need for a branch, PR,
-durable worktree, or independent lifecycle freezes the lane and returns its custody predicate to Frame;
-only Frame may admit native Hub. Lanes never consume sibling state, delegate, or authorize effects.
+durable worktree, or independent lifecycle freezes the lane and returns its custody predicate to Main.
+Lanes never consume sibling state, delegate, or authorize effects.

@@ -142,8 +142,8 @@ per case outside the prompt. The production assertion engine recomputes every de
 from `response.output`; artifact-declared component success is non-authorizing. A successful raw turn
 must match the current Codex SDK's exact completed item union, contain unique ordered item IDs, terminal
 status and exit evidence where defined, and end in the agent message that equals the response. Unknown,
-partial, in-progress, or reordered terminal items fail closed. Raw items do not expose Hub fan-in,
-dependency release, Goal state, or native Task state, so cases about those mechanisms remain
+partial, in-progress, or reordered terminal items fail closed. Raw items do not expose lane fan-in,
+dependency release, or Goal state, so cases about those mechanisms remain
 behavioral text plus `unavailable` runtime axes and require an external real-session trace for stronger
 claims. A declared `agent_messages` contract additionally rejects any unallowlisted interim trajectory.
 The first raw user message must equal the selected case's exact `vars.prompt`; a successful row

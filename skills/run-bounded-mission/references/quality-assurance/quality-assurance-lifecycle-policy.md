@@ -10,9 +10,8 @@ aggregates recurrence, routes models, or owns CI/GitHub.
 Such a request activates one normal RBM Mission with a read-only peer target set. Bind every requested
 native identity, the request or Goal locator, working context, Origin/candidate, and loaded peer Skill
 identity or `unavailable`; title, summary, observer version, or undifferentiated history cannot replace
-them. A peer Hub and its leaves remain targets: they do not make the observer multi-mode, activate task
-dispatch, or enter its Goal, DAG, custody, candidate, effects, or terminal. Never message them to
-manufacture evidence.
+them. A peer Mission's own lanes remain targets: they do not enter the observer's Goal, custody,
+candidate, effects, or terminal. Never message them to manufacture evidence.
 
 Default to `sentinel`: inspect changed checkpoints, anomalies, authority/effects, candidates, and
 terminals for identity drift, duplicate authority/custody/effects, invalid transitions, false evidence
@@ -41,8 +40,8 @@ and unfinished custody; never history or telemetry. Its owner content-addresses 
 source member in a closure archive/manifest. Clear signals on terminal, cancellation, drift,
 unavailability, authority loss, or closure.
 
-For a Hub, peer Tasks form the native set; `agentThreadId`/`subAgentActivity` are lane evidence. Route an
-evidenced runnable, nonconflicting, undispatched lane to the orchestrator; empty slots alone are no-signal.
+`agentThreadId`/`subAgentActivity` are lane evidence. Route an evidenced runnable, nonconflicting,
+undispatched lane to the orchestrator; empty slots alone are no-signal.
 
 ## Classify one signal
 
@@ -58,7 +57,7 @@ owner. Choose one outcome:
 
 Unknown evidence blocks only its consumer. Counts, delay, traffic, wording, or preference are no-signal.
 
-Return one `block`, `route`, or `advisory` only to the requesting Main/Hub; it retains custody and
+Return one `block`, `route`, or `advisory` only to the requesting Main; it retains custody and
 authorizes any native routing or closure observation.
 
 ## Route and close
@@ -66,15 +65,15 @@ authorizes any native routing or closure observation.
 Route by root authority, not symptom location:
 
 - planner: Outcome, scope, authority, acceptance, Plan, or structural replan;
-- orchestrator: task identity/custody, DAG release, Hub observation, recovery, or communication;
+- orchestrator: lane identity/custody, dependency release, recovery, or communication;
 - executor: candidate implementation or Plan coverage;
 - verifier: evidence integrity, oracle, independence, provenance, or consumer coverage;
 - delivery: publication, exact-head checks, conversations, freshness, mergeability, or effects;
 - optimizer: patch pressure, duplicate authority, missing consumers, implementation/document drift,
   repeated rework, communication/context inflation, or integrated behavior regression.
 
-QA owns only the wait/read rules above, never Hub custody or repair. The native owner repairs through
-its lifecycle. Closure reruns the producing scenario against the same relationship. No-signal or
+QA owns only the wait/read rules above, never the peer's custody or repair. The native owner repairs
+through its lifecycle. Closure reruns the producing scenario against the same relationship. No-signal or
 unavailable evidence creates no recurrence claim or record.
 
 After routing, explicit repair authority may admit a separate normal RBM Mission, deduplicated by the
