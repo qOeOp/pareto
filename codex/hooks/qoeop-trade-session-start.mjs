@@ -6,8 +6,26 @@ import { lstat, readFile, readdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const codexRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const hostRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const cleanEnvironment = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name)));
+const agentRoles = ["fast-builder", "mission-evaluator", "mission-planner", "mission-researcher"];
+const hosts = {
+  codex: { skillDirectory: ".agents", profileDirectory: ".codex", profileExtension: ".toml" },
+  claude: { skillDirectory: ".claude", profileDirectory: ".claude", profileExtension: ".md" },
+};
+
+function installedHost() {
+  const argv = process.argv.slice(2);
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] === "--host") return argv[index + 1] ?? "";
+  }
+  return "";
+}
+
+const host = installedHost();
+const profileNames = Object.hasOwn(hosts, host)
+  ? agentRoles.map((role) => `${role}${hosts[host].profileExtension}`)
+  : [];
 
 function git(cwd, ...args) {
   return execFileSync("git", ["-C", cwd, ...args], {
@@ -42,7 +60,7 @@ async function manifest(root) {
 
 async function ownedAgentManifest(root) {
   const entries = [];
-  for (const name of projectAgentProfiles) {
+  for (const name of profileNames) {
     const path = join(root, name);
     const stat = await lstat(path);
     if (!stat.isFile()) throw new Error("unsupported installed agent profile");
@@ -56,12 +74,18 @@ function output(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`);
 }
 
-const projectAgentProfiles = [
-  "fast-builder.toml",
-  "mission-evaluator.toml",
-  "mission-planner.toml",
-  "mission-researcher.toml",
-];
+function block(stopReason, systemMessage) {
+  const decision = { continue: false, stopReason };
+  if (systemMessage) decision.systemMessage = systemMessage;
+  if (host === "claude") {
+    decision.hookSpecificOutput = {
+      hookEventName: "SessionStart",
+      additionalContext: `${stopReason} Until then this session is frozen for implementation and delivery.`,
+    };
+  }
+  output(decision);
+}
+
 async function localMissionSources(root, cwd) {
   let directory = await realpath(resolve(cwd));
   const fromRoot = relative(root, directory);
@@ -71,15 +95,15 @@ async function localMissionSources(root, cwd) {
   let skill = false;
   const profiles = new Set();
   while (true) {
-    const skillPath = join(directory, ".agents", "skills", "run-bounded-mission", "SKILL.md");
+    const skillPath = join(directory, hosts[host].skillDirectory, "skills", "run-bounded-mission", "SKILL.md");
     try {
       await lstat(skillPath);
       skill = true;
     } catch (error) {
       if (error.code !== "ENOENT") skill = true;
     }
-    for (const name of projectAgentProfiles) {
-      const path = join(directory, ".codex", "agents", name);
+    for (const name of profileNames) {
+      const path = join(directory, hosts[host].profileDirectory, "agents", name);
       try {
         await lstat(path);
         profiles.add(name);
@@ -104,7 +128,24 @@ try {
     process.stdin.on("end", () => resolve(value));
   }));
   if (input.hook_event_name !== "SessionStart" && input.hook_event_name !== "PreToolUse") process.exit(0);
+  if (!Object.hasOwn(hosts, host)) {
+    const misinstalled = "The installed qOeOp/trade pin hook command is missing its exact --host agent argument, so no pinned behavior can be trusted. Run the origin/main bootstrap for this agent host, then start a new session.";
+    const decision = {
+      continue: false,
+      stopReason: misinstalled,
+      systemMessage: "qOeOp/trade pin hook is misinstalled",
+    };
+    if (input.hook_event_name === "SessionStart") {
+      decision.hookSpecificOutput = {
+        hookEventName: "SessionStart",
+        additionalContext: `${misinstalled} Until then this session is frozen for implementation and delivery.`,
+      };
+    }
+    output(decision);
+    process.exit(0);
+  }
   if (input.hook_event_name === "PreToolUse") {
+    if (host !== "codex") process.exit(0);
     const toolInput = input.tool_input;
     if ((input.tool_name === "spawn_agent" || input.tool_name === "Agent")
         && toolInput && !Array.isArray(toolInput) && typeof toolInput === "object"
@@ -132,20 +173,18 @@ try {
 }
 
 if (localSources.profiles.length > 0) {
-  output({
-    continue: false,
-    stopReason: `This checkout contains project-scoped RBM agent profiles that override the pinned user profiles: ${localSources.profiles.join(", ")}. Remove or migrate these repository files, then start a new Codex session.`,
-    systemMessage: "qOeOp/trade project agent profiles override the user installation",
-  });
+  block(
+    `This checkout contains project-scoped RBM agent profiles that override the pinned user profiles: ${localSources.profiles.join(", ")}. Remove or migrate these repository files, then start a new session.`,
+    "qOeOp/trade project agent profiles override the user installation",
+  );
   process.exit(0);
 }
 
 if (localSources.skill) {
-  output({
-    continue: false,
-    stopReason: "This checkout contains a project-scoped run-bounded-mission Skill that overrides the pinned user installation. Remove or migrate the repository-local Skill, then start a new Codex session.",
-    systemMessage: "qOeOp/trade project Skill overrides the user installation",
-  });
+  block(
+    "This checkout contains a project-scoped run-bounded-mission Skill that overrides the pinned user installation. Remove or migrate the repository-local Skill, then start a new session.",
+    "qOeOp/trade project Skill overrides the user installation",
+  );
   process.exit(0);
 }
 
@@ -153,34 +192,33 @@ try {
   git(root, "fetch", "--quiet", "origin", "+refs/heads/main:refs/remotes/origin/main");
   lock = JSON.parse(git(root, "show", "refs/remotes/origin/main:codex-skills.lock.json"));
 } catch {
-  output({
-    continue: false,
-    stopReason: "The current qOeOp/trade origin/main Skill pin could not be fetched and verified.",
-    systemMessage: "qOeOp/trade Skill pin unavailable",
-  });
+  block(
+    "The current qOeOp/trade origin/main Skill pin could not be fetched and verified.",
+    "qOeOp/trade Skill pin unavailable",
+  );
   process.exit(0);
 }
 
 if (lock.schema_version !== 2 || normalizedRepository(lock.repository) !== "https://github.com/qOeOp/pareto") {
-  output({ continue: false, stopReason: "The qOeOp/trade origin/main Skill pin is invalid." });
+  block("The qOeOp/trade origin/main Skill pin is invalid.");
   process.exit(0);
 }
 
 try {
-  const receipt = JSON.parse(await readFile(join(codexRoot, "run-bounded-mission-install.json"), "utf8"));
+  const receipt = JSON.parse(await readFile(join(hostRoot, "run-bounded-mission-install.json"), "utf8"));
   const fields = ["repository", "commit", "tree", "skill_tree", "codex_agents_tree", "codex_session_hook_blob", "installer_blob"];
+  if (host === "claude") fields.push("claude_agents_tree");
   const exact = fields.every((field) => normalizedRepository(receipt[field]) === normalizedRepository(lock[field]));
   const installedSkill = join(receipt.agents_root, "skills", "run-bounded-mission");
-  const installedAgents = join(receipt.codex_root, "agents");
-  if (receipt.schema_version !== 2 || !exact
+  const installedAgents = join(receipt.host_root, "agents");
+  if (receipt.schema_version !== 2 || receipt.host !== host || !exact
     || await manifest(installedSkill) !== receipt.skill_manifest_sha256
     || await ownedAgentManifest(installedAgents) !== receipt.agent_manifest_sha256) throw new Error("pin mismatch");
 } catch {
-  output({
-    continue: false,
-    stopReason: `Pinned run-bounded-mission ${lock.commit} is not installed exactly. Run the origin/main bootstrap, then start a new Codex session.`,
-    systemMessage: "qOeOp/trade Skill pin mismatch",
-  });
+  block(
+    `Pinned run-bounded-mission ${lock.commit} is not installed exactly. Run the origin/main bootstrap, then start a new session.`,
+    "qOeOp/trade Skill pin mismatch",
+  );
   process.exit(0);
 }
 

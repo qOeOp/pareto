@@ -14,22 +14,43 @@ npx -y skills@1.5.22 add qOeOp/pareto --skill run-bounded-mission --agent codex 
 npx -y skills@1.5.22 add qOeOp/pareto --skill run-bounded-mission --agent claude-code --global --copy --yes
 ```
 
-Codex projects that use the bundled custom agent roles should clone a pinned commit and run:
+Projects that use the bundled custom agent roles should clone a pinned commit and run the installer
+once per agent host:
 
 ```bash
-node scripts/install-codex.mjs --lock /path/to/codex-skills.lock.json
-node scripts/install-codex.mjs --check --lock /path/to/codex-skills.lock.json
+node scripts/install-codex.mjs --host codex --lock /path/to/codex-skills.lock.json
+node scripts/install-codex.mjs --host codex --check --lock /path/to/codex-skills.lock.json
+node scripts/install-codex.mjs --host claude --lock /path/to/codex-skills.lock.json
+node scripts/install-codex.mjs --host claude --check --lock /path/to/codex-skills.lock.json
 ```
 
-This installs the Skill under `~/.agents/skills/` and only the four owned profiles under
-`$CODEX_HOME/agents/` (or `~/.codex/agents/`). The installer never changes unrelated skills or agent
-profiles. A project can pin this repository in its root `AGENTS.md`; all of its clones and worktrees
-then share the same user-level installation without tracking `.agents/` or `.codex/` copies.
+`--host codex` (the default) installs the Skill under `~/.agents/skills/` and only the four owned
+profiles under `$CODEX_HOME/agents/` (or `~/.codex/agents/`). `--host claude` installs the same Skill
+under `~/.claude/skills/` and the four matching Claude Code subagent profiles under `~/.claude/agents/`
+(or `$CLAUDE_CONFIG_DIR`). Both roots stay overridable through `--agents-root` and `--host-root`
+(`--codex-root` remains accepted for the Codex host). The installer never changes unrelated skills,
+agent profiles, or host settings. A project can pin this repository in its root `AGENTS.md`; all of its
+clones and worktrees then share the same user-level installation without tracking `.agents/`,
+`.codex/`, or `.claude/` copies.
 The lock binds the repository, commit, root tree, installed subtrees, installer blob, and presence on
-the fetched `origin/main`; a wrong or stale checkout fails before installation.
+the fetched `origin/main`; a wrong or stale checkout fails before installation. `claude_agents_tree` is
+required only by `--host claude`, so an existing Codex-only lock stays valid.
 
 Use a release tag or commit after the repository name when reproducibility matters. Update or remove
 the installed copy through the same pinned CLI.
+
+### Session pin hook
+
+`--install-trade-session-hook` additionally installs `qoeop-trade-session-start.mjs` under the host
+root and registers it in that host's own configuration: `hooks.json` for Codex, `settings.json` for
+Claude Code. The installed command always names its host (`node "<hook>" --host <codex|claude>`), so
+the reviewed command in the host configuration is what decides the hook's behavior. On every fresh
+session inside a checkout of the pinning project the hook re-reads that project's `origin/main` pin and
+blocks when the installation drifts, when the pin cannot be verified, or when the checkout carries a
+project-scoped Skill or agent profile that would override the pinned user installation. On Claude Code the block also
+carries `additionalContext`, because that host does not guarantee that a `SessionStart` hook can stop
+startup. The Codex host additionally registers a `PreToolUse` hook that pins `fork_turns: none`; that
+parameter has no Claude Code counterpart, so no `PreToolUse` hook is installed there.
 
 ## Validate and evaluate
 
