@@ -8,29 +8,62 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const ownedAgents = ["fast-builder.toml", "mission-evaluator.toml", "mission-planner.toml", "mission-researcher.toml"];
 const ownedHook = "qoeop-trade-session-start.mjs";
+const agentRoles = ["fast-builder", "mission-evaluator", "mission-planner", "mission-researcher"];
+const claudeRoot = () =>
+  process.env.CLAUDE_CONFIG_DIR ? resolve(process.env.CLAUDE_CONFIG_DIR) : join(homedir(), ".claude");
+const hosts = {
+  codex: {
+    profileSource: join("codex", "agents"),
+    profileExtension: ".toml",
+    extraLockFields: [],
+    hooksConfig: "hooks.json",
+    ownsHooksConfig: true,
+    hookEvents: ["SessionStart", "PreToolUse"],
+    defaultAgentsRoot: () => join(homedir(), ".agents"),
+    defaultHostRoot: () => (process.env.CODEX_HOME ? resolve(process.env.CODEX_HOME) : join(homedir(), ".codex")),
+  },
+  claude: {
+    profileSource: join("claude", "agents"),
+    profileExtension: ".md",
+    extraLockFields: ["claude_agents_tree"],
+    hooksConfig: "settings.json",
+    ownsHooksConfig: false,
+    hookEvents: ["SessionStart"],
+    defaultAgentsRoot: claudeRoot,
+    defaultHostRoot: claudeRoot,
+  },
+};
 const gitAuthorityEnvironment = Object.fromEntries(
   Object.entries(process.env).filter(([name]) => !/^GIT_/i.test(name)),
 );
+
+function ownedAgents(host) {
+  return agentRoles.map((role) => `${role}${hosts[host].profileExtension}`);
+}
 
 function parseArguments(argv) {
   const options = {
     check: false,
     installTradeSessionHook: false,
     lock: undefined,
-    agentsRoot: join(homedir(), ".agents"),
-    codexRoot: process.env.CODEX_HOME ? resolve(process.env.CODEX_HOME) : join(homedir(), ".codex"),
+    host: "codex",
+    agentsRoot: undefined,
+    hostRoot: undefined,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
     if (value === "--check") options.check = true;
     else if (value === "--install-trade-session-hook") options.installTradeSessionHook = true;
     else if (value === "--lock") options.lock = resolve(argv[++index] ?? "");
+    else if (value === "--host") options.host = argv[++index] ?? "";
     else if (value === "--agents-root") options.agentsRoot = resolve(argv[++index] ?? "");
-    else if (value === "--codex-root") options.codexRoot = resolve(argv[++index] ?? "");
+    else if (value === "--host-root" || value === "--codex-root") options.hostRoot = resolve(argv[++index] ?? "");
     else throw new Error(`unknown argument: ${value}`);
   }
+  if (!Object.hasOwn(hosts, options.host)) throw new Error(`unknown agent host: ${options.host}`);
+  options.agentsRoot ??= hosts[options.host].defaultAgentsRoot();
+  options.hostRoot ??= hosts[options.host].defaultHostRoot();
   return options;
 }
 
@@ -41,6 +74,14 @@ function git(...args) {
   }).trim();
 }
 
+function optionalGit(...args) {
+  try {
+    return git(...args);
+  } catch {
+    return "";
+  }
+}
+
 function normalizedRepository(value) {
   return value
     .replace(/^git@github\.com:/, "https://github.com/")
@@ -48,7 +89,7 @@ function normalizedRepository(value) {
     .replace(/\.git$/, "");
 }
 
-async function verifyLock(path) {
+async function verifyLock(path, host) {
   const required = [
     "repository",
     "commit",
@@ -57,6 +98,7 @@ async function verifyLock(path) {
     "codex_agents_tree",
     "codex_session_hook_blob",
     "installer_blob",
+    ...hosts[host].extraLockFields,
   ];
   const actual = {
     repository: git("remote", "get-url", "origin"),
@@ -64,6 +106,7 @@ async function verifyLock(path) {
     tree: git("rev-parse", "HEAD^{tree}"),
     skill_tree: git("rev-parse", "HEAD:skills/run-bounded-mission"),
     codex_agents_tree: git("rev-parse", "HEAD:codex/agents"),
+    claude_agents_tree: optionalGit("rev-parse", "HEAD:claude/agents"),
     codex_session_hook_blob: git("rev-parse", `HEAD:codex/hooks/${ownedHook}`),
     installer_blob: git("rev-parse", "HEAD:scripts/install-codex.mjs"),
   };
@@ -72,7 +115,9 @@ async function verifyLock(path) {
   if (lock.schema_version !== 2 || required.some((key) => typeof lock[key] !== "string" || !lock[key])) {
     throw new Error("invalid Codex skills lock");
   }
-  const mismatches = required.filter((key) =>
+  const compared = [...new Set([...required, ...Object.keys(actual).filter((key) => key in lock)])];
+
+  const mismatches = compared.filter((key) =>
     key === "repository"
       ? normalizedRepository(lock[key]) !== normalizedRepository(actual[key])
       : lock[key] !== actual[key],
@@ -92,6 +137,7 @@ async function verifyLock(path) {
     "--",
     "skills/run-bounded-mission",
     "codex/agents",
+    "claude/agents",
     `codex/hooks/${ownedHook}`,
     "scripts/install-codex.mjs",
   );
@@ -117,9 +163,9 @@ async function manifest(root) {
   return `${entries.join("\n")}\n`;
 }
 
-async function ownedAgentManifest(root) {
+async function ownedAgentManifest(root, names) {
   const entries = [];
-  for (const name of ownedAgents) {
+  for (const name of names) {
     const path = join(root, name);
     const stat = await lstat(path);
     if (!stat.isFile()) throw new Error(`unsupported agent profile: ${path}`);
@@ -288,8 +334,18 @@ async function replaceBytes(bytes, destination, mode = 0o600) {
   }
 }
 
-function hookCommand(destinationHook) {
-  return `node ${JSON.stringify(destinationHook)}`;
+function hookCommand(destinationHook, host) {
+  return `node ${JSON.stringify(destinationHook)} --host ${host}`;
+}
+
+// Ownership follows the installed hook path in the command's program position, not one exact command
+// string: a command that gained or lost an argument between pinned versions is still this installer's
+// entry and must be replaced rather than preserved beside its successor, while an unrelated user hook
+// that merely names the file stays untouched.
+function ownsHook(hook, destinationHook) {
+  if (typeof hook?.command !== "string") return false;
+  const program = `node ${JSON.stringify(destinationHook)}`;
+  return hook.command === program || hook.command.startsWith(`${program} `);
 }
 
 function parseUniqueJson(text) {
@@ -350,24 +406,17 @@ function parseUniqueJson(text) {
   return JSON.parse(text);
 }
 
-async function mergedHooks(path, destinationHook) {
-  let document = {};
-  try {
-    const stat = await lstat(path);
-    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("not a regular file");
-    document = parseUniqueJson(await readFile(path, "utf8"));
-  } catch (error) {
-    if (error.code !== "ENOENT") throw new Error(`invalid Codex hooks config: ${error.message}`);
+function ownedHookGroups(destinationHook, host) {
+  const command = hookCommand(destinationHook, host);
+  if (host === "claude") {
+    return {
+      SessionStart: {
+        matcher: "*",
+        hooks: [{ type: "command", command, timeout: 15 }],
+      },
+    };
   }
-  if (!document || Array.isArray(document) || typeof document !== "object") {
-    throw new Error("invalid Codex hooks config");
-  }
-  if (document.hooks === undefined) document.hooks = {};
-  if (!document.hooks || Array.isArray(document.hooks) || typeof document.hooks !== "object") {
-    throw new Error("invalid Codex hooks config");
-  }
-  const command = hookCommand(destinationHook);
-  const ownedGroups = {
+  return {
     SessionStart: {
       matcher: "^(startup|resume|clear|compact)$",
       hooks: [{
@@ -388,30 +437,55 @@ async function mergedHooks(path, destinationHook) {
       }],
     },
   };
-  for (const [event, group] of Object.entries(ownedGroups)) {
-    const groups = document.hooks[event] ?? [];
-    if (!Array.isArray(groups)) throw new Error(`invalid Codex ${event} hooks config`);
+}
+
+async function mergedHooks(path, destinationHook, host) {
+  let document = {};
+  try {
+    const stat = await lstat(path);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("not a regular file");
+    document = parseUniqueJson(await readFile(path, "utf8"));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw new Error(`invalid ${host} hooks config: ${error.message}`);
+  }
+  if (!document || Array.isArray(document) || typeof document !== "object") {
+    throw new Error(`invalid ${host} hooks config`);
+  }
+  if (document.hooks === undefined) document.hooks = {};
+  if (!document.hooks || Array.isArray(document.hooks) || typeof document.hooks !== "object") {
+    throw new Error(`invalid ${host} hooks config`);
+  }
+  const command = hookCommand(destinationHook, host);
+  const ownedGroups = ownedHookGroups(destinationHook, host);
+  for (const event of Object.keys(document.hooks)) {
+    const groups = document.hooks[event];
+    if (!Array.isArray(groups)) {
+      if (Object.hasOwn(ownedGroups, event)) throw new Error(`invalid ${host} ${event} hooks config`);
+      continue;
+    }
     const ownedCount = groups.flatMap((entry) => entry?.hooks ?? [])
       .filter((hook) => hook?.command === command).length;
-    if (ownedCount > 1) throw new Error(`duplicate Codex ${event} hooks`);
-    const preserved = groups.flatMap((entry) => {
+    if (ownedCount > 1) throw new Error(`duplicate ${host} ${event} hooks`);
+    document.hooks[event] = groups.flatMap((entry) => {
       if (!Array.isArray(entry?.hooks)) return [entry];
-      const hooks = entry.hooks.filter((hook) => hook?.command !== command);
+      const hooks = entry.hooks.filter((hook) => !ownsHook(hook, destinationHook));
       return hooks.length === 0 ? [] : [{ ...entry, hooks }];
     });
-    document.hooks[event] = [...preserved, group];
+  }
+  for (const [event, group] of Object.entries(ownedGroups)) {
+    document.hooks[event] = [...(document.hooks[event] ?? []), group];
   }
   return `${JSON.stringify(document, null, 2)}\n`;
 }
 
-async function verify(sourceSkill, destinationSkill, sourceAgents, destinationAgents, sourceHook, destinationHook) {
+async function verify(sourceSkill, destinationSkill, sourceAgents, destinationAgents, names, sourceHook, destinationHook) {
   const mismatches = [];
   try {
     if ((await manifest(sourceSkill)) !== (await manifest(destinationSkill))) mismatches.push("skill");
   } catch {
     mismatches.push("skill");
   }
-  for (const name of ownedAgents) {
+  for (const name of names) {
     try {
       if (!((await readFile(join(sourceAgents, name))).equals(await readFile(join(destinationAgents, name))))) mismatches.push(`agent:${name}`);
     } catch {
@@ -430,31 +504,42 @@ async function verify(sourceSkill, destinationSkill, sourceAgents, destinationAg
 
 
 const options = parseArguments(process.argv.slice(2));
+const hostSpec = hosts[options.host];
+const profiles = ownedAgents(options.host);
 await assertNoInstallCustody(options.agentsRoot);
-const identity = await verifyLock(options.lock);
+const identity = await verifyLock(options.lock, options.host);
 const sourceSkill = join(repositoryRoot, "skills", "run-bounded-mission");
-const sourceAgents = join(repositoryRoot, "codex", "agents");
+const sourceAgents = join(repositoryRoot, hostSpec.profileSource);
 const sourceHook = join(repositoryRoot, "codex", "hooks", ownedHook);
 const destinationSkill = join(options.agentsRoot, "skills", "run-bounded-mission");
-const destinationAgents = join(options.codexRoot, "agents");
-const destinationHook = join(options.codexRoot, "hooks", ownedHook);
-const hooksConfig = join(options.codexRoot, "hooks.json");
-const installReceipt = join(options.codexRoot, "run-bounded-mission-install.json");
+const destinationAgents = join(options.hostRoot, "agents");
+const destinationHook = join(options.hostRoot, "hooks", ownedHook);
+const hooksConfig = join(options.hostRoot, hostSpec.hooksConfig);
+const installReceipt = join(options.hostRoot, "run-bounded-mission-install.json");
 const receipt = {
   schema_version: 2,
-  ...identity,
+  ...Object.fromEntries(Object.entries(identity).filter(([, value]) => value !== "")),
   skill_manifest_sha256: createHash("sha256").update(await manifest(sourceSkill)).digest("hex"),
-  agent_manifest_sha256: createHash("sha256").update(await ownedAgentManifest(sourceAgents)).digest("hex"),
+  agent_manifest_sha256: createHash("sha256").update(await ownedAgentManifest(sourceAgents, profiles)).digest("hex"),
+  host: options.host,
   agents_root: options.agentsRoot,
-  codex_root: options.codexRoot,
+  host_root: options.hostRoot,
 };
 
 if (!options.check) {
   await replaceDirectory(sourceSkill, destinationSkill);
-  for (const name of ownedAgents) await replaceFile(join(sourceAgents, name), join(destinationAgents, name));
+  for (const name of profiles) await replaceFile(join(sourceAgents, name), join(destinationAgents, name));
   if (options.installTradeSessionHook) {
     await replaceFile(sourceHook, destinationHook);
-    await replaceBytes(await mergedHooks(hooksConfig, destinationHook), hooksConfig);
+    await replaceBytes(
+      await mergedHooks(hooksConfig, destinationHook, options.host),
+      hooksConfig,
+      // The Codex hooks config is installer-owned and always tightened; the Claude settings file also
+      // carries unrelated user settings, so an existing file keeps the mode its owner chose.
+      hostSpec.ownsHooksConfig
+        ? 0o600
+        : await lstat(hooksConfig).then((stat) => stat.mode & 0o777, () => 0o600),
+    );
     await replaceBytes(`${JSON.stringify(receipt, null, 2)}\n`, installReceipt);
   }
 }
@@ -463,6 +548,7 @@ await verify(
   destinationSkill,
   sourceAgents,
   destinationAgents,
+  profiles,
   options.installTradeSessionHook ? sourceHook : undefined,
   options.installTradeSessionHook ? destinationHook : undefined,
 );
@@ -470,20 +556,27 @@ if (options.installTradeSessionHook) {
   const installedReceipt = JSON.parse(await readFile(installReceipt, "utf8"));
   if (JSON.stringify(installedReceipt) !== JSON.stringify(receipt)) throw new Error("Codex install receipt mismatch");
   const hooks = JSON.parse(await readFile(hooksConfig, "utf8"));
-  const installedCommand = hookCommand(destinationHook);
+  const installedCommand = hookCommand(destinationHook, options.host);
   const expectedHooks = JSON.parse(await mergedHooks(
-    join(options.codexRoot, "missing-hooks.json"),
+    join(options.hostRoot, "missing-hooks.json"),
     destinationHook,
+    options.host,
   )).hooks;
-  for (const event of ["SessionStart", "PreToolUse"]) {
-    const groups = (hooks.hooks?.[event] ?? []).filter(
-      (group) => Array.isArray(group?.hooks) && group.hooks.some((hook) => hook?.command === installedCommand),
+  for (const event of Object.keys(hooks.hooks ?? {})) {
+    if (!Array.isArray(hooks.hooks[event])) continue;
+    const groups = hooks.hooks[event].filter(
+      (group) => Array.isArray(group?.hooks) && group.hooks.some((hook) => ownsHook(hook, destinationHook)),
     );
-    if (groups.length !== 1 || JSON.stringify(groups[0]) !== JSON.stringify(expectedHooks[event][0])) {
+    const expected = hostSpec.hookEvents.includes(event) ? [expectedHooks[event][0]] : [];
+    if (JSON.stringify(groups) !== JSON.stringify(expected)) throw new Error(`Codex ${event} hook mismatch`);
+    if (expected.length > 0 && !groups[0].hooks.some((hook) => hook?.command === installedCommand)) {
       throw new Error(`Codex ${event} hook mismatch`);
     }
   }
+  for (const event of hostSpec.hookEvents) {
+    if (!Array.isArray(hooks.hooks?.[event])) throw new Error(`Codex ${event} hook mismatch`);
+  }
 }
 process.stdout.write(
-  `${options.check ? "Verified" : "Installed"} run-bounded-mission and ${ownedAgents.length} Codex agent profiles${options.installTradeSessionHook ? ", plus the trade pin hook" : ""}.\n`,
+  `${options.check ? "Verified" : "Installed"} run-bounded-mission and ${profiles.length} ${options.host} agent profiles${options.installTradeSessionHook ? ", plus the trade pin hook" : ""}.\n`,
 );

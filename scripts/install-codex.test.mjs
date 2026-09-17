@@ -180,6 +180,9 @@ try {
     assert.equal(result.status, 0, result.stderr);
   }
   const installedHooks = JSON.parse(await readFile(join(codexRoot, "hooks.json"), "utf8"));
+  if (process.platform !== "win32") {
+    assert.equal((await lstat(join(codexRoot, "hooks.json"))).mode & 0o777, 0o600);
+  }
   assert.equal(installedHooks.hooks.UserPromptSubmit[0].hooks[0].command, "node preserved-hook.mjs");
   assert.equal(installedHooks.hooks.SessionStart.length, 2);
   assert.equal(installedHooks.hooks.SessionStart[0].hooks[1].command, "node preserved-shared-hook.mjs");
@@ -213,6 +216,77 @@ try {
   assert.match(result.stderr, /duplicate JSON member: hooks/);
   assert.equal(await readFile(join(duplicateRoot, "hooks.json"), "utf8"), duplicateHooks);
 
+  const legacyRoot = join(root, "legacy-codex-home");
+  const legacyAgentsRoot = join(root, "legacy-agents-home");
+  const legacyHook = join(legacyRoot, "hooks", "qoeop-trade-session-start.mjs");
+  const legacyCommand = `node ${JSON.stringify(legacyHook)}`;
+  await mkdir(legacyRoot, { recursive: true });
+  const namingLegacyHook = `audit --watch ${JSON.stringify(legacyHook)}`;
+  await writeFile(join(legacyRoot, "hooks.json"), `${JSON.stringify({
+    hooks: {
+      SessionStart: [{
+        matcher: "^(startup|resume|clear|compact)$",
+        hooks: [
+          { type: "command", command: legacyCommand, timeout: 15, additionalContextLimit: 128 },
+          { type: "command", command: "node preserved-beside-legacy.mjs" },
+          { type: "command", command: namingLegacyHook },
+        ],
+      }],
+      PreToolUse: [{ matcher: "^(spawn_agent|Agent)$", hooks: [{ type: "command", command: legacyCommand }] }],
+    },
+  })}\n`);
+  const legacyArgv = [
+    "scripts/install-codex.mjs",
+    "--agents-root", legacyAgentsRoot,
+    "--host-root", legacyRoot,
+    "--install-trade-session-hook",
+  ];
+  result = spawnSync(process.execPath, legacyArgv, { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  result = spawnSync(process.execPath, [...legacyArgv, "--check"], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const migratedHooks = JSON.parse(await readFile(join(legacyRoot, "hooks.json"), "utf8"));
+  for (const event of ["SessionStart", "PreToolUse"]) {
+    const owning = migratedHooks.hooks[event].flatMap((group) => group.hooks)
+      .filter((hook) => hook.command === legacyCommand || hook.command.startsWith(`${legacyCommand} `));
+    assert.equal(owning.length, 1);
+    assert.equal(owning[0].command, `${legacyCommand} --host codex`);
+  }
+  assert.deepEqual(
+    migratedHooks.hooks.SessionStart[0].hooks.map((hook) => hook.command),
+    ["node preserved-beside-legacy.mjs", namingLegacyHook],
+  );
+
+  const strayRoot = join(root, "stray-claude-home");
+  const strayHook = join(strayRoot, "hooks", "qoeop-trade-session-start.mjs");
+  await mkdir(strayRoot, { recursive: true });
+  await writeFile(join(strayRoot, "settings.json"), `${JSON.stringify({
+    hooks: {
+      PreToolUse: [{
+        matcher: "^(spawn_agent|Agent)$",
+        hooks: [{ type: "command", command: `node ${JSON.stringify(strayHook)} --host codex` }],
+      }],
+    },
+  })}\n`);
+  if (process.platform !== "win32") await chmod(join(strayRoot, "settings.json"), 0o644);
+  const strayArgv = [
+    "scripts/install-codex.mjs",
+    "--host", "claude",
+    "--agents-root", strayRoot,
+    "--host-root", strayRoot,
+    "--install-trade-session-hook",
+  ];
+  result = spawnSync(process.execPath, strayArgv, { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  result = spawnSync(process.execPath, [...strayArgv, "--check"], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  const strayHooks = JSON.parse(await readFile(join(strayRoot, "settings.json"), "utf8"));
+  assert.deepEqual(strayHooks.hooks.PreToolUse, []);
+  assert.equal(strayHooks.hooks.SessionStart.length, 1);
+  if (process.platform !== "win32") {
+    assert.equal((await lstat(join(strayRoot, "settings.json"))).mode & 0o777, 0o644);
+  }
+
   const lock = join(root, "codex-skills.lock.json");
   const repositoryRoot = join(root, "source");
 const origin = join(root, "qOeOp", "skills.git");
@@ -225,6 +299,7 @@ const origin = join(root, "qOeOp", "skills.git");
   await cp("skills/run-bounded-mission", join(repositoryRoot, "skills", "run-bounded-mission"), { recursive: true });
   await cp("codex/agents", join(repositoryRoot, "codex", "agents"), { recursive: true });
   await cp("codex/hooks", join(repositoryRoot, "codex", "hooks"), { recursive: true });
+  await cp("claude/agents", join(repositoryRoot, "claude", "agents"), { recursive: true });
   assert.equal(git(root, "init", "--bare", origin).status, 0);
   assert.equal(git(repositoryRoot, "init", "-b", "main").status, 0);
   assert.equal(git(repositoryRoot, "config", "user.name", "Installer Test").status, 0);
@@ -249,6 +324,7 @@ const origin = join(root, "qOeOp", "skills.git");
     tree: field("HEAD^{tree}"),
     skill_tree: field("HEAD:skills/run-bounded-mission"),
     codex_agents_tree: field("HEAD:codex/agents"),
+    claude_agents_tree: field("HEAD:claude/agents"),
     codex_session_hook_blob: field("HEAD:codex/hooks/qoeop-trade-session-start.mjs"),
     installer_blob: field("HEAD:scripts/install-codex.mjs"),
   };
@@ -312,7 +388,7 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.equal(git(consumer, "config", "--get", "remote.origin.url").stdout.trim(), "git@github.com:qOeOp/trade.git");
   assert.equal((await lstat(join(consumer, ".agents", "skills", "run-bounded-mission", "SKILL.md"))).isFile(), true);
   const installedHook = join(codexRoot, "hooks", "qoeop-trade-session-start.mjs");
-  result = spawnSync(process.execPath, [installedHook], {
+  result = spawnSync(process.execPath, [installedHook, "--host", "codex"], {
     encoding: "utf8",
     env: poisonedGitEnvironment,
     input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "startup" }),
@@ -323,7 +399,7 @@ const origin = join(root, "qOeOp", "skills.git");
 
   assert.equal(git(consumer, "rm", "--cached", ".agents/skills/run-bounded-mission/SKILL.md").status, 0);
   assert.equal(git(consumer, "commit", "-m", "leave ignored local skill").status, 0);
-  result = spawnSync(process.execPath, [installedHook], {
+  result = spawnSync(process.execPath, [installedHook, "--host", "codex"], {
     encoding: "utf8",
     input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "resume" }),
   });
@@ -333,7 +409,7 @@ const origin = join(root, "qOeOp", "skills.git");
   await rm(join(consumer, ".agents", "skills", "run-bounded-mission", "SKILL.md"));
   await mkdir(join(consumer, ".codex", "agents"), { recursive: true });
   await writeFile(join(consumer, ".codex", "agents", "mission-evaluator.toml"), "historical\n");
-  result = spawnSync(process.execPath, [installedHook], {
+  result = spawnSync(process.execPath, [installedHook, "--host", "codex"], {
     encoding: "utf8",
     input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "resume" }),
   });
@@ -341,7 +417,7 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.equal(JSON.parse(result.stdout).continue, false);
   assert.match(JSON.parse(result.stdout).stopReason, /mission-evaluator\.toml/);
   await mkdir(join(consumer, "..scope"));
-  result = spawnSync(process.execPath, [installedHook], {
+  result = spawnSync(process.execPath, [installedHook, "--host", "codex"], {
     encoding: "utf8",
     input: JSON.stringify({ cwd: join(consumer, "..scope"), hook_event_name: "SessionStart", source: "resume" }),
   });
@@ -349,13 +425,13 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.equal(JSON.parse(result.stdout).continue, false);
   await rm(join(consumer, ".codex"), { recursive: true });
   assert.equal(git(consumer, "switch", "main").status, 0);
-  result = spawnSync(process.execPath, [installedHook], {
+  result = spawnSync(process.execPath, [installedHook, "--host", "codex"], {
     encoding: "utf8",
     input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "startup" }),
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, "");
-  result = spawnSync(process.execPath, [installedHook], {
+  result = spawnSync(process.execPath, [installedHook, "--host", "codex"], {
     encoding: "utf8",
     input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "compact" }),
   });
@@ -366,7 +442,7 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.ok(Buffer.byteLength(compactOutput.hookSpecificOutput.additionalContext) <= 128);
   const preToolUse = (toolInput, toolName = "spawn_agent", cwd = consumer) => spawnSync(
     process.execPath,
-    [installedHook],
+    [installedHook, "--host", "codex"],
     {
       encoding: "utf8",
       input: JSON.stringify({
@@ -413,7 +489,7 @@ const origin = join(root, "qOeOp", "skills.git");
   const stalePin = JSON.parse(installedPinBytes);
   stalePin.commit = "0000000000000000000000000000000000000000";
   await writeFile(installedPinReceipt, `${JSON.stringify(stalePin, null, 2)}\n`);
-  result = spawnSync(process.execPath, [installedHook], {
+  result = spawnSync(process.execPath, [installedHook, "--host", "codex"], {
     encoding: "utf8",
     input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "compact" }),
   });
@@ -726,7 +802,7 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.match(installedEvaluatorProfile,
     /partial activity is not a return without a host-authenticated terminal-delivery receipt/);
   await writeFile(installedSkillFile, "drift\n");
-  result = spawnSync(process.execPath, [installedHook], {
+  result = spawnSync(process.execPath, [installedHook, "--host", "codex"], {
     encoding: "utf8",
     input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "resume" }),
   });
@@ -737,7 +813,7 @@ const origin = join(root, "qOeOp", "skills.git");
   const installedAgentFile = join(codexRoot, "agents", "mission-evaluator.toml");
   const installedAgentBytes = await readFile(installedAgentFile);
   const assertPinBlocked = () => {
-    const probe = spawnSync(process.execPath, [installedHook], {
+    const probe = spawnSync(process.execPath, [installedHook, "--host", "codex"], {
       encoding: "utf8",
       input: JSON.stringify({ cwd: consumer, hook_event_name: "SessionStart", source: "resume" }),
     });
@@ -755,6 +831,122 @@ const origin = join(root, "qOeOp", "skills.git");
   assertPinBlocked();
   await rm(installedAgentFile, { recursive: true });
   await writeFile(installedAgentFile, installedAgentBytes);
+
+  const claudeRoot = join(root, "claude-home");
+  const unrelatedClaudeSettings = {
+    model: "opus",
+    hooks: {
+      SessionStart: [{ matcher: "startup", hooks: [{ type: "command", command: "node preserved-claude-hook.mjs" }] }],
+      PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "node preserved-claude-pretool.mjs" }] }],
+    },
+  };
+  await mkdir(claudeRoot, { recursive: true });
+  await writeFile(join(claudeRoot, "settings.json"), `${JSON.stringify(unrelatedClaudeSettings, null, 2)}\n`);
+  const claudeArgv = [
+    join(repositoryRoot, "scripts", "install-codex.mjs"),
+    "--host", "claude",
+    "--agents-root", claudeRoot,
+    "--host-root", claudeRoot,
+    "--lock", lock,
+    "--install-trade-session-hook",
+  ];
+  await writeFile(lock, `${JSON.stringify(exactLock)}\n`);
+  result = spawnSync(process.execPath, claudeArgv, { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /4 claude agent profiles/);
+  result = spawnSync(process.execPath, [...claudeArgv, "--check"], { encoding: "utf8" });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(
+    await readFile(join(claudeRoot, "skills", "run-bounded-mission", "SKILL.md"), "utf8"),
+    /Run Bounded Mission/,
+  );
+  assert.match(
+    await readFile(join(claudeRoot, "agents", "mission-evaluator.md"), "utf8"),
+    /reviewer-handoff\.md/,
+  );
+  assert.deepEqual(
+    (await readdir(join(claudeRoot, "agents"))).filter((name) => name.endsWith(".toml")),
+    [],
+  );
+  const installedClaudeHook = join(claudeRoot, "hooks", "qoeop-trade-session-start.mjs");
+  const claudeSettings = JSON.parse(await readFile(join(claudeRoot, "settings.json"), "utf8"));
+  const claudeCommand = `node ${JSON.stringify(installedClaudeHook)} --host claude`;
+  assert.equal(claudeSettings.model, "opus");
+  assert.equal(claudeSettings.hooks.SessionStart[0].hooks[0].command, "node preserved-claude-hook.mjs");
+  assert.deepEqual(claudeSettings.hooks.SessionStart.at(-1), {
+    matcher: "*",
+    hooks: [{ type: "command", command: claudeCommand, timeout: 15 }],
+  });
+  assert.equal(claudeSettings.hooks.PreToolUse.length, 1);
+  assert.equal(claudeSettings.hooks.PreToolUse[0].hooks[0].command, "node preserved-claude-pretool.mjs");
+  const claudeReceipt = JSON.parse(await readFile(join(claudeRoot, "run-bounded-mission-install.json"), "utf8"));
+  assert.equal(claudeReceipt.host, "claude");
+  assert.equal(claudeReceipt.host_root, claudeRoot);
+  assert.equal(claudeReceipt.claude_agents_tree, exactLock.claude_agents_tree);
+
+  const claudeProbe = (payload, hostArguments = ["--host", "claude"]) => spawnSync(
+    process.execPath,
+    [installedClaudeHook, ...hostArguments],
+    { encoding: "utf8", input: JSON.stringify(payload) },
+  );
+  let claudeResult = claudeProbe({ cwd: consumer, hook_event_name: "SessionStart", source: "startup" });
+  assert.equal(claudeResult.status, 0, claudeResult.stderr);
+  assert.equal(claudeResult.stdout, "");
+  claudeResult = claudeProbe({
+    cwd: consumer,
+    hook_event_name: "PreToolUse",
+    tool_name: "Agent",
+    tool_input: { description: "lane", prompt: "packet" },
+  });
+  assert.equal(claudeResult.status, 0, claudeResult.stderr);
+  assert.equal(claudeResult.stdout, "");
+  await mkdir(join(consumer, ".claude", "skills", "run-bounded-mission"), { recursive: true });
+  await writeFile(join(consumer, ".claude", "skills", "run-bounded-mission", "SKILL.md"), "project local\n");
+  claudeResult = claudeProbe({ cwd: consumer, hook_event_name: "SessionStart", source: "fork" });
+  assert.equal(claudeResult.status, 0, claudeResult.stderr);
+  let claudeDecision = JSON.parse(claudeResult.stdout);
+  assert.equal(claudeDecision.continue, false);
+  assert.match(claudeDecision.stopReason, /project-scoped run-bounded-mission Skill/);
+  assert.equal(claudeDecision.hookSpecificOutput.hookEventName, "SessionStart");
+  assert.equal(
+    claudeDecision.hookSpecificOutput.additionalContext,
+    `${claudeDecision.stopReason} Until then this session is frozen for implementation and delivery.`,
+  );
+  await rm(join(consumer, ".claude"), { recursive: true });
+  await mkdir(join(consumer, ".claude", "agents"), { recursive: true });
+  await writeFile(join(consumer, ".claude", "agents", "mission-planner.md"), "project local\n");
+  claudeResult = claudeProbe({ cwd: consumer, hook_event_name: "SessionStart", source: "resume" });
+  assert.equal(claudeResult.status, 0, claudeResult.stderr);
+  assert.match(JSON.parse(claudeResult.stdout).stopReason, /mission-planner\.md/);
+  await rm(join(consumer, ".claude"), { recursive: true });
+  const claudeReceiptBytes = await readFile(join(claudeRoot, "run-bounded-mission-install.json"));
+  await writeFile(
+    join(claudeRoot, "run-bounded-mission-install.json"),
+    `${JSON.stringify({ ...claudeReceipt, commit: "0".repeat(40) }, null, 2)}\n`,
+  );
+  claudeResult = claudeProbe({ cwd: consumer, hook_event_name: "SessionStart", source: "startup" });
+  assert.equal(claudeResult.status, 0, claudeResult.stderr);
+  claudeDecision = JSON.parse(claudeResult.stdout);
+  assert.equal(claudeDecision.continue, false);
+  assert.match(claudeDecision.stopReason, /origin\/main bootstrap/);
+  assert.match(claudeDecision.hookSpecificOutput.additionalContext, /origin\/main bootstrap/);
+  await writeFile(join(claudeRoot, "run-bounded-mission-install.json"), claudeReceiptBytes);
+  claudeResult = claudeProbe({ cwd: consumer, hook_event_name: "SessionStart", source: "startup" }, []);
+  assert.equal(claudeResult.status, 0, claudeResult.stderr);
+  claudeDecision = JSON.parse(claudeResult.stdout);
+  assert.equal(claudeDecision.continue, false);
+  assert.match(claudeDecision.stopReason, /missing its exact --host agent argument/);
+  for (const hostArguments of [[], ["--host", "swarm"], ["--host"]]) {
+    claudeResult = claudeProbe(
+      { cwd: consumer, hook_event_name: "PreToolUse", tool_name: "spawn_agent", tool_input: { fork_turns: "all" } },
+      hostArguments,
+    );
+    assert.equal(claudeResult.status, 0, claudeResult.stderr);
+    claudeDecision = JSON.parse(claudeResult.stdout);
+    assert.equal(claudeDecision.continue, false);
+    assert.match(claudeDecision.stopReason, /missing its exact --host agent argument/);
+    assert.equal(claudeDecision.hookSpecificOutput, undefined);
+  }
   }
 
   const installedReceiptSource = join(
