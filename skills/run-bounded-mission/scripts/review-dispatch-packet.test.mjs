@@ -53,6 +53,7 @@ function rejects(pattern) {
   assert.throws(run, pattern);
 }
 
+try {
 git("init", "-b", "main");
 git("config", "user.name", "Review Packet Test");
 git("config", "user.email", "review@example.invalid");
@@ -211,4 +212,136 @@ invalidUtf8PacketBytes[invalidUtf8PacketBytes.indexOf("INVALID_UTF8_MARKER")] = 
 await writeFile(packetPath, invalidUtf8PacketBytes);
 rejects(/packet: expected valid UTF-8/);
 
-process.stdout.write("review dispatch packet tests passed\n");
+
+
+// A business repository has no Skill/profile files. Only its Origin pin selects them.
+const authorityRepo = join(root, "authority");
+await mkdir(authorityRepo);
+function at(path, ...args) {
+  return execFileSync("git", ["-C", path, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+function initialize(path, remote) {
+  at(path, "init", "-b", "main");
+  at(path, "config", "user.name", "Review Test");
+  at(path, "config", "user.email", "review@example.invalid");
+  at(path, "remote", "add", "origin", remote);
+}
+const authorityRemote = "https://github.com/example/authority.git";
+initialize(authorityRepo, authorityRemote);
+for (const [path, content] of [
+  ["skills/run-bounded-mission/SKILL.md", "---\nname: run-bounded-mission\n---\nExternal skill.\n"],
+  ["codex/agents/mission-evaluator.toml", "Codex neutral control\n"],
+  ["claude/agents/mission-evaluator.md", "Claude neutral control\n"],
+  ["codex/hooks/qoeop-trade-session-start.mjs", "// hook\n"],
+  ["scripts/install-codex.mjs", "// installer\n"],
+]) {
+  await mkdir(dirname(join(authorityRepo, path)), { recursive: true });
+  await writeFile(join(authorityRepo, path), content);
+}
+at(authorityRepo, "add", ".");
+at(authorityRepo, "commit", "-m", "trusted authority");
+const authorityCommit = at(authorityRepo, "rev-parse", "HEAD");
+at(authorityRepo, "update-ref", "refs/remotes/origin/main", authorityCommit);
+const pin = {
+  schema_version: 2, repository: authorityRemote, commit: authorityCommit,
+  tree: at(authorityRepo, "rev-parse", "HEAD^{tree}"),
+  skill_tree: at(authorityRepo, "rev-parse", "HEAD:skills/run-bounded-mission"),
+  codex_agents_tree: at(authorityRepo, "rev-parse", "HEAD:codex/agents"),
+  claude_agents_tree: at(authorityRepo, "rev-parse", "HEAD:claude/agents"),
+  codex_session_hook_blob: at(authorityRepo, "rev-parse", "HEAD:codex/hooks/qoeop-trade-session-start.mjs"),
+  installer_blob: at(authorityRepo, "rev-parse", "HEAD:scripts/install-codex.mjs"),
+};
+let businessIndex = 0;
+async function externalPacket(lock = pin, host = "codex") {
+  const business = join(root, `business-${businessIndex++}`);
+  await mkdir(business);
+  initialize(business, "https://example.invalid/business.git");
+  await writeJson(join(business, "codex-skills.lock.json"), lock);
+  at(business, "add", "."); at(business, "commit", "-m", "origin pin");
+  const origin = at(business, "rev-parse", "HEAD");
+  at(business, "update-ref", "refs/remotes/origin/main", origin);
+  // The candidate deliberately proposes an unrelated pin; it cannot authorize its reviewer.
+  await writeJson(join(business, "codex-skills.lock.json"), { ...lock, commit: "f".repeat(40) });
+  at(business, "add", "."); at(business, "commit", "-m", "candidate pin change");
+  const candidate = { commit: at(business, "rev-parse", "HEAD"), tree: at(business, "rev-parse", "HEAD^{tree}") };
+  const controlPath = host === "codex" ? "codex/agents/mission-evaluator.toml" : "claude/agents/mission-evaluator.md";
+  const external = {
+    ...structuredClone(packet), schema: "review-dispatch-packet/v2", reviewerIdentity: `external-${businessIndex}`,
+    repository: { path: business, remote: "https://example.invalid/business.git" },
+    origin: { ref: "refs/remotes/origin/main", commit: origin, tree: at(business, "rev-parse", `${origin}^{tree}`) },
+    candidate,
+    authority: {
+      repository: { path: authorityRepo, remote: authorityRemote }, host,
+      lock: { locator: `git:${origin}:codex-skills.lock.json`, blob: at(business, "rev-parse", `${origin}:codex-skills.lock.json`) },
+    },
+    skill: { locator: `git:${authorityCommit}:skills/run-bounded-mission`, tree: pin.skill_tree },
+    neutralControl: { locator: `git:${authorityCommit}:${controlPath}`, blob: at(authorityRepo, "rev-parse", `${authorityCommit}:${controlPath}`) },
+  };
+  const checks = [];
+  for (const id of ["focused", "root", "diff_check"]) {
+    const locator = join(root, `external-${businessIndex}-${id}.json`);
+    const digest = await writeJson(locator, { schema: "review-check-evidence/v1", candidate, check: { id, command: `test ${id}`, exitCode: 0 } });
+    checks.push({ id, result: "pass", locator, sha256: digest });
+  }
+  external.gateEvidence = [{ locator: gatePath, sha256: await writeJson(gatePath, { schema: "review-gate-evidence/v1", candidate, checks }) }];
+  external.identityReceipt = { digest: await writeIdentityState({
+    schema: "review-identity-receipt/v1", state: "unconsumed", dispatchReceipt: null, terminalDeliveryReceipt: null,
+    identity: {
+      id: external.reviewerIdentity, repository: external.repository.remote,
+      originCommit: origin, originTree: external.origin.tree, candidateCommit: candidate.commit, candidateTree: candidate.tree,
+      neutralControlBlob: external.neutralControl.blob, lens: external.lens.id,
+      authorityLockBlob: external.authority.lock.blob, authorityHost: host,
+    },
+  }) };
+  return external;
+}
+for (const host of ["codex", "claude"]) {
+  const external = await externalPacket(pin, host);
+  await writeJson(packetPath, external);
+  assert.match(run(), /^sha256:[0-9a-f]{64}$/);
+  for (const [mutate, pattern] of [
+    [p => { p.authority.lock.locator = `git:${p.candidate.commit}:codex-skills.lock.json`; }, /must come from reviewed Origin/],
+    [p => { p.authority.lock.blob = "0".repeat(40); }, /blob mismatch/],
+    [p => { p.authority.repository.remote = "https://example.invalid/evil.git"; }, /remote does not match Origin pin/],
+    [p => { p.authority.host = "unknown"; }, /unsupported host/],
+    [p => { p.skill.tree = "0".repeat(40); }, /skill: immutable Origin/],
+    [p => { p.neutralControl.blob = "0".repeat(40); }, /neutralControl: immutable Origin/],
+    [p => { p.authority.lock.locator = `git:${p.origin.commit}:missing.json`; }, /must come from reviewed Origin/],
+    [p => { p.authority.repository.path = join(root, "missing-authority"); }, /ENOENT/],
+  ]) {
+    const invalid = structuredClone(external); mutate(invalid);
+    await writeJson(packetPath, invalid); rejects(pattern);
+  }
+  await writeJson(packetPath, external);
+  await writeFile(join(authorityRepo, "dirty.txt"), "untrusted");
+  rejects(/checkout must be clean/); await rm(join(authorityRepo, "dirty.txt"));
+  at(authorityRepo, "update-index", "--assume-unchanged", "skills/run-bounded-mission/SKILL.md");
+  rejects(/checkout must be clean/);
+  at(authorityRepo, "update-index", "--no-assume-unchanged", "skills/run-bounded-mission/SKILL.md");
+  at(authorityRepo, "remote", "set-url", "origin", "https://example.invalid/substitution.git");
+  rejects(/remote does not match Origin pin/);
+  at(authorityRepo, "remote", "set-url", "origin", authorityRemote);
+  at(authorityRepo, "update-ref", "refs/replace/" + pin.skill_tree, pin.skill_tree);
+  rejects(/replacement objects/); at(authorityRepo, "update-ref", "-d", "refs/replace/" + pin.skill_tree);
+  const identity = JSON.parse(await readFile(join(identityRoot, `${external.identityReceipt.digest.slice(7)}.json`), "utf8"));
+  identity.identity.authorityHost = host === "codex" ? "claude" : "codex";
+  external.identityReceipt.digest = await writeIdentityState(identity);
+  await writeJson(packetPath, external); rejects(/reviewer identity mismatch/);
+}
+for (const field of ["commit", "tree", "skill_tree", "codex_agents_tree", "claude_agents_tree", "codex_session_hook_blob", "installer_blob"]) {
+  const external = await externalPacket({ ...pin, [field]: "0".repeat(40) });
+  await writeJson(packetPath, external);
+  rejects(field === "commit" ? /checkout does not match pinned commit/ : new RegExp(`${field} mismatch`));
+}
+const oldCodexPin = { ...pin }; delete oldCodexPin.claude_agents_tree;
+await writeJson(packetPath, await externalPacket(oldCodexPin, "codex"));
+assert.match(run(), /^sha256:[0-9a-f]{64}$/);
+await writeJson(packetPath, await externalPacket(oldCodexPin, "claude")); rejects(/invalid pin/);
+const finalPacket = await externalPacket(); await writeJson(packetPath, finalPacket);
+at(authorityRepo, "update-ref", "-d", "refs/remotes/origin/main"); rejects(/git merge-base/);
+at(authorityRepo, "update-ref", "refs/remotes/origin/main", authorityCommit);
+assert.match(run(), /^sha256:[0-9a-f]{64}$/);
+process.stdout.write("review dispatch packet tests passed (in-repository, external Codex/Claude, refusal cases)\n");
+} finally {
+  await rm(root, { recursive: true, force: true });
+}
