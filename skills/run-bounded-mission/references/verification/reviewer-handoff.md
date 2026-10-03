@@ -40,6 +40,18 @@ from that repository; resolve the immutable Origin Skill tree, required `SKILL.m
 neutral-control blob; verify every content-addressed gate-evidence file for this candidate and each
 focused/root/diff-check result's readable, content-addressed completed-execution receipt; and
 read the canonical pointer to a content-addressed full review-identity receipt.
+For in-repository authority, packet v1 keeps the Skill and Codex control at reviewed Origin.
+For externally installed authority, use packet v2 with `authority.repository` (`path`, `remote`),
+`authority.lock` (`locator`, `blob`), and `authority.host` (`codex` or `claude`). The lock locator must
+be `git:<reviewed-Origin-commit>:codex-skills.lock.json`; candidate lock changes never select their
+own reviewer. The external checkout must be clean at that pinned commit, with matching repository,
+commit/tree, Skill tree, agent trees, hook and installer blobs and no replacement or suppressed index
+entries. Skill/control locators resolve in that checkout's immutable Git objects. The control is
+`codex/agents/mission-evaluator.toml` or `claude/agents/mission-evaluator.md` for the selected host.
+Bind `authorityLockBlob` and `authorityHost` in the identity receipt; the lock blob binds all source
+identities, so a changed pin or host cannot reuse an old identity. The validator performs no fetch,
+install, or trust update. Bootstrap and hook trust remain prerequisites owned by the host.
+
 Missing or stale packet members, mutable locators, dirty state, a candidate-controlled Skill/control,
 or an identity already bound to a terminal-delivery receipt fails before dispatch. A consumed identity,
 including `T166e30`, is never dispatched again. The validator digest is dispatch admission, not a review

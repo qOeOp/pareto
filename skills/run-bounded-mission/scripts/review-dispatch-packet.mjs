@@ -100,8 +100,83 @@ async function readCurrentIdentity(root, expectedDigest) {
   }
 }
 
+// The reviewed repository's immutable Origin selects authority, never its candidate lock.
+async function resolveAuthority(packet) {
+  if (packet.schema === "review-dispatch-packet/v1") {
+    return { path: packet.repository.path, commit: packet.origin.commit,
+      controlPath: "codex/agents/mission-evaluator.toml", identity: {} };
+  }
+  const authority = packet.authority;
+  exactKeys(authority, new Set(["repository", "lock", "host"]), "authority");
+  exactKeys(authority.repository, new Set(["path", "remote"]), "authority.repository");
+  exactKeys(authority.lock, new Set(["locator", "blob"]), "authority.lock");
+  if (!["codex", "claude"].includes(authority.host)) fail("authority.host: unsupported host");
+  const pin = parseGitLocator(authority.lock.locator, "authority.lock");
+  if (pin.commit !== packet.origin.commit || pin.path !== "codex-skills.lock.json") {
+    fail("authority.lock: must come from reviewed Origin");
+  }
+  const repository = packet.repository.path;
+  const lockObject = git(repository, ["rev-parse", `${pin.commit}:${pin.path}`]);
+  if (!objectIdPattern.test(authority.lock.blob) || lockObject !== authority.lock.blob ||
+      git(repository, ["cat-file", "-t", lockObject]) !== "blob") {
+    fail("authority.lock: blob mismatch");
+  }
+  const lock = JSON.parse(git(repository, ["show", `${pin.commit}:${pin.path}`]));
+  const fields = ["commit", "tree", "skill_tree", "codex_agents_tree",
+    "codex_session_hook_blob", "installer_blob"];
+  if (authority.host === "claude" || "claude_agents_tree" in lock) fields.push("claude_agents_tree");
+  if (lock.schema_version !== 2 || typeof lock.repository !== "string" || !lock.repository ||
+      fields.some((field) => !objectIdPattern.test(lock[field]))) fail("authority.lock: invalid pin");
+  const source = authority.repository.path;
+  await validatePhysicalDirectory(source, "authority.repository.path");
+  if (await realpath(git(source, ["rev-parse", "--show-toplevel"])) !== source) {
+    fail("authority.repository.path: not the Git worktree root");
+  }
+  const normalize = (url) => url.replace(/^git@github\.com:/, "https://github.com/")
+    .replace(/^ssh:\/\/git@github\.com\//, "https://github.com/").replace(/\.git$/, "");
+  nonempty(authority.repository.remote, "authority.repository.remote");
+  if (normalize(authority.repository.remote) !== normalize(lock.repository) ||
+      normalize(git(source, ["remote", "get-url", "origin"])) !== normalize(lock.repository)) {
+    fail("authority.repository: remote does not match Origin pin");
+  }
+  if (git(source, ["for-each-ref", "--format=%(refname)", "refs/replace"]) !== "") {
+    fail("authority.repository: Git replacement objects are forbidden");
+  }
+  if (git(source, ["ls-files", "-v"]).split("\n").some((entry) => /^[a-zS]/.test(entry)) ||
+      git(source, ["status", "--porcelain=v2", "--untracked-files=all"]) !== "") {
+    fail("authority.repository: checkout must be clean without suppressed index entries");
+  }
+  if (git(source, ["rev-parse", "HEAD"]) !== lock.commit ||
+      git(source, ["rev-parse", `${lock.commit}^{commit}`]) !== lock.commit) {
+    fail("authority.repository: checkout does not match pinned commit");
+  }
+  git(source, ["merge-base", "--is-ancestor", lock.commit, "refs/remotes/origin/main"]);
+  const objects = {
+    tree: ["", "tree"],
+    skill_tree: [":skills/run-bounded-mission", "tree"],
+    codex_agents_tree: [":codex/agents", "tree"],
+    claude_agents_tree: [":claude/agents", "tree"],
+    codex_session_hook_blob: [":codex/hooks/qoeop-trade-session-start.mjs", "blob"],
+    installer_blob: [":scripts/install-codex.mjs", "blob"],
+  };
+  for (const field of fields.filter((field) => field !== "commit")) {
+    const [suffix, type] = objects[field];
+    const object = git(source, ["rev-parse", suffix ? `${lock.commit}${suffix}` : `${lock.commit}^{tree}`]);
+    if (object !== lock[field] || git(source, ["cat-file", "-t", object]) !== type) {
+      fail(`authority.lock: ${field} mismatch`);
+    }
+  }
+  return { path: source, commit: lock.commit, skillTree: lock.skill_tree,
+    controlPath: authority.host === "codex" ? "codex/agents/mission-evaluator.toml" : "claude/agents/mission-evaluator.md",
+    identity: { authorityLockBlob: lockObject, authorityHost: authority.host } };
+}
+
 async function validate(packet, packetSource, identityRoot) {
+  if (!["review-dispatch-packet/v1", "review-dispatch-packet/v2"].includes(packet.schema)) {
+    fail("packet.schema: wrong schema");
+  }
   exactKeys(packet, new Set([
+    ...(packet.schema === "review-dispatch-packet/v2" ? ["authority"] : []),
     "schema",
     "reviewerIdentity",
     "repository",
@@ -115,7 +190,6 @@ async function validate(packet, packetSource, identityRoot) {
     "returnContract",
     "decisionProjection",
   ]), "packet");
-  if (packet.schema !== "review-dispatch-packet/v1") fail("packet.schema: wrong schema");
   nonempty(packet.reviewerIdentity, "reviewerIdentity");
   exactKeys(packet.repository, new Set(["path", "remote"]), "repository");
   if (!isAbsolute(packet.repository.path) || resolve(packet.repository.path) !== packet.repository.path ||
@@ -162,28 +236,29 @@ async function validate(packet, packetSource, identityRoot) {
     fail("candidate: does not descend from exact Origin");
   }
 
+  const authority = await resolveAuthority(packet);
   exactKeys(packet.skill, new Set(["locator", "tree"]), "skill");
   const skill = parseGitLocator(packet.skill.locator, "skill");
-  const skillObject = git(packet.repository.path, ["rev-parse", `${skill.commit}:${skill.path}`]);
-  if (skill.commit !== packet.origin.commit || skill.path !== "skills/run-bounded-mission" ||
-      !objectIdPattern.test(packet.skill.tree) || skillObject !== packet.skill.tree ||
-      git(packet.repository.path, ["cat-file", "-t", skillObject]) !== "tree") {
+  const skillObject = git(authority.path, ["rev-parse", `${skill.commit}:${skill.path}`]);
+  if (skill.commit !== authority.commit || skill.path !== "skills/run-bounded-mission" ||
+      !objectIdPattern.test(packet.skill.tree) || skillObject !== packet.skill.tree || (authority.skillTree && skillObject !== authority.skillTree) ||
+      git(authority.path, ["cat-file", "-t", skillObject]) !== "tree") {
     fail("skill: immutable Origin locator/tree mismatch");
   }
-  const skillEntrypoint = git(packet.repository.path, ["rev-parse", `${skill.commit}:${skill.path}/SKILL.md`]);
-  if (git(packet.repository.path, ["cat-file", "-t", skillEntrypoint]) !== "blob" ||
+  const skillEntrypoint = git(authority.path, ["rev-parse", `${skill.commit}:${skill.path}/SKILL.md`]);
+  if (git(authority.path, ["cat-file", "-t", skillEntrypoint]) !== "blob" ||
       !/^---\n[\s\S]*?^name:\s*run-bounded-mission\s*$/m.test(
-        git(packet.repository.path, ["show", `${skill.commit}:${skill.path}/SKILL.md`]),
+        git(authority.path, ["show", `${skill.commit}:${skill.path}/SKILL.md`]),
       )) {
     fail("skill: required immutable entrypoint is unavailable");
   }
 
   exactKeys(packet.neutralControl, new Set(["locator", "blob"]), "neutralControl");
   const control = parseGitLocator(packet.neutralControl.locator, "neutralControl");
-  const controlObject = git(packet.repository.path, ["rev-parse", `${control.commit}:${control.path}`]);
-  if (control.commit !== packet.origin.commit || control.path !== "codex/agents/mission-evaluator.toml" ||
+  const controlObject = git(authority.path, ["rev-parse", `${control.commit}:${control.path}`]);
+  if (control.commit !== authority.commit || control.path !== authority.controlPath ||
       !objectIdPattern.test(packet.neutralControl.blob) || controlObject !== packet.neutralControl.blob ||
-      git(packet.repository.path, ["cat-file", "-t", controlObject]) !== "blob") {
+      git(authority.path, ["cat-file", "-t", controlObject]) !== "blob") {
     fail("neutralControl: immutable Origin locator/blob mismatch");
   }
 
@@ -248,6 +323,7 @@ async function validate(packet, packetSource, identityRoot) {
   exactKeys(identity, new Set(["schema", "identity", "state", "dispatchReceipt", "terminalDeliveryReceipt"]), "identityReceipt.content");
   exactKeys(identity.identity, new Set([
     "id", "repository", "originCommit", "originTree", "candidateCommit", "candidateTree", "neutralControlBlob", "lens",
+    ...Object.keys(authority.identity),
   ]), "identityReceipt.content.identity");
   const expectedIdentity = {
     id: packet.reviewerIdentity,
@@ -258,6 +334,7 @@ async function validate(packet, packetSource, identityRoot) {
     candidateTree: packet.candidate.tree,
     neutralControlBlob: packet.neutralControl.blob,
     lens: packet.lens.id,
+    ...authority.identity,
   };
   if (identity.schema !== "review-identity-receipt/v1" ||
       Object.keys(expectedIdentity).some((key) => identity.identity[key] !== expectedIdentity[key])) {
