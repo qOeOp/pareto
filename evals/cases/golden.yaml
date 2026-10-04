@@ -484,7 +484,7 @@
     prompt: >-
       Use $run-bounded-mission to classify the merge-ready contract without querying GitHub. The local
       candidate head/tree is exact, but real-consumer, audit, CI, conversations, mergeability, queue,
-      branch protection, current base, structured potential merge tree, and final drift observations are
+      branch protection, current base, local merge replay, and final drift observations are
       unavailable. Return only the required evidence and current decision; do not merge.
   assert:
     - type: skill-used
@@ -498,8 +498,10 @@
         conversations: required-zero-material-unresolved
         current_base_and_head: required
         mergeability_queue_protection: required-acceptable
-        potential_merge_tree: required-structured-github-data
+        potential_merge_tree: advisory-not-a-delivery-gate
         merge_tree_local_replay: required
+        post_merge_tree: must-match-pre-merge-receipt
+        post_merge_mismatch: stop-follow-on-effects-and-report
         drift: required-none-at-final-observation
         checkout_equals_head: required
         merge_ready: unproved
@@ -535,7 +537,7 @@
   vars:
     prompt: >-
       Use $run-bounded-mission. The loader supplied the exact Skill root. A delivery input has unique JSON
-      members, the current local head/base and replayed merge tree, and all six digest-bound accepted
+      members, the current local head/base and all six digest-bound accepted
       evidence kinds. Return the receipt create/verify contract without writing repository files.
   assert:
     - type: skill-used
@@ -547,7 +549,7 @@
         required_evidence_kinds: real_consumer-root-audit-ci-conversation-drift
         accepted_evidence: digest-bound-pass
         audit_not_required: predicate-locator-plus-digest-only
-        create: canonical-json-lf
+        create: canonical-json-lf-with-locally-computed-merge-tree
         verify: supplied-digest-byte-identity
         fresh_git_replay: head-base-merge-tree
         repository_write: none
@@ -559,7 +561,7 @@
   vars:
     prompt: >-
       Use $run-bounded-mission. Classify a delivery input with duplicate JSON members, a wrong current
-      head, a stale origin base, a non-replaying merge tree, missing evidence digests, and a hand-edited
+      head, a stale origin base, a conflicting local merge, missing evidence digests, and a hand-edited
       receipt whose bytes no longer match its digest.
   assert:
     - type: skill-used
@@ -569,7 +571,7 @@
         duplicate_json_members: reject
         wrong_current_head: reject
         stale_origin_base: reject
-        wrong_merge_tree: reject
+        conflicting_local_merge: reject
         missing_evidence_digest: reject
         hand_edited_receipt: reject
         create_or_verify_failure: delivery-stop

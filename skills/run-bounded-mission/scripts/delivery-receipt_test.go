@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -27,7 +28,6 @@ func validInput(t *testing.T) []byte {
 	head := gitTestOutput(t, "rev-parse", "HEAD")
 	base := gitTestOutput(t, "rev-parse", "refs/remotes/origin/main")
 	headTree := gitTestOutput(t, "rev-parse", "HEAD^{tree}")
-	mergeTree := gitTestOutput(t, "merge-tree", "--write-tree", base, head)
 	evidence := make([]any, 0, len(evidenceKinds))
 	for _, kind := range evidenceKinds {
 		entry := map[string]any{
@@ -48,8 +48,7 @@ func validInput(t *testing.T) []byte {
 	input := map[string]any{
 		"schema": inputSchema, "repository": repository, "pull_request": 1,
 		"head_oid": head, "head_tree_oid": headTree, "base_ref": "main", "base_oid": base,
-		"potential_merge_tree": map[string]any{"oid": mergeTree},
-		"queue_state":          "none", "evidence": evidence,
+		"queue_state": "none", "evidence": evidence,
 	}
 	encoded, err := json.Marshal(input)
 	if err != nil {
@@ -135,8 +134,8 @@ func TestCanonicalOrderingMatchesJavaScriptUTF16(t *testing.T) {
 func TestRejectsMalformedInput(t *testing.T) {
 	cases := map[string][]byte{
 		"empty":             nil,
-		"duplicate":         []byte(`{"schema":"delivery-barrier-input/v4","schema":"delivery-barrier-input/v4"}`),
-		"escaped duplicate": []byte(`{"schema":"delivery-barrier-input/v4","sch\u0065ma":"delivery-barrier-input/v4"}`),
+		"duplicate":         []byte(`{"schema":"delivery-barrier-input/v5","schema":"delivery-barrier-input/v5"}`),
+		"escaped duplicate": []byte(`{"schema":"delivery-barrier-input/v5","sch\u0065ma":"delivery-barrier-input/v5"}`),
 		"bom":               append([]byte{0xef, 0xbb, 0xbf}, validInput(t)...),
 		"invalid utf8":      {0xff},
 		"lone surrogate":    []byte(`{"value":"\ud800"}`),
@@ -205,7 +204,6 @@ func TestRejectsUnboundDeliveryAuthority(t *testing.T) {
 	staleTree := gitTestOutput(t, "rev-parse", staleOID+"^{tree}")
 	staleHead["head_oid"] = staleOID
 	staleHead["head_tree_oid"] = staleTree
-	staleHead["potential_merge_tree"] = map[string]any{"oid": gitTestOutput(t, "merge-tree", "--write-tree", input["base_oid"].(string), staleOID)}
 	for _, rawEntry := range staleHead["evidence"].([]any) {
 		entry, _ := object(rawEntry)
 		entry["head_oid"] = staleOID
@@ -216,7 +214,7 @@ func TestRejectsUnboundDeliveryAuthority(t *testing.T) {
 
 	legacyMergeCommit := clone()
 	legacyMergeCommit["potential_merge_commit"] = map[string]any{
-		"oid": input["head_oid"], "tree": input["potential_merge_tree"],
+		"oid": input["head_oid"], "tree": map[string]any{"oid": input["head_tree_oid"]},
 	}
 	if _, err := createReceipt(encode(legacyMergeCommit)); err == nil || !strings.Contains(err.Error(), "invalid schema or fields") {
 		t.Fatalf("legacy merge commit authority error = %v", err)
@@ -246,10 +244,61 @@ func TestCLIRejectsWithExitTwo(t *testing.T) {
 		t.Fatalf("build CLI: %v\n%s", err, output)
 	}
 	command := exec.Command(binary, "create")
-	command.Stdin = bytes.NewBufferString(`{"schema":"delivery-barrier-input/v4","schema":"delivery-barrier-input/v4"}`)
+	command.Stdin = bytes.NewBufferString(`{"schema":"delivery-barrier-input/v5","schema":"delivery-barrier-input/v5"}`)
 	err := command.Run()
 	var exitError *exec.ExitError
 	if !errors.As(err, &exitError) || exitError.ExitCode() != 2 {
 		t.Fatalf("invalid CLI input exit = %v, want 2", err)
+	}
+}
+
+func TestReceiptOwnsLocalMergeTreeWithoutProviderPreview(t *testing.T) {
+	receipt, err := createReceipt(validInput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, _ := object(receipt["receipt"])
+	expected := gitTestOutput(t, "merge-tree", "--write-tree", evidence["base_oid"].(string), evidence["head_oid"].(string))
+	if evidence["merge_tree_oid"] != expected {
+		t.Fatal("receipt did not bind the local replay")
+	}
+	// Even a coherently re-sealed receipt cannot substitute a different tree.
+	evidence["merge_tree_oid"] = strings.Repeat("0", 40)
+	inner, err := canonicalLine(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt["bytes"], receipt["sha256"] = int64(len(inner)), receiptDigest(inner)
+	tampered, err := canonicalLine(receipt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifyReceipt(tampered, receipt["sha256"].(string)); err == nil {
+		t.Fatal("coherently altered merge tree was accepted")
+	}
+}
+
+func TestConflictingLocalMergeCannotCreateReceipt(t *testing.T) {
+	t.Chdir(t.TempDir())
+	gitTestOutput(t, "init", "-b", "main")
+	gitTestOutput(t, "config", "user.name", "Delivery Fixture")
+	gitTestOutput(t, "config", "user.email", "fixture@example.invalid")
+	gitTestOutput(t, "remote", "add", "origin", "https://github.com/example/delivery.git")
+	write := func(text string) {
+		if err := os.WriteFile("shared.txt", []byte(text), 0600); err != nil {
+			t.Fatal(err)
+		}
+		gitTestOutput(t, "add", "shared.txt")
+		gitTestOutput(t, "commit", "-m", text)
+	}
+	write("base")
+	gitTestOutput(t, "switch", "-c", "feature")
+	write("feature")
+	gitTestOutput(t, "switch", "main")
+	write("upstream")
+	gitTestOutput(t, "update-ref", "refs/remotes/origin/main", "HEAD")
+	gitTestOutput(t, "switch", "feature")
+	if _, err := createReceipt(validInput(t)); err == nil || !strings.Contains(err.Error(), "local merge replay failed") {
+		t.Fatalf("conflicting merge result = %v", err)
 	}
 }

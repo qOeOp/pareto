@@ -979,11 +979,10 @@ const origin = join(root, "qOeOp", "skills.git");
     evidence,
     head_oid: head,
     head_tree_oid: headTree,
-    potential_merge_tree: { oid: mergeTree.stdout.trim() },
     pull_request: 1,
     queue_state: "none",
     repository: "qOeOp/pareto",
-    schema: "delivery-barrier-input/v4",
+    schema: "delivery-barrier-input/v5",
   };
   const runReceipt = (arguments_, input) => spawnSync(receiptBinary, arguments_, {
     cwd: repositoryRoot,
@@ -1001,13 +1000,6 @@ const origin = join(root, "qOeOp", "skills.git");
   const staleHead = structuredClone(deliveryInput);
   staleHead.head_oid = previous;
   staleHead.head_tree_oid = previousTree;
-  staleHead.potential_merge_tree.oid = git(
-    repositoryRoot,
-    "merge-tree",
-    "--write-tree",
-    base,
-    previous,
-  ).stdout.trim();
   for (const entry of staleHead.evidence) entry.head_oid = previous;
   result = runReceipt(["create"], canonicalLine(staleHead));
   assert.equal(result.status, 2, result.stderr);
@@ -1019,11 +1011,12 @@ const origin = join(root, "qOeOp", "skills.git");
   assert.equal(result.status, 2, result.stderr);
   assert.match(result.stderr, /candidate tree does not match the local head commit/);
 
-  const wrongMergeTree = structuredClone(deliveryInput);
-  wrongMergeTree.potential_merge_tree.oid = previousTree;
-  result = runReceipt(["create"], canonicalLine(wrongMergeTree));
+  assert.equal(JSON.parse(created.stdout).receipt.merge_tree_oid, mergeTree.stdout.trim());
+  const obsoletePreview = structuredClone(deliveryInput);
+  obsoletePreview.potential_merge_tree = { oid: previousTree };
+  result = runReceipt(["create"], canonicalLine(obsoletePreview));
   assert.equal(result.status, 2, result.stderr);
-  assert.match(result.stderr, /merge tree does not match local base and head/);
+  assert.match(result.stderr, /invalid schema or fields/);
 
   const wrongBase = structuredClone(deliveryInput);
   wrongBase.base_oid = previous;
