@@ -20,9 +20,9 @@ import (
 )
 
 const (
-	inputSchema    = "delivery-barrier-input/v4"
-	evidenceSchema = "delivery-barrier-evidence/v4"
-	receiptSchema  = "delivery-barrier-receipt/v4"
+	inputSchema    = "delivery-barrier-input/v5"
+	evidenceSchema = "delivery-barrier-evidence/v5"
+	receiptSchema  = "delivery-barrier-receipt/v5"
 	maxSafeInteger = int64(9007199254740991)
 )
 
@@ -592,14 +592,12 @@ func normalizeInput(value any) (map[string]any, error) {
 	input, ok := object(value)
 	if !ok || !hasExactKeys(input,
 		"schema", "repository", "pull_request", "head_oid", "head_tree_oid", "base_ref", "base_oid",
-		"potential_merge_tree", "queue_state", "evidence") || input["schema"] != inputSchema {
+		"queue_state", "evidence") || input["schema"] != inputSchema {
 		return nil, fail("delivery input has an invalid schema or fields")
 	}
 	pullRequest, pullRequestOK := safePositiveInteger(input["pull_request"])
-	potentialTree, potentialTreeOK := object(input["potential_merge_tree"])
 	if !pullRequestOK || !isOID(input["head_oid"]) || !isOID(input["head_tree_oid"]) ||
-		!isBaseRef(input["base_ref"]) || !isOID(input["base_oid"]) || !isBoundedAtom(input["queue_state"], 128) ||
-		!potentialTreeOK || !hasExactKeys(potentialTree, "oid") || !isOID(potentialTree["oid"]) {
+		!isBaseRef(input["base_ref"]) || !isOID(input["base_oid"]) || !isBoundedAtom(input["queue_state"], 128) {
 		return nil, fail("delivery identity or merge representation is invalid")
 	}
 	headOID := input["head_oid"].(string)
@@ -615,8 +613,9 @@ func normalizeInput(value any) (map[string]any, error) {
 	if remoteBaseOID(baseRef) != baseOID {
 		return nil, fail("base commit does not match the local origin ref")
 	}
-	if mergeTree(baseOID, headOID) != potentialTree["oid"] {
-		return nil, fail("merge tree does not match local base and head")
+	expectedTree := mergeTree(baseOID, headOID)
+	if !oidPattern.MatchString(expectedTree) {
+		return nil, fail("local merge replay failed")
 	}
 	repository, err := normalizeRepository(input["repository"])
 	if err != nil {
@@ -632,7 +631,7 @@ func normalizeInput(value any) (map[string]any, error) {
 	return map[string]any{
 		"schema": evidenceSchema, "repository": repository, "pull_request": pullRequest,
 		"head_oid": headOID, "head_tree_oid": headTreeOID, "base_ref": baseRef,
-		"base_oid": baseOID, "merge_tree_oid": potentialTree["oid"],
+		"base_oid": baseOID, "merge_tree_oid": expectedTree,
 		"queue_state": input["queue_state"], "evidence": evidence,
 	}, nil
 }
@@ -687,8 +686,7 @@ func verifyReceipt(source []byte, expectedSHA256 string) (map[string]any, error)
 		"schema": inputSchema, "repository": receiptValue["repository"], "pull_request": receiptValue["pull_request"],
 		"head_oid": receiptValue["head_oid"], "head_tree_oid": receiptValue["head_tree_oid"],
 		"base_ref": receiptValue["base_ref"], "base_oid": receiptValue["base_oid"],
-		"potential_merge_tree": map[string]any{"oid": receiptValue["merge_tree_oid"]},
-		"queue_state":          receiptValue["queue_state"], "evidence": receiptValue["evidence"],
+		"queue_state": receiptValue["queue_state"], "evidence": receiptValue["evidence"],
 	}
 	receipt, err := normalizeInput(input)
 	if err != nil {

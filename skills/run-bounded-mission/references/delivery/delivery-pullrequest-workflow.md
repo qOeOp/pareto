@@ -31,12 +31,13 @@ A merge-ready handoff binds one exact head and base observation to:
 | `conversation`  | All material review threads/findings on the current candidate are resolved with evidence.                                         |
 | `drift`         | Head, base, mergeability, required-check set, conversations, and candidate evidence have not changed since observation.           |
 
-The current checkout must equal the observed head. The potential merge tree must be structured
-non-null GitHub data and must replay locally from the observed `origin/<base>` commit and head. A
-provider's synthetic potential-merge commit OID is mutable
-external observation, not locally replayable receipt authority. Queue state, mergeability
-unknown/conflict, branch protection uncertainty, or an unbound head stops. CI success for another head
-never transfers.
+The current checkout must equal the reviewed head. Refresh the actual base branch ref from GitHub
+and fetch that exact commit; a stale PR base snapshot is not base authority. Replay the merge locally
+from that base and head to bind the expected file tree. Conflicts or unavailable replay stop delivery.
+GitHub's potential merge preview is advisory: its absence or mismatch alone neither blocks delivery
+nor requires an exception approval. Never substitute its synthetic commit or tree for local replay.
+Queue state, mergeability unknown/conflict, branch protection uncertainty, or an unbound head still stop.
+CI success for another head never transfers.
 
 Use the sole receipt owner to turn typed JSON facts into canonical bytes; callers do not sort keys.
 Set `skill_root` to the directory containing the exact `SKILL.md` loaded for this run. Use the
@@ -55,9 +56,11 @@ go build -o "$receipt_bin" "$receipt_source"
   --sha256 <sha256:digest> < delivery-barrier-receipt.jsonl
 ```
 
-`create` rejects duplicate JSON members before semantic parsing; missing/unknown fields or kinds;
-wrong/stale Git identities; invalid merge representations; and duplicated evidence. Every required
-kind accepts only digest-bound `pass`; `audit` also accepts `not_required` when its locator starts with
+`create` takes `delivery-barrier-input/v5` with repository, pull_request, head_oid, head_tree_oid,
+base_ref, base_oid, queue_state and evidence. It computes merge_tree_oid itself; provider preview
+fields are not input authority. It rejects duplicate JSON members before semantic parsing;
+missing/unknown fields or kinds; wrong/stale Git identities; conflicting or unavailable local replay;
+and duplicated evidence. Every required kind accepts only digest-bound `pass`; `audit` also accepts `not_required` when its locator starts with
 `predicate:` and a content digest binds that predicate. The helper owns deterministic normalization
 and serialization.
 `verify` requires canonical JSON-LF byte identity, the supplied digest, exact schema, and a fresh local
@@ -65,12 +68,17 @@ Git replay. A failed create or verify is a delivery Stop, not permission to hand
 
 ## Guard the merge
 
-Immediately before merge, refresh the exact PR head/base, potential merge tree, mergeability, required
+Immediately before merge, refresh the exact PR head, actual base branch ref, mergeability, required
 checks, conversations, and drift evidence. Recreate and verify the compact receipt when any bound fact
-changes. Only the authority named by the admitted lifecycle may merge.
+changes. Use GitHub's native merge operation with the reviewed head as an explicit precondition; the
+receipt grants no merge authority. Only the authority named by the admitted lifecycle may merge.
 
-After the effect, read back the terminal PR state and merge commit/tree. A non-terminal or mismatched
-readback is `partial` or `unknown`, never success.
+After the effect, read back the terminal PR state, merged head, and actual merge commit/tree. Compare
+that tree with merge_tree_oid from the pre-merge receipt before reporting success or performing
+follow-on publication, deployment, or destructive cleanup. A non-terminal state, wrong head, or tree
+mismatch is partial or unknown: stop those follow-on effects and report the discrepancy. In particular,
+base movement between the final check and merge may be detected only by this comparison; do not
+silently accept the new tree or automatically revert the shared branch.
 
 After every exact merged readback, load [artifact custody](delivery-postmerge-cleanup.md) in the same
 Finalize slice. Its reconciliation and source-freshness readback require no destructive effect; each
